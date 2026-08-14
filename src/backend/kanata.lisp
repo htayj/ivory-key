@@ -20,13 +20,21 @@
 (defmethod capabilities ((backend kanata-backend))
   (declare (ignore backend))
   (make-instance 'backend-capabilities
+                 :input-identities '(:kanata-key-token)
                  :native-level-limit nil
                  :native-group-limit nil
                  :modifier-slots nil
-                 :interaction-features
-                 '(:tap :hold :tap-hold :layer :multi-tap :chord)
+                 ;; Native Kanata has temporal mechanisms, but this backend
+                 ;; has no closed abstract-interaction lowering yet.  The
+                 ;; capability object describes this implementation, not the
+                 ;; host program's marketing surface.
+                 :interaction-features nil
+                 :clock-semantics nil
+                 :lifecycle-semantics nil
                  :output-features '(:key :modifier :layer :carrier)
-                 :validation-program "kanata"))
+                 :carrier-channels '(:linux-input-event)
+                 :validation-program "kanata"
+                 :platform-assumptions '(:kanata-configuration)))
 
 (defun safe-kanata-token-p (value)
   "Accept one direct Kanata atom from the closed emitter vocabulary.

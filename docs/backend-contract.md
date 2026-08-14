@@ -6,6 +6,13 @@ emits deterministically to a stream, and may validate a written artifact.
 External validation uses argument vectors through UIOP; it does not construct a
 shell command string.
 
+The capability record has separate fields for input identities, native level
+and group limits, real and virtual modifier resources, context-axis and patch
+operations, resolution styles, timed-pattern/clock/lifecycle/arbitration
+semantics, output mechanisms, carrier channels, validation programs, and
+platform assumptions. An empty field means no implementation is claimed; a
+platform feature is not automatically an Ivory Key capability.
+
 ## Current request boundary
 
 The implemented XKB and Kanata emitters consume a bootstrap
@@ -39,6 +46,15 @@ truncated, replaced with `NoSymbol`, or silently assigned to Kanata or QMK.
 `require-planned-realizations` refuses that unproved plan. This planner records
 requirements only; it does not itself emit Kanata, XKB, firmware, or a carrier
 scheme.
+
+That binding-table grade is deliberately narrow. Every context selector,
+semantic modifier, multi-bank selector, timed interaction, and resource
+requirement receives its own realization result. Each is currently
+`unsupported` until a backend-specific lowering proves it independently, even
+when the associated static table fits in one native bank.
+`require-planned-realizations` rejects a plan containing any such unresolved
+obligation; an exact binding table never promotes the rest of the plan to
+exactness.
 
 For a static table larger than one native level bank, the planner also records
 a deterministic contiguous multi-bank partition, context-to-bank/level
@@ -112,9 +128,10 @@ independent refusals.
 ## Current Kanata contract
 
 The Kanata backend emits one `defsrc` and one `deflayer`; direct entries receive
-an `exact` grade. Its capabilities advertise common tap/hold/layer/chord
-features, but generic abstract interactions are deliberately classified as
-unsupported until an explicit Kanata template lowering exists.
+an `exact` grade. Although native Kanata has tap/hold/layer/chord mechanisms,
+this backend advertises no abstract interaction, clock, or lifecycle capability
+until an explicit closed template lowering proves the semantics. Generic
+abstract interactions are therefore classified as unsupported.
 
 Layer names, source tokens, and output tokens must be non-empty ASCII strings
 using only alphanumeric characters plus `_` and `-`. The same
@@ -163,18 +180,52 @@ identities and SHA-256 hashes, backend artifact hashes, fidelity grades, and
 the closed per-topology-position `input_coverage` disposition (`physical` or
 `unreachable`). A missing coverage record is an exact-lowering refusal, never
 an implied unreachable position. This shape is generated-contract schema
-version 2; virtual backend carriers remain separate allocations, not input
-coverage.
-`allocations.json`, `source-map.json`, and `REPORT.md` expose the current empty
-or direct mappings without inventing carrier allocations or validation
-evidence. Header-only imported project modules are included, physical checkout
-paths are not, and ambiguous relative source identities are refused.
+version 5. Schema version 2 introduced `input_coverage`, a deterministic
+topology disposition inventory independent of backend carrier allocations;
+version 4 adds the closed, privacy-preserving validation-evidence records
+described below; version 5 adds typed provenance. Virtual backend carriers
+remain separate allocations, not input coverage.
+`source-map.json` gives every emitted direct mapping an `origin`: either
+`null` for deliberately programmatic IR, or a relocatable source identity with
+definition line/column and an ordered definition-nearest-to-outermost
+`template_uses` list. `allocations.json` similarly records the complete
+`origins` list for each concrete allocation, since one finite resource can
+serve several equal normalized uses. The compiler resolves parser source names
+only through its declared `(identity . pathname)` inputs; physical names are
+not serialized, and non-NIL unmapped or ambiguous origins refuse publication.
+Header-only imported project modules are included in that input inventory.
 
 Portable Common Lisp has no atomic
 non-replacing directory rename or directory-descriptor API, so the output
 parent must already exist and must not be concurrently writable by an
-untrusted principal. `validate-pipeline-result` invokes `xkbcli
-compile-keymap --keymap PATH` and `kanata --check -c PATH` when asked.
+untrusted principal. Regular compilation is tool-free. Explicit
+`compile --validate-before-publish` validates each emitted artifact in that
+trusted staging directory before the final non-replacing rename. It invokes
+`xkbcli compile-keymap --keymap PATH` and `kanata --check -c PATH` as UIOP
+argument vectors (never a shell command), probes each validator with its
+direct `--version` argument vector, and re-hashes every artifact after
+validation. A changed artifact, unavailable validator, failed validation, or
+incomplete validator coverage refuses publication; the requested output path
+is never created. The retained private staging directory contains the failed
+contract/report for inspection.
+
+On an all-passing opt-in run, the immutable public contract contains one
+canonical validation record per artifact: its artifact-relative identity, tool,
+normalized single-line version, status, and SHA-256 digests of the raw version
+and validator-result byte streams. It deliberately does not publish randomized
+staging paths or raw tool chatter. Ordinary compilation omits the `validation`
+member entirely. `validate-build DIRECTORY` remains the distinct, read-only
+post-build observation mode: it may report artifact acceptance, but never
+retroactively changes an already-published contract.
+
+The separately tagged `tests/external/xkb-kanata.lisp` probe additionally
+compiles a focused supported XKB plan and inspects the compiled result through
+libxkbcommon's keymap and state APIs. It verifies one group, the exact level
+and symbol tables, absence of explicit per-key actions, Shift selection of a
+two-level key, Shift consumption for that key, and preservation of
+application-visible unconsumed Shift for a one-level key. The helper is built
+inside the declared Guix environment from `tests/external/xkb-state.c`; it is
+environmental evidence and remains outside the hermetic ASDF suite.
 
 CLI inspection, explanation, and compilation may instead select a confined
 project composition with `--project PROJECT --composition NAME`; this is an
@@ -199,12 +250,13 @@ commands without an approved semantic lowering, profile/backend mismatches,
 and tokens rejected by an existing backend validator stop before build output.
 
 Tool validation is optional environmental evidence. A passing `xkbcli` or
-`kanata` invocation proves only the generated artifact was accepted by that
-installed tool; it does not prove semantic equivalence, live device behavior,
-or deployment. The Manna inspection path can construct a deterministic partial
+`kanata` invocation alone proves only artifact acceptance. The focused
+libxkbcommon probe proves only the direct XKB level/modifier slice it inspects;
+neither result proves Manna semantic equivalence, live device behavior, or
+deployment. The Manna inspection path can construct a deterministic partial
 static/function-carrier proposal, but public compilation refuses before writing
 it because selector, modifier, interaction, placement, and activation proof is
 incomplete. An empty allocation contract in the supported direct-static path
 does not imply that those Manna obligations disappeared. Validation run after
-compilation is reported by the validator but does not retroactively rewrite an
-immutable build manifest.
+publication is reported by the post-build validator but does not retroactively
+rewrite an immutable build manifest.

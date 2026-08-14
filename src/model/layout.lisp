@@ -16,11 +16,12 @@
                        :reader layout-behavior-templates)
    (interaction-templates :initarg :interaction-templates :initform nil
                           :reader layout-interaction-templates)
-   (metadata :initarg :metadata :initform nil :reader layout-metadata)))
+   (metadata :initarg :metadata :initform nil :reader layout-metadata)
+   (origin :initarg :origin :initform nil :reader layout-origin)))
 
 (defun make-layout (name topology axes modifiers
                     &key bindings overlays interactions behavior-templates
-                      interaction-templates metadata)
+                      interaction-templates metadata origin)
   "Create the target-neutral abstract definition of a keyboard layout."
   (make-instance 'layout :name (ensure-identifier name) :topology topology
                  :axes (copy-list axes)
@@ -31,7 +32,7 @@
                  :interactions (copy-list interactions)
                  :behavior-templates (copy-list behavior-templates)
                  :interaction-templates (copy-list interaction-templates)
-                 :metadata metadata))
+                 :metadata metadata :origin origin))
 
 (defun layout-axis (layout name &key (errorp nil))
   (find-axis name (layout-axes layout) :errorp errorp))

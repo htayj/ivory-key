@@ -26,6 +26,26 @@ sbcl --script tools/manna-truth-table.lisp verify \
 and the canonical truth-table digest. `render` prints the table and
 `fixture` emits the mechanically derived Ivory Key static binding rows.
 
+For the complete checked-in fixture comparison, run:
+
+```sh
+sbcl --script tools/manna-truth-table.lisp diff \
+  /home/tay/src/dotfiles/keyboard/manna-cadet
+```
+
+`diff` first performs the same commit/hash verification.  It then generates a
+closed report for all 52 static tables (416 cells, including 158 literal
+`NoSymbol` cells), all 29 primary function outputs on each device, and the
+four direct held selectors/case holders.  It refuses to print a successful
+report if a table, physical placement, carrier, function output, selector, or
+fixture count is not accounted for.  The report has one explicit row for every
+remaining difference: the unplaced `<LSGT>` table, the Menu/Caps inactive
+device variance, 14 primary and two alternate-selector tap-holds, inactive
+historical Shift aliases, the eight Advantage-360-only game aliases, and the
+unproved Group-2/lowering boundary.  Its final `Unchecked differences: 0` is
+only a complete classification of frozen source versus fixture; it is not a
+claim that any refused row is equivalent or deployable.
+
 ## Static XKB symbol truth table
 
 The baseline has four Group 1 levels and a two-level Top group. The eight

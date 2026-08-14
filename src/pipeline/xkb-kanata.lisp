@@ -44,13 +44,24 @@ escaping the requested build directory."
          (kanata (make-kanata-backend))
          (xkb-plan (lower-request xkb request))
          (kanata-plan (lower-request kanata request))
+         ;; A concrete planner allocation is still not a lowering proof, but
+         ;; once a request has passed the backend fidelity gate it must remain
+         ;; attached to the generated contract with its typed provenance.
+         ;; Keep this metadata closed rather than accepting arbitrary plists.
+         (allocations (copy-list (getf (lowering-request-metadata request)
+                                       :allocations)))
          (realizations (append (xkb-plan-realizations xkb-plan)
                                (kanata-plan-realizations kanata-plan))))
+    (unless (every (lambda (allocation)
+                     (typep allocation 'planner-allocation))
+                   allocations)
+      (error "Lowering request allocation metadata must contain PLANNER-ALLOCATION values."))
     (require-permitted-realizations realizations :allow-lossy allow-lossy)
     (make-instance
      'pipeline-result
      :request request
      :realizations realizations
+     :allocations allocations
      :artifacts
      (list (make-instance 'pipeline-artifact
                           :kind :xkb

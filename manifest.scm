@@ -7,6 +7,8 @@
  '("sbcl"
    "ecl"
    "coreutils"
+   "gcc-toolchain"
+   "pkg-config"
    "libxkbcommon"
    "kanata"
    "qmk"

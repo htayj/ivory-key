@@ -472,19 +472,20 @@ release exposes plain case.
             (list mode-axis)
             (list (cons "q"
                         (ivory-key.model::make-axis-operation :toggle "mode")))))
-         (context-candidate
+         (unsupported-context-candidate
            (ivory-key.model::make-interaction-candidate
             "contextual"
             (ivory-key.model::pattern-context-is "mode" "plain")
             :when-matched
-            (ivory-key.model::make-text-output "never")))
+            (ivory-key.model::make-text-output "never")
+            :context-policy :commit))
          (unsupported-pattern-layout
            (layout-simulation-normalized-layout
             (list mode-axis)
             (list (cons "q" (ivory-key.model::make-text-output "q")))
             :interactions
             (list (ivory-key.model::make-interaction
-                   "contextual" '("l") (list context-candidate)))
+                   "contextual" '("l") (list unsupported-context-candidate)))
             :positions '("l" "q"))))
     (layout-simulation-assert-equal
      :unsupported-axis-operation
@@ -494,9 +495,9 @@ release exposes plain case.
          unsupported-binding-layout)))
      "an ordinary behavior with no exact machine transition must be refused")
     (layout-simulation-assert-equal
-     :unsupported-contextual-temporal-pattern
+     :unsupported-context-policy
      (layout-simulation-feature-from
       (lambda ()
         (ivory-key.simulate::compile-normalized-layout-simulation
          unsupported-pattern-layout)))
-     "an interaction pattern outside the finite machine vocabulary must be refused")))
+     "an interaction context-capture policy without exact machine semantics must be refused")))

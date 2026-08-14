@@ -19,7 +19,14 @@
    #:source-span-import-stack
    #:source-span-merge
    #:source-span-location-string
-   #:source-span=))
+   #:source-span=
+   ;; Immutable semantic provenance carried by model and normalized IR.
+   #:source-origin
+   #:make-source-origin
+   #:source-origin-definition-span
+   #:source-origin-use-spans
+   #:source-origin-with-use-span
+   #:source-origin=))
 
 (defpackage #:ivory-key.conditions
   (:use #:cl)
@@ -143,7 +150,7 @@
    #:placement-missing-coverage-positions #:placement-coverage-complete-p
    #:validate-device-placement-coverage
    ;; Behaviors and bindings.
-   #:behavior #:behavior-axis-dependencies #:behavior-children
+   #:behavior #:behavior-axis-dependencies #:behavior-children #:behavior-origin
    #:text-output #:make-text-output #:output-text
    #:named-key-output #:make-named-key-output #:named-key-name
    #:named-symbol-output #:make-named-symbol-output #:named-symbol-name
@@ -171,22 +178,24 @@
    #:behavior-entry #:make-behavior-entry #:make-none-entry
    #:make-transparent-entry #:make-inherit-entry #:behavior-entry-tuple
    #:behavior-entry-disposition #:behavior-entry-behavior
-   #:behavior-entry-inherit-tuple #:behavior-table #:make-behavior-table
+   #:behavior-entry-inherit-tuple #:behavior-entry-origin
+   #:behavior-table #:make-behavior-table
    #:behavior-table-axes #:behavior-table-entries
    #:behavior-table-allowed-tuples #:find-behavior-entry
    #:behavior-template #:make-behavior-template #:behavior-template-name
-   #:behavior-template-parameters #:behavior-template-body
+   #:behavior-template-parameters #:behavior-template-body #:behavior-template-origin
    #:behavior-template-parameter #:make-behavior-template-parameter
    #:behavior-parameter-name #:behavior-template-reference
    #:make-behavior-template-reference #:behavior-reference-name
-   #:behavior-reference-arguments
+   #:behavior-reference-arguments #:behavior-reference-origin
    #:binding #:make-binding #:binding-position #:binding-behavior
-   #:binding-metadata #:patch-binding #:make-patch-binding
+   #:binding-metadata #:binding-origin #:patch-binding #:make-patch-binding
    #:make-transparent-patch-binding #:patch-binding-position
-   #:patch-binding-disposition #:patch-binding-behavior
+   #:patch-binding-disposition #:patch-binding-behavior #:patch-binding-origin
    #:overlay-patch #:make-overlay-patch #:overlay-patch-name
    #:overlay-patch-axis #:overlay-patch-state #:overlay-patch-precedence
-   #:overlay-patch-bindings #:complete-behavior-p #:behavior-irreversible-p
+   #:overlay-patch-bindings #:overlay-patch-origin
+   #:complete-behavior-p #:behavior-irreversible-p
    ;; Timed interaction model.
    #:position-selector #:make-position-selector #:position-selector-kind
    #:position-selector-positions #:any-position-selector
@@ -202,27 +211,28 @@
    #:temporal-pattern-position-selectors #:temporal-pattern-finite-p
    #:interaction-effects #:make-interaction-effects #:effect-entry-behaviors
    #:effect-commit-behaviors #:effect-while-behaviors
-   #:effect-exit-behaviors #:effect-cancel-behaviors
+   #:effect-exit-behaviors #:effect-cancel-behaviors #:interaction-effects-origin
    #:interaction-effects-behaviors #:interaction-candidate
    #:make-interaction-candidate #:candidate-name #:candidate-match
    #:candidate-commit #:candidate-behavior #:candidate-effects
    #:candidate-context-axes #:candidate-context-policy #:candidate-effect-start
-   #:candidate-axis-dependencies #:interaction #:make-interaction
+   #:candidate-origin #:candidate-axis-dependencies #:interaction #:make-interaction
    #:interaction-name #:interaction-participants #:interaction-observe
    #:interaction-anchor #:interaction-candidates #:interaction-arbitration
-   #:priority-arbitration #:longest-match-arbitration
+   #:interaction-origin #:priority-arbitration #:longest-match-arbitration
    #:interaction-template #:make-interaction-template
    #:interaction-template-name #:interaction-template-parameters
    #:interaction-template-body #:interaction-template-reference
    #:make-interaction-template-reference #:interaction-reference-name
-   #:interaction-reference-arguments #:interaction-template-parameter
+   #:interaction-reference-arguments #:interaction-reference-origin
+   #:interaction-template-origin #:interaction-template-parameter
    #:make-interaction-template-parameter #:interaction-parameter-name
    ;; Layout, resolution, validation, and normalization.
    #:layout #:make-layout #:layout-name #:layout-topology #:layout-axes
    #:layout-modifiers #:layout-bindings #:layout-overlays
    #:layout-interactions #:layout-behavior-templates
    #:layout-interaction-templates #:layout-axis #:layout-binding
-   #:layout-product-axes #:binding-axis-dependencies
+   #:layout-origin #:layout-product-axes #:binding-axis-dependencies
    #:semantic-context #:make-semantic-context #:semantic-context-values
    #:semantic-context-latches #:semantic-context-locked-axes
    #:semantic-context-state #:context-latch #:make-context-latch
@@ -240,17 +250,20 @@
    #:normalized-binding-position #:normalized-binding-axes
    #:normalized-binding-entries #:normalized-binding-entry
    #:make-normalized-binding-entry #:normalized-entry-tuple
-   #:normalized-entry-behavior #:normalized-patch #:normalized-patch-name
+   #:normalized-entry-behavior #:normalized-entry-origin
+   #:normalized-binding-origin #:normalized-patch #:normalized-patch-name
    #:normalized-patch-axis #:normalized-patch-state
-   #:normalized-patch-precedence #:normalized-patch-bindings
+   #:normalized-patch-precedence #:normalized-patch-bindings #:normalized-patch-origin
    #:normalized-interaction #:normalized-interaction-name
    #:normalized-interaction-participants #:normalized-interaction-observe
    #:normalized-interaction-anchor #:normalized-interaction-candidates
    #:normalized-interaction-arbitration #:normalized-interaction-candidate
+   #:normalized-interaction-origin
    #:normalized-candidate-name #:normalized-candidate-match
    #:normalized-candidate-commit #:normalized-candidate-entries
    #:normalized-candidate-effects #:normalized-candidate-context-axes
    #:normalized-candidate-context-policy #:normalized-candidate-effect-start
+   #:normalized-candidate-origin #:normalized-layout-origin
    #:normalize-layout
    #:normalized-binding-entry-for-context
    #:normalized-layout-binding-for-context #:normalized-layout-key
@@ -358,14 +371,23 @@
    #:backend #:backend-name #:backend-capabilities #:capabilities
    #:lower-request #:emit-plan #:emit-plan-to-string #:validate-artifact
    #:capability-native-level-limit #:capability-native-group-limit
+   #:capability-input-identities
    #:capability-modifier-slots #:capability-interaction-features
    #:capability-output-features #:capability-validation-program
+   #:capability-virtual-modifier-resources
+   #:capability-context-axis-operations #:capability-resolution-styles
+   #:capability-patch-operations #:capability-clock-semantics
+   #:capability-lifecycle-semantics #:capability-arbitration-semantics
+   #:capability-carrier-channels #:capability-platform-assumptions
    #:capability-supports-p
    #:realization-result #:make-realization-result #:realization-feature
    #:realization-grade #:realization-detail #:realization-source
    #:require-permitted-realizations
+   #:key-entry-source #:make-key-entry-source #:key-entry-source-context
+   #:key-entry-source-origin
    #:key-entry #:key-entry-position #:key-entry-physical-code
-   #:key-entry-outputs #:key-entry-code-for #:key-entry-outputs-for
+   #:key-entry-outputs #:key-entry-sources
+   #:key-entry-code-for #:key-entry-outputs-for
    #:lowering-request #:lowering-request-name #:lowering-request-entries
    #:lowering-request-modifiers #:lowering-request-interactions
    #:lowering-request-metadata
@@ -378,6 +400,7 @@
    #:static-table-requirement-position
    #:static-table-requirement-physical-input
    #:static-table-requirement-axes #:static-table-requirement-entries
+   #:static-table-requirement-origin
    #:static-table-requirement-state-count #:static-table-requirement-static-p
    #:static-table-bank #:make-static-table-bank
    #:static-table-bank-ordinal #:static-table-bank-capacity
@@ -409,9 +432,10 @@
    #:planner-resource-requirement-kind #:planner-resource-requirement-owner
    #:planner-resource-requirement-cardinality
    #:planner-resource-requirement-detail #:planner-resource-requirement-source
+   #:planner-resource-requirement-origins
    #:planner-allocation #:make-planner-allocation
    #:planner-allocation-requirement #:planner-allocation-pool-kind
-   #:planner-allocation-value
+   #:planner-allocation-value #:planner-allocation-origins
    #:lowering-plan #:make-lowering-plan #:lowering-plan-layout
    #:lowering-plan-placement #:lowering-plan-bindings
    #:lowering-plan-selector-requirements

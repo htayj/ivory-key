@@ -21,6 +21,13 @@
                      (simulation-ambiguity-left condition)
                      (simulation-ambiguity-right condition)))))
 
+(define-condition unproved-simulation-arbitration (simulation-error)
+  ((arbitration :initarg :arbitration
+                :reader unproved-simulation-arbitration-kind))
+  (:report (lambda (condition stream)
+             (format stream "Reference simulation has no proven ~S arbitration scheduler."
+                     (unproved-simulation-arbitration-kind condition)))))
+
 (define-condition held-action-outside-effect (simulation-error)
   ((candidate :initarg :candidate :reader held-action-outside-effect-candidate))
   (:report (lambda (condition stream)
@@ -243,6 +250,9 @@ model-compiled IR."
       (:capture
        (list :capture (event-pattern-capture-name pattern)
              (canonical-pattern-provenance (first (event-pattern-children pattern)))))
+      (:context-is
+       (list :context-is (event-pattern-context-axis pattern)
+             (event-pattern-context-state pattern)))
       ((:sequence :all :either :and)
        (cons (event-pattern-kind pattern)
              (mapcar #'canonical-pattern-provenance
@@ -335,6 +345,10 @@ is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
 
 (defun make-simulator (&key interactions latches axes)
   "Create an empty reference machine.  LATCHES and AXES are (name . value) lists."
+  (dolist (interaction interactions)
+    (unless (eq (sim-interaction-arbitration interaction) :priority)
+      (error 'unproved-simulation-arbitration
+             :arbitration (sim-interaction-arbitration interaction))))
   (let ((machine (%make-simulator :interactions interactions)))
     (dolist (entry latches)
       (setf (gethash (car entry) (simulator-latches machine))
@@ -542,7 +556,10 @@ release; intermediate releases only reduce ownership."
     (make-pattern-match-context :events events
                                 :start-index (simulation-candidate-anchor-index candidate)
                                 :anchor-index (simulation-candidate-anchor-index candidate)
-                                :captures (simulation-candidate-captures candidate))))
+                                :captures (simulation-candidate-captures candidate)
+                                :context (simulation-candidate-context candidate)
+                                :latch-snapshot
+                                (simulation-candidate-latch-snapshot candidate))))
 
 (defun candidate-all-deadline-patterns (case)
   (remove-duplicates
@@ -769,19 +786,9 @@ release; intermediate releases only reduce ownership."
               (sim-interaction-participants (simulation-candidate-interaction right))
               :test #'equal))))
 
-(defun candidate-longer-p (left right)
-  (> (length (sim-interaction-participants (simulation-candidate-interaction left)))
-     (length (sim-interaction-participants (simulation-candidate-interaction right)))))
-
 (defun priority-compare (left right)
   (cond ((> (candidate-priority left) (candidate-priority right)) :left)
         ((< (candidate-priority left) (candidate-priority right)) :right)
-        ((and (eq (sim-interaction-arbitration (simulation-candidate-interaction left))
-              :longest-match)
-              (candidate-longer-p left right)) :left)
-        ((and (eq (sim-interaction-arbitration (simulation-candidate-interaction right))
-              :longest-match)
-              (candidate-longer-p right left)) :right)
         (t :ambiguous)))
 
 (defun arbitrate-candidates (candidates)

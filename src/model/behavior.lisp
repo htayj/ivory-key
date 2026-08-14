@@ -3,8 +3,13 @@
 
 (in-package #:ivory-key.model)
 
-(defclass behavior () ()
-  (:documentation "The abstract superclass of every complete keyboard behavior."))
+(defclass behavior ()
+  ((origin :initarg :origin :initform nil :reader behavior-origin))
+  (:documentation
+   "The abstract superclass of every complete keyboard behavior.
+
+ORIGIN is a SOURCE-ORIGIN when a closed source form supplied the behavior and
+NIL for intentionally source-free programmatic model objects."))
 
 (defgeneric behavior-axis-dependencies (behavior)
   (:documentation "Return context axes whose values select BEHAVIOR."))
@@ -23,44 +28,48 @@
 (defclass text-output (behavior)
   ((text :initarg :text :reader output-text)))
 
-(defun make-text-output (text)
+(defun make-text-output (text &key origin)
   "Emit TEXT at commitment.  TEXT may contain one Unicode scalar or short text."
   (check-type text string)
-  (make-instance 'text-output :text text))
+  (make-instance 'text-output :text text :origin origin))
 
 (defclass named-key-output (behavior)
   ((name :initarg :name :reader named-key-name)))
 
-(defun make-named-key-output (name)
+(defun make-named-key-output (name &key origin)
   "Emit an abstract named key, never a backend keysym or input code."
-  (make-instance 'named-key-output :name (ensure-identifier name)))
+  (make-instance 'named-key-output :name (ensure-identifier name) :origin origin))
 
 (defclass named-symbol-output (behavior)
   ((name :initarg :name :reader named-symbol-name)))
 
-(defun make-named-symbol-output (name)
+(defun make-named-symbol-output (name &key origin)
   "Emit a documented abstract non-Unicode symbol identity."
-  (make-instance 'named-symbol-output :name (ensure-identifier name)))
+  (make-instance 'named-symbol-output :name (ensure-identifier name) :origin origin))
 
 (defclass command-output (behavior)
   ((name :initarg :name :reader command-name)))
 
-(defun make-command-output (name)
+(defun make-command-output (name &key origin)
   "Emit an abstract semantic command such as STOP-OUTPUT."
-  (make-instance 'command-output :name (ensure-identifier name)))
+  (make-instance 'command-output :name (ensure-identifier name) :origin origin))
 
 (defclass no-output-behavior (behavior) ())
 
 (defparameter +no-output+ (make-instance 'no-output-behavior)
   "The unique explicit no-output behavior.  Missing is never implicitly none.")
 
-(defun make-no-output-behavior () +no-output+)
+(defun make-no-output-behavior (&key origin)
+  "Return explicit no output, preserving a source origin when supplied."
+  (if origin
+      (make-instance 'no-output-behavior :origin origin)
+      +no-output+))
 
 (defclass modifier-operation-behavior (behavior)
   ((operation :initarg :operation :reader modifier-operation)
    (modifier :initarg :modifier :reader modifier-operation-modifier)))
 
-(defun make-modifier-operation (operation modifier)
+(defun make-modifier-operation (operation modifier &key origin)
   "Make a semantic modifier press/release operation.
 
 OPERATION is one of :PRESS, :RELEASE, or :TOGGLE.  Held lifetime is specified
@@ -68,7 +77,7 @@ by an interaction effect lifecycle rather than encoded in this object."
   (unless (member operation '(:press :release :toggle))
     (error "Unknown semantic modifier operation ~S." operation))
   (make-instance 'modifier-operation-behavior :operation operation
-                 :modifier (ensure-identifier modifier)))
+                 :modifier (ensure-identifier modifier) :origin origin))
 
 (defclass held-modifier-behavior (modifier-operation-behavior) ()
   (:documentation
@@ -78,36 +87,58 @@ Its effect owner and release boundary are supplied by a containing :WHILE
 lifecycle effect.  It is distinct from a raw modifier-operation-behavior so
 validation can refuse a source hold placed where no exact release exists."))
 
-(defun make-held-modifier-operation (modifier)
+(defun make-held-modifier-operation (modifier &key origin)
   "Make the source-level semantic hold for MODIFIER.
 
 This constructor is intentionally internal until the public model API adopts a
 separate lifecycle builder.  The decoder and resolver preserve the subtype."
   (make-instance 'held-modifier-behavior :operation :press
-                 :modifier (ensure-identifier modifier)))
+                 :modifier (ensure-identifier modifier) :origin origin))
 
 (defclass axis-operation-behavior (behavior)
   ((operation :initarg :operation :reader axis-operation)
    (axis :initarg :axis :reader axis-operation-axis)
    (state :initarg :state :initform nil :reader axis-operation-state)))
 
-(defun make-axis-operation (operation axis &optional state)
+(defun make-axis-operation (operation axis &rest state-and-options)
   "Make a semantic context-axis operation.
 
 Operations are :HOLD, :LATCH, :LOCK, :UNLOCK, :SET, :TOGGLE, and :CYCLE.
-The activation mode is intentionally distinct from the state spelling."
+The activation mode is intentionally distinct from the state spelling.
+
+The closed trailing syntax preserves the established two- and three-argument
+calls while allowing source provenance without the ambiguous Common Lisp
+&OPTIONAL plus &KEY lambda-list combination:
+
+  (MAKE-AXIS-OPERATION OP AXIS)
+  (MAKE-AXIS-OPERATION OP AXIS STATE)
+  (MAKE-AXIS-OPERATION OP AXIS :ORIGIN ORIGIN)
+  (MAKE-AXIS-OPERATION OP AXIS STATE :ORIGIN ORIGIN)
+"
   (unless (member operation '(:hold :latch :lock :unlock :set :toggle :cycle))
     (error "Unknown axis operation ~S." operation))
-  (make-instance 'axis-operation-behavior :operation operation
-                 :axis (ensure-identifier axis)
-                 :state (and state (ensure-identifier state))))
+  (let ((state nil) (origin nil))
+    (case (length state-and-options)
+      (0)
+      (1 (setf state (first state-and-options)))
+      (2 (if (eq (first state-and-options) :origin)
+             (setf origin (second state-and-options))
+             (error "Unknown MAKE-AXIS-OPERATION options ~S." state-and-options)))
+      (3 (if (eq (second state-and-options) :origin)
+             (setf state (first state-and-options)
+                   origin (third state-and-options))
+             (error "Unknown MAKE-AXIS-OPERATION options ~S." state-and-options)))
+      (otherwise (error "Malformed MAKE-AXIS-OPERATION options ~S." state-and-options)))
+    (make-instance 'axis-operation-behavior :operation operation
+                   :axis (ensure-identifier axis)
+                   :state (and state (ensure-identifier state)) :origin origin)))
 
 (defclass ordered-behavior (behavior)
   ((behaviors :initarg :behaviors :reader ordered-behaviors)))
 
-(defun make-sequence-behavior (behaviors)
+(defun make-sequence-behavior (behaviors &key origin)
   "Emit or apply BEHAVIORS in the declared order."
-  (make-instance 'ordered-behavior :behaviors (copy-list behaviors)))
+  (make-instance 'ordered-behavior :behaviors (copy-list behaviors) :origin origin))
 
 (defmethod behavior-children ((behavior ordered-behavior))
   (ordered-behaviors behavior))
@@ -115,9 +146,9 @@ The activation mode is intentionally distinct from the state spelling."
 (defclass simultaneous-behavior (behavior)
   ((behaviors :initarg :behaviors :reader simultaneous-behaviors)))
 
-(defun make-simultaneous-behavior (behaviors)
+(defun make-simultaneous-behavior (behaviors &key origin)
   "Apply a finite set of behaviors simultaneously."
-  (make-instance 'simultaneous-behavior :behaviors (copy-list behaviors)))
+  (make-instance 'simultaneous-behavior :behaviors (copy-list behaviors) :origin origin))
 
 (defmethod behavior-children ((behavior simultaneous-behavior))
   (simultaneous-behaviors behavior))
@@ -128,9 +159,9 @@ The activation mode is intentionally distinct from the state spelling."
    ;; unrelated product dimension to ordinary symbol bindings.
    (choices :initarg :choices :reader choice-behaviors)))
 
-(defun make-axis-choice-behavior (axis choices)
+(defun make-axis-choice-behavior (axis choices &key origin)
   "Choose a complete behavior from STATE -> BEHAVIOR CHOICES."
-  (make-instance 'axis-choice-behavior
+  (make-instance 'axis-choice-behavior :origin origin
                  :axis (ensure-identifier axis)
                  :choices (mapcar (lambda (choice)
                                     (cons (ensure-identifier (car choice)) (cdr choice)))
@@ -152,36 +183,45 @@ The activation mode is intentionally distinct from the state spelling."
    (disposition :initarg :disposition :reader behavior-entry-disposition)
    (behavior :initarg :behavior :initform nil :reader behavior-entry-behavior)
    (inherit-tuple :initarg :inherit-tuple :initform nil
-                  :reader behavior-entry-inherit-tuple)))
+                  :reader behavior-entry-inherit-tuple)
+   (origin :initarg :origin :initform nil :reader behavior-entry-origin)))
 
-(defun make-behavior-entry (tuple behavior)
+(defun make-behavior-entry (tuple behavior &key origin)
   "A table entry with an explicit behavior (including +NO-OUTPUT+)."
   (make-instance 'behavior-entry :tuple (if (typep tuple 'context-tuple)
                                              tuple
                                              (make-context-tuple tuple))
-                 :disposition :behavior :behavior behavior))
+                 :disposition :behavior :behavior behavior :origin origin))
 
-(defun make-none-entry (tuple)
+(defun make-none-entry (tuple &key origin)
   (make-instance 'behavior-entry :tuple (if (typep tuple 'context-tuple)
                                              tuple
                                              (make-context-tuple tuple))
-                 :disposition :none :behavior +no-output+))
+                 ;; A concrete NONE entry is semantically output-free, but it
+                 ;; still has a declaration site.  Preserve that site on its
+                 ;; otherwise canonical behavior so normalization can report
+                 ;; the selected AT or FALLBACK clause rather than its
+                 ;; enclosing binding.
+                 :disposition :none
+                 :behavior (make-no-output-behavior :origin origin)
+                 :origin origin))
 
-(defun make-transparent-entry (tuple)
+(defun make-transparent-entry (tuple &key origin)
   "An explicit patch-table fall-through entry.  Base tables reject it."
   (make-instance 'behavior-entry :tuple (if (typep tuple 'context-tuple)
                                              tuple
                                              (make-context-tuple tuple))
-                 :disposition :transparent))
+                 :disposition :transparent :origin origin))
 
-(defun make-inherit-entry (tuple source-tuple)
+(defun make-inherit-entry (tuple source-tuple &key origin)
   "An explicit table inheritance edge from TUPLE to SOURCE-TUPLE."
   (make-instance 'behavior-entry
                  :tuple (if (typep tuple 'context-tuple) tuple
                             (make-context-tuple tuple))
                  :disposition :inherit
                  :inherit-tuple (if (typep source-tuple 'context-tuple) source-tuple
-                                    (make-context-tuple source-tuple))))
+                                    (make-context-tuple source-tuple))
+                 :origin origin))
 
 (defclass behavior-table (behavior)
   ((axes :initarg :axes :reader behavior-table-axes)
@@ -190,12 +230,12 @@ The activation mode is intentionally distinct from the state spelling."
    (allowed-tuples :initarg :allowed-tuples :initform nil
                    :reader behavior-table-allowed-tuples)))
 
-(defun make-behavior-table (axes entries &key allowed-tuples)
+(defun make-behavior-table (axes entries &key allowed-tuples origin)
   "Make a dependency-scoped context table.
 
 Only AXES participate in expansion; adding a behavioral axis elsewhere in a
 layout therefore does not alter this table's cardinality."
-  (make-instance 'behavior-table :axes (copy-identifier-list axes)
+  (make-instance 'behavior-table :axes (copy-identifier-list axes) :origin origin
                  :entries (copy-list entries)
                  :allowed-tuples (when allowed-tuples
                                    (mapcar (lambda (tuple)
@@ -224,26 +264,29 @@ layout therefore does not alter this table's cardinality."
 (defclass behavior-template ()
   ((name :initarg :name :reader behavior-template-name)
    (parameters :initarg :parameters :reader behavior-template-parameters)
-   (body :initarg :body :reader behavior-template-body)))
+   (body :initarg :body :reader behavior-template-body)
+   (origin :initarg :origin :initform nil :reader behavior-template-origin)))
 
-(defun make-behavior-template (name parameters body)
+(defun make-behavior-template (name parameters body &key origin)
   "Create a declarative, non-evaluating behavior template."
   (make-instance 'behavior-template :name (ensure-identifier name)
-                 :parameters (copy-identifier-list parameters) :body body))
+                 :parameters (copy-identifier-list parameters) :body body
+                 :origin origin))
 
 (defclass behavior-template-parameter (behavior)
   ((name :initarg :name :reader behavior-parameter-name)))
 
-(defun make-behavior-template-parameter (name)
-  (make-instance 'behavior-template-parameter :name (ensure-identifier name)))
+(defun make-behavior-template-parameter (name &key origin)
+  (make-instance 'behavior-template-parameter :name (ensure-identifier name)
+                 :origin origin))
 
 (defclass behavior-template-reference (behavior)
   ((name :initarg :name :reader behavior-reference-name)
    (arguments :initarg :arguments :reader behavior-reference-arguments)))
 
-(defun make-behavior-template-reference (name arguments)
+(defun make-behavior-template-reference (name arguments &key origin)
   (make-instance 'behavior-template-reference :name (ensure-identifier name)
-                 :arguments (copy-list arguments)))
+                 :arguments (copy-list arguments) :origin origin))
 
 (defmethod behavior-children ((behavior behavior-template-reference))
   (behavior-reference-arguments behavior))
@@ -251,12 +294,13 @@ layout therefore does not alter this table's cardinality."
 (defclass binding ()
   ((position :initarg :position :reader binding-position)
    (behavior :initarg :behavior :reader binding-behavior)
-   (metadata :initarg :metadata :initform nil :reader binding-metadata)))
+   (metadata :initarg :metadata :initform nil :reader binding-metadata)
+   (origin :initarg :origin :initform nil :reader binding-origin)))
 
-(defun make-binding (position behavior &key metadata)
+(defun make-binding (position behavior &key metadata origin)
   "Bind a complete behavior to a logical position."
   (make-instance 'binding :position (ensure-identifier position)
-                 :behavior behavior :metadata metadata))
+                 :behavior behavior :metadata metadata :origin origin))
 
 ;;; Sparse overlay patches ---------------------------------------------------
 
@@ -265,28 +309,30 @@ layout therefore does not alter this table's cardinality."
    ;; A transparent behavior is represented by the :TRANSPARENT disposition,
    ;; not by an absent patch entry.
    (disposition :initarg :disposition :reader patch-binding-disposition)
-   (behavior :initarg :behavior :initform nil :reader patch-binding-behavior)))
+   (behavior :initarg :behavior :initform nil :reader patch-binding-behavior)
+   (origin :initarg :origin :initform nil :reader patch-binding-origin)))
 
-(defun make-patch-binding (position behavior)
+(defun make-patch-binding (position behavior &key origin)
   (make-instance 'patch-binding :position (ensure-identifier position)
-                 :disposition :behavior :behavior behavior))
+                 :disposition :behavior :behavior behavior :origin origin))
 
-(defun make-transparent-patch-binding (position)
+(defun make-transparent-patch-binding (position &key origin)
   (make-instance 'patch-binding :position (ensure-identifier position)
-                 :disposition :transparent))
+                 :disposition :transparent :origin origin))
 
 (defclass overlay-patch ()
   ((name :initarg :name :reader overlay-patch-name)
    (axis :initarg :axis :reader overlay-patch-axis)
    (state :initarg :state :reader overlay-patch-state)
    (precedence :initarg :precedence :initform nil :reader overlay-patch-precedence)
-   (bindings :initarg :bindings :reader overlay-patch-bindings)))
+   (bindings :initarg :bindings :reader overlay-patch-bindings)
+   (origin :initarg :origin :initform nil :reader overlay-patch-origin)))
 
-(defun make-overlay-patch (name axis state bindings &key precedence)
+(defun make-overlay-patch (name axis state bindings &key precedence origin)
   "Create a sparse patch activated by a patch-axis state."
   (make-instance 'overlay-patch :name (ensure-identifier name)
                  :axis (ensure-identifier axis) :state (ensure-identifier state)
-                 :precedence precedence :bindings (copy-list bindings)))
+                 :precedence precedence :bindings (copy-list bindings) :origin origin))
 
 (defun complete-behavior-p (behavior)
   "Whether BEHAVIOR is a complete, executable semantic behavior.

@@ -34,7 +34,7 @@
                     :physical-code (list :xkb "AD01" :kanata "q")
                     :outputs (list :xkb '("q") :kanata '("q")))))))
 
-(defun build-contract-test-contract (pipeline)
+(defun build-contract-test-contract (pipeline &key validation-evidence)
   (ivory-key.build-contract:make-build-contract
    :layout "contract-layout" :topology "contract-topology"
    :device "contract-device" :profile "contract-profile"
@@ -49,7 +49,8 @@
    :input-coverage
    (list (list :position "t" :disposition :unreachable)
          (list :position "q" :disposition :physical))
-   :pipeline-result pipeline))
+   :pipeline-result pipeline
+   :validation-evidence validation-evidence))
 
 (defun build-contract-test-write (directory pipeline)
   (ivory-key.backend:write-pipeline-result pipeline directory)
@@ -78,7 +79,7 @@
              (report (uiop:read-file-string (merge-pathnames "REPORT.md" directory)))
              (xkb (merge-pathnames "keymap.xkb" directory))
              (xkb-hash (ivory-key.build-contract:sha256-hex xkb)))
-        (is (search "\"schema_version\":2" manifest))
+        (is (search "\"schema_version\":5" manifest))
         (is (search "\"language_version\":1" manifest))
         (is (search "\"layout\":\"contract-layout\"" manifest))
         (is (search "\"path\":\"a.ivory\"" manifest))
@@ -88,11 +89,14 @@
         (is (search "\"input_coverage\":[{\"disposition\":\"physical\",\"position\":\"q\"},{\"disposition\":\"unreachable\",\"position\":\"t\"}]"
                     manifest))
         (is (not (search "\"validation\"" manifest)))
-        (is-equal (format nil "{\"allocations\":[],\"schema_version\":2}~%")
+        (is-equal (format nil "{\"allocations\":[],\"schema_version\":5}~%")
                   allocations)
         (is (search "\"artifact\":\"keymap.xkb\"" source-map))
         (is (search "\"backend\":\"xkb\"" source-map))
         (is (search "\"binding\":\"q\"" source-map))
+        ;; Legacy programmatic entries remain explicitly unknown; no host
+        ;; source is inferred merely because the contract has input hashes.
+        (is (search "\"origin\":null" source-map))
         (is (search "No concrete resource allocations" report))
         (is (search "## Device input coverage" report))
         (is (search "`t`: unreachable" report))
@@ -115,3 +119,179 @@
         (dolist (name '("manifest.json" "allocations.json" "source-map.json" "REPORT.md"))
           (is-equal (uiop:read-file-string (merge-pathnames name first))
                     (uiop:read-file-string (merge-pathnames name second))))))))
+
+(deftest build-contract-renders-closed-versioned-validation-evidence
+  (with-build-contract-test-directory (directory)
+    (let* ((pipeline (build-contract-test-pipeline))
+           ;; Deliberately reversed to prove that artifact/tool identity, not
+           ;; caller construction order, fixes the immutable observation order.
+           (kanata-version (format nil "kanata 1.12.0~%"))
+           (xkb-version (format nil "xkbcli 1.13.2~%"))
+           (kanata-result (format nil "configuration accepted~%"))
+           (xkb-result (format nil "keymap accepted~%"))
+           (evidence
+             (list
+              (list :artifact "layout.kbd" :tool "kanata"
+                    :version "kanata 1.12.0"
+                    :version-sha256 (ivory-key.build-contract:sha256-hex kanata-version)
+                    :status "passed"
+                    :result-sha256 (ivory-key.build-contract:sha256-hex kanata-result))
+              (list :artifact "keymap.xkb" :tool "xkbcli"
+                    :version "xkbcli 1.13.2"
+                    :version-sha256 (ivory-key.build-contract:sha256-hex xkb-version)
+                    :status "passed"
+                    :result-sha256 (ivory-key.build-contract:sha256-hex xkb-result))))
+           (contract (build-contract-test-contract
+                      pipeline :validation-evidence evidence)))
+      (ivory-key.backend:write-pipeline-result pipeline directory)
+      (ivory-key.build-contract:write-build-contract-files contract directory)
+      (let ((manifest (uiop:read-file-string (merge-pathnames "manifest.json" directory)))
+            (report (uiop:read-file-string (merge-pathnames "REPORT.md" directory))))
+        (is (search "\"validation\":[{\"artifact\":\"keymap.xkb\"" manifest))
+        (is (< (search "\"artifact\":\"keymap.xkb\"" manifest)
+               (search "\"artifact\":\"layout.kbd\"" manifest)))
+        (is (search "\"version\":\"xkbcli 1.13.2\"" manifest))
+        (is (search (ivory-key.build-contract:sha256-hex xkb-result) manifest))
+        (is (not (search "keymap accepted" manifest)))
+        (is (search "`xkbcli` (`keymap.xkb`): passed" report))
+        (is (search "Version JSON: \"xkbcli 1.13.2\"" report))
+        (is (search (ivory-key.build-contract:sha256-hex xkb-result) report))
+        (is (not (search "keymap accepted" report)))))))
+
+(deftest build-contract-refuses-ambiguous-or-incomplete-validation-evidence
+  (let ((pipeline (build-contract-test-pipeline)))
+    (signals error
+      (build-contract-test-contract
+       pipeline
+       :validation-evidence
+       (list (list :artifact "keymap.xkb" :tool "xkbcli"
+                   :status "passed"
+                   :result-sha256 (ivory-key.build-contract:sha256-hex "accepted")))))
+    (signals error
+      (build-contract-test-contract
+       pipeline
+       :validation-evidence
+       (list (list :artifact "keymap.xkb" :tool "xkbcli"
+                   :version "1" :version-sha256 (ivory-key.build-contract:sha256-hex "1")
+                   :status "passed"
+                   :result-sha256 (ivory-key.build-contract:sha256-hex "accepted"))
+             (list :artifact "keymap.xkb" :tool "xkbcli"
+                   :version "1" :version-sha256 (ivory-key.build-contract:sha256-hex "1")
+                   :status "passed"
+                   :result-sha256 (ivory-key.build-contract:sha256-hex "accepted")))))))
+
+(defun build-contract-provenance-origin (source-name)
+  (let ((source (ivory-key.source:make-source-file :name source-name :text "")))
+    (ivory-key.source:make-source-origin
+     :definition-span
+     (ivory-key.source:make-source-span
+      :source source :start-line 7 :start-column 9)
+     ;; Definition-nearest first is semantic order, not a filename sort.
+     :use-spans
+     (list (ivory-key.source:make-source-span
+            :source source :start-line 21 :start-column 4)
+           (ivory-key.source:make-source-span
+            :source source :start-line 34 :start-column 6)))))
+
+(defun build-contract-provenance-pipeline (origin)
+  (let* ((requirement
+           (ivory-key.backend:make-planner-resource-requirement
+            :named-key "escape" :detail "Test allocation."
+            :origins (list origin)))
+         (allocation
+           (ivory-key.backend:make-planner-allocation
+            requirement :named-key "Escape"))
+         (request
+           (make-instance
+            'ivory-key.backend:lowering-request
+            :name "provenance"
+            :entries
+            (list
+             (make-instance 'ivory-key.backend:key-entry
+                            :position "q"
+                            :physical-code (list :xkb "AD01" :kanata "q")
+                            :outputs (list :xkb '("q") :kanata '("q"))
+                            :sources
+                            (list (ivory-key.backend:make-key-entry-source
+                                   nil :origin origin))))
+            :metadata (list :allocations (list allocation)))))
+    (ivory-key.backend:compile-xkb-kanata-request request)))
+
+(defun build-contract-provenance-contract (pipeline source-name)
+  (ivory-key.build-contract:make-build-contract
+   :layout "provenance-layout" :topology "provenance-topology"
+   :device "provenance-device" :profile "provenance-profile"
+   :source-hashes
+   (list (ivory-key.build-contract:make-source-hash-record
+          "source/layout.ivory" (ivory-key.build-contract:sha256-hex "layout")))
+   ;; SOURCE-NAME is local parser state.  Only its stable right-hand identity
+   ;; may appear in generated JSON.
+   :source-name-identities (list (cons source-name "source/layout.ivory"))
+   :input-coverage (list (list :position "q" :disposition :physical))
+   :pipeline-result pipeline))
+
+(deftest build-contract-renders-relocatable-entry-and-allocation-provenance
+  (with-build-contract-test-directory (directory)
+    (let* ((source-name "/private/checkout-a/layout.ivory")
+           (origin (build-contract-provenance-origin source-name))
+           (pipeline (build-contract-provenance-pipeline origin))
+           (contract (build-contract-provenance-contract pipeline source-name)))
+      (ivory-key.backend:write-pipeline-result pipeline directory)
+      (ivory-key.build-contract:write-build-contract-files contract directory)
+      (let ((source-map (uiop:read-file-string (merge-pathnames "source-map.json" directory)))
+            (allocations (uiop:read-file-string (merge-pathnames "allocations.json" directory))))
+        (is (search "\"schema_version\":5" source-map))
+        (is (search "\"source\":\"source/layout.ivory\"" source-map))
+        (is (search "\"line\":7" source-map))
+        (is (search "\"column\":9" source-map))
+        (is (< (search "\"line\":21" source-map)
+               (search "\"line\":34" source-map)))
+        (is (not (search source-name source-map)))
+        (is (search "\"origins\":[{\"definition\"" allocations))
+        (is (search "\"source\":\"source/layout.ivory\"" allocations))
+        (is (not (search source-name allocations)))))))
+
+(deftest build-contract-provenance-is-relocation-equivalent
+  (with-build-contract-test-directory (first-directory)
+    (with-build-contract-test-directory (second-directory)
+      (let* ((first-name "/worktree-one/definitions/layout.ivory")
+             (second-name "/worktree-two/definitions/layout.ivory")
+             (first-pipeline
+               (build-contract-provenance-pipeline
+                (build-contract-provenance-origin first-name)))
+             (second-pipeline
+               (build-contract-provenance-pipeline
+                (build-contract-provenance-origin second-name)))
+             (first-contract
+               (build-contract-provenance-contract first-pipeline first-name))
+             (second-contract
+               (build-contract-provenance-contract second-pipeline second-name)))
+        (ivory-key.backend:write-pipeline-result first-pipeline first-directory)
+        (ivory-key.backend:write-pipeline-result second-pipeline second-directory)
+        (ivory-key.build-contract:write-build-contract-files first-contract first-directory)
+        (ivory-key.build-contract:write-build-contract-files second-contract second-directory)
+        (dolist (name '("source-map.json" "allocations.json"))
+          (is-equal (uiop:read-file-string (merge-pathnames name first-directory))
+                    (uiop:read-file-string (merge-pathnames name second-directory))))))))
+
+(deftest build-contract-refuses-unmapped-or-ambiguous-non-nil-provenance
+  (with-build-contract-test-directory (directory)
+    (let* ((origin (build-contract-provenance-origin "/outside/layout.ivory"))
+           (pipeline (build-contract-provenance-pipeline origin))
+           (contract (build-contract-provenance-contract
+                      pipeline "/different/layout.ivory")))
+      (ivory-key.backend:write-pipeline-result pipeline directory)
+      (signals error
+        (ivory-key.build-contract:write-build-contract-files contract directory))))
+  (signals error
+    (ivory-key.build-contract:make-build-contract
+     :layout "layout" :topology "topology" :device "device" :profile "profile"
+     :source-hashes
+     (list (ivory-key.build-contract:make-source-hash-record
+            "one.ivory" (ivory-key.build-contract:sha256-hex "one"))
+           (ivory-key.build-contract:make-source-hash-record
+            "two.ivory" (ivory-key.build-contract:sha256-hex "two")))
+     :source-name-identities '( ("same-source" . "one.ivory")
+                                ("same-source" . "two.ivory"))
+     :input-coverage nil
+     :pipeline-result (build-contract-test-pipeline))))

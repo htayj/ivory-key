@@ -129,19 +129,28 @@ and physical mappings ambiguous.
       (format stream "interactions: ~{~A~^ ~}~%"
               (mapcar (lambda (interaction)
                         (ivory-key.model:identifier-name
-                         (ivory-key.model:interaction-name interaction)))
+                        (ivory-key.model:interaction-name interaction)))
                       (ivory-key.model:layout-interactions layout))))))
+
+(defun reject-dump-ir-option (stage option)
+  "Refuse a stage-irrelevant direct input instead of silently ignoring it."
+  (error "dump-ir --stage ~A does not accept ~A." stage option))
 
 (defun dump-ir-command (arguments)
   (let* ((options (command-options arguments
                                    '("--stage" "--layout" "--topology"
+                                     "--device" "--realization"
                                      "--project" "--composition")))
          (stage (required-option options "--stage"))
          (layout-path (optional-option options "--layout"))
-         (topology-path (optional-option options "--topology")))
+         (topology-path (optional-option options "--topology"))
+         (device-path (optional-option options "--device"))
+         (realization-path (optional-option options "--realization")))
     (multiple-value-bind (project-path composition-name)
         (project-option-values options "dump-ir")
-      (reject-mixed-project-options project-path (list layout-path topology-path)
+      (reject-mixed-project-options project-path
+                                    (list layout-path topology-path device-path
+                                          realization-path)
                                     "dump-ir")
       (cond
         (project-path
@@ -149,23 +158,35 @@ and physical mappings ambiguous.
            ;; The project loader intentionally does not expose raw parser
            ;; values as a public registry.  Do not bypass it by reparsing an
            ;; arbitrary imported file merely to satisfy this inspection mode.
-           (error "dump-ir --project supports typed or normalized stages, not parsed."))
-         (unless (or (string= stage "typed") (string= stage "normalized"))
-           (error "Unknown IR stage ~A; expected typed or normalized." stage))
-         (multiple-value-bind (unit)
+           (error "dump-ir --project supports typed, normalized, planned, or backend stages, not parsed."))
+         (unless (member stage '("typed" "normalized" "planned" "backend")
+                         :test #'string=)
+           (error "Unknown IR stage ~A; expected typed, normalized, planned, or backend." stage))
+         ;; The project loader resolves the selected composition once.  Its
+         ;; layout, device, and realization are passed directly to later
+         ;; inspection stages; no imported file is parsed a second time.
+         (multiple-value-bind (unit placement realization)
              (load-project-composition-for-compilation project-path composition-name)
-           (write-string (if (string= stage "typed")
-                             (typed-layout-dump-string unit)
-                             (normalized-layout-dump-string
-                              (compiler-unit-normalized unit)))
-                         *standard-output*)))
+           (write-string
+            (cond ((string= stage "typed") (typed-layout-dump-string unit))
+                  ((string= stage "normalized")
+                   (normalized-layout-dump-string (compiler-unit-normalized unit)))
+                  ((string= stage "planned")
+                   (planned-layout-dump-string unit placement realization))
+                  (t (backend-layout-dump-string unit placement realization)))
+            *standard-output*)))
         ((string= stage "parsed")
+         (when topology-path (reject-dump-ir-option stage "--topology"))
+         (when device-path (reject-dump-ir-option stage "--device"))
+         (when realization-path (reject-dump-ir-option stage "--realization"))
          (let ((parsed (%parse-required-file
                         (required-option options "--layout") "layout")))
            (dolist (form (%parsed-values parsed))
              (write form :stream *standard-output* :escape t)
              (terpri))))
         ((or (string= stage "typed") (string= stage "normalized"))
+         (when device-path (reject-dump-ir-option stage "--device"))
+         (when realization-path (reject-dump-ir-option stage "--realization"))
          (let ((unit (load-layout-for-compilation
                       (required-option options "--layout")
                       :topology-path topology-path)))
@@ -174,7 +195,20 @@ and physical mappings ambiguous.
                              (normalized-layout-dump-string
                               (compiler-unit-normalized unit)))
                          *standard-output*)))
-        (t (error "Unknown IR stage ~A; expected parsed, typed, or normalized." stage)))
+        ((or (string= stage "planned") (string= stage "backend"))
+         (let* ((unit (load-layout-for-compilation
+                       (required-option options "--layout")
+                       :topology-path topology-path))
+                (placement (decode-device-source
+                            (required-option options "--device")))
+                (realization (decode-realization-source
+                              (required-option options "--realization"))))
+           (write-string (if (string= stage "planned")
+                             (planned-layout-dump-string unit placement realization)
+                             (backend-layout-dump-string unit placement realization))
+                         *standard-output*)))
+        (t (error "Unknown IR stage ~A; expected parsed, typed, normalized, planned, or backend."
+                  stage)))
       0)))
 
 (defun levels-command (arguments)
@@ -225,34 +259,49 @@ and physical mappings ambiguous.
         (if result 0 1)))))
 
 (defun compile-command (arguments)
-  (let* ((options (command-options arguments
-                                   '("--layout" "--topology" "--device" "--realization" "--output"
-                                     "--project" "--composition")))
-         (output (required-option options "--output")))
-    (multiple-value-bind (project-path composition-name)
-        (project-option-values options "compile")
-      (reject-mixed-project-options
-       project-path
-       (list (optional-option options "--layout")
-             (optional-option options "--topology")
-             (optional-option options "--device")
-             (optional-option options "--realization"))
-       "compile")
-      (let ((result (if project-path
-                        (compile-project-source project-path composition-name
-                                                :output-directory output)
-                        (compile-layout-source
-                         (required-option options "--layout")
-                         :topology-path (optional-option options "--topology")
-                         :device-path (required-option options "--device")
-                         :realization-path (required-option options "--realization")
-                         :output-directory output))))
-        (format *standard-output* "Emitted new build directory ~A.~%" output)
-        (format *standard-output* "Tool validation was not run; use validate-build for that evidence.~%")
-        (dolist (artifact (ivory-key.backend:pipeline-result-artifacts result))
-          (format *standard-output* "  ~A~%"
-                  (ivory-key.backend:pipeline-artifact-relative-path artifact)))
-        0))))
+  (let* ((validation-switch "--validate-before-publish")
+         (validation-count (count validation-switch arguments :test #'string=)))
+    (when (> validation-count 1)
+      (error "compile accepts --validate-before-publish at most once."))
+    ;; COMMAND-OPTIONS intentionally accepts only value-taking options.  Pull
+    ;; this one closed boolean switch out first so `--validate-before-publish
+    ;; yes` remains malformed instead of quietly selecting an unknown mode.
+    (let* ((options
+             (command-options (remove validation-switch arguments :test #'string= :count 1)
+                              '("--layout" "--topology" "--device" "--realization" "--output"
+                                "--project" "--composition")))
+           (output (required-option options "--output"))
+           (validate-before-publish (plusp validation-count)))
+      (multiple-value-bind (project-path composition-name)
+          (project-option-values options "compile")
+        (reject-mixed-project-options
+         project-path
+         (list (optional-option options "--layout")
+               (optional-option options "--topology")
+               (optional-option options "--device")
+               (optional-option options "--realization"))
+         "compile")
+        (let ((result (if project-path
+                          (compile-project-source project-path composition-name
+                                                  :output-directory output
+                                                  :validate-before-publish validate-before-publish)
+                          (compile-layout-source
+                           (required-option options "--layout")
+                           :topology-path (optional-option options "--topology")
+                           :device-path (required-option options "--device")
+                           :realization-path (required-option options "--realization")
+                           :output-directory output
+                           :validate-before-publish validate-before-publish))))
+          (format *standard-output* "Emitted new build directory ~A.~%" output)
+          (if validate-before-publish
+              (format *standard-output*
+                      "Staged validation passed before publication; evidence is in manifest.json and REPORT.md.~%")
+              (format *standard-output*
+                      "Tool validation was not run; use validate-build for separate post-build evidence.~%"))
+          (dolist (artifact (ivory-key.backend:pipeline-result-artifacts result))
+            (format *standard-output* "  ~A~%"
+                    (ivory-key.backend:pipeline-artifact-relative-path artifact)))
+          0)))))
 
 (defun validate-build-command (arguments)
   (unless (= (length arguments) 1)
@@ -339,14 +388,15 @@ not a request to lower a backend, prove physical equivalence, or deploy.
   (format stream "  fmt [--check] FILE...  Canonically format source~%")
   (format stream "  inventory ROOT      Inventory a Manna Cadet checkout~%")
   (format stream "  dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]~%")
-  (format stream "          or --stage typed|normalized --project FILE --composition NAME~%")
+  (format stream "          or --stage planned|backend --layout FILE --device FILE --realization FILE [--topology FILE]~%")
+  (format stream "          or --stage typed|normalized|planned|backend --project FILE --composition NAME~%")
   (format stream "  levels --layout FILE [--topology FILE] | --project FILE --composition NAME~%")
   (format stream "  simulate --layout FILE [--topology FILE] --events FILE~%")
   (format stream "          or --project FILE --composition NAME --events FILE~%")
   (format stream "  explain --layout FILE --device FILE --realization FILE [--topology FILE]~%")
   (format stream "          or --project FILE --composition NAME~%")
-  (format stream "  compile --layout FILE --device FILE --realization FILE --output DIR [--topology FILE]~%")
-  (format stream "          or --project FILE --composition NAME --output DIR~%")
+  (format stream "  compile [--validate-before-publish] --layout FILE --device FILE --realization FILE --output DIR [--topology FILE]~%")
+  (format stream "          or [--validate-before-publish] --project FILE --composition NAME --output DIR~%")
   (format stream "  validate-build DIR  Run optional XKB/Kanata validators~%"))
 
 (defun main (&optional (arguments (uiop:command-line-arguments)))

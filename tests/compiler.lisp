@@ -26,6 +26,17 @@
        (when (probe-file ,directory)
          (delete-test-directory-tree ,directory)))))
 
+(defun compiler-cli-command-output (arguments)
+  "Run one CLI argument vector and retain only deterministic stream results."
+  (let ((standard-output (make-string-output-stream))
+        (error-output (make-string-output-stream)))
+    (let ((*standard-output* standard-output)
+          (*error-output* error-output))
+      (let ((status (ivory-key.cli:main arguments)))
+        (values status
+                (get-output-stream-string standard-output)
+                (get-output-stream-string error-output))))))
+
 (defparameter +compiler-test-layout+
   "(ivory-key 1)
 (define-layout direct
@@ -188,6 +199,13 @@
           (is (not (search (uiop:native-namestring (truename layout)) manifest)))
           (is (search "\"input_coverage\":[{\"disposition\":\"physical\",\"position\":\"q\"}]"
                       manifest)))
+        (let ((source-map (uiop:read-file-string (merge-pathnames "source-map.json" output))))
+          ;; The lowering request carries the normalized entry origin.  The
+          ;; contract maps that parser pathname through the compiler's direct
+          ;; role identity, never into the generated file.
+          (is (search "\"origin\":{\"definition\"" source-map))
+          (is (search "\"source\":\"layout\"" source-map))
+          (is (not (search (uiop:native-namestring (truename layout)) source-map))))
         ;; A second call never supersedes a previously emitted good build.
         (signals error
           (ivory-key.cli::compile-layout-source
@@ -373,6 +391,172 @@
         (is (search "normalized-layout direct" captured-standard-output))
         (is (search "simulation-result" captured-standard-output)))
       (is (zerop (length (get-output-stream-string error-output)))))))
+
+(deftest compiler-cli-dumps-planned-and-backend-ir-without-emission
+  "The new later IR stages inspect closed values without artifact construction."
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream)))
+      (let ((*standard-output* standard-output)
+            (*error-output* error-output))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "planned" "--layout"
+                         (namestring layout) "--topology" (namestring topology)
+                         "--device" (namestring device) "--realization"
+                         (namestring realization))))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "backend" "--layout"
+                         (namestring layout) "--topology" (namestring topology)
+                         "--device" (namestring device) "--realization"
+                         (namestring realization)))))
+      (let ((output (get-output-stream-string standard-output)))
+        (is (search "planned-ir direct" output))
+        (is (search "Planner realization grades (complete)" output))
+        (is (search "q: exact -- Static product table has 1 states" output))
+        (is (search "Planner allocations (not lowering proof)" output))
+        (is (search "backend-ir direct" output))
+        (is (search "Backend lowering request" output))
+        (is (search "XKB backend plan" output))
+        (is (search "Kanata backend plan" output))
+        ;; A backend dump contains only plan metadata, never report/artifact
+        ;; emission or an ambient source pathname.
+        (is (not (search "Artifacts:" output)))
+        (is (not (search (namestring directory) output))))
+      (is (not (probe-file (merge-pathnames "keymap.xkb" directory))))
+      (is (not (probe-file (merge-pathnames "layout.kbd" directory))))
+      (is-equal "" (get-output-stream-string error-output)))))
+
+(deftest compiler-cli-project-dumps-planned-and-backend-ir-without-emission
+  "Project mode loads one selected composition for both non-emitting stages."
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream)))
+      (let ((*standard-output* standard-output)
+            (*error-output* error-output))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "planned" "--project"
+                         (namestring project) "--composition" "direct-build")))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "backend" "--project"
+                         (namestring project) "--composition" "direct-build"))))
+      (let ((output (get-output-stream-string standard-output)))
+        (is (search "planned-ir direct" output))
+        (is (search "backend-ir direct" output))
+        (is (search "device test-device" output))
+        (is (search "realization direct-linux" output)))
+      (is (not (probe-file (merge-pathnames "keymap.xkb" directory))))
+      (is (not (probe-file (merge-pathnames "layout.kbd" directory))))
+      (is-equal "" (get-output-stream-string error-output)))))
+
+(deftest compiler-cli-later-dump-ir-output-is-deterministic
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (project-directory (merge-pathnames "project/" directory)))
+      ;; Keep the project import graph separate from direct-mode source files:
+      ;; both deliberately use conventional fixture filenames.
+      (ensure-directories-exist (merge-pathnames "placeholder" project-directory))
+      (let ((project (write-compiler-test-project project-directory)))
+      (dolist (arguments
+               (list
+                (list "dump-ir" "--stage" "planned" "--layout"
+                      (namestring layout) "--topology" (namestring topology)
+                      "--device" (namestring device) "--realization"
+                      (namestring realization))
+                (list "dump-ir" "--stage" "backend" "--layout"
+                      (namestring layout) "--topology" (namestring topology)
+                      "--device" (namestring device) "--realization"
+                      (namestring realization))
+                (list "dump-ir" "--stage" "planned" "--project"
+                      (namestring project) "--composition" "direct-build")
+                (list "dump-ir" "--stage" "backend" "--project"
+                      (namestring project) "--composition" "direct-build")))
+        (multiple-value-bind (first-status first-output first-errors)
+            (compiler-cli-command-output arguments)
+          (multiple-value-bind (second-status second-output second-errors)
+              (compiler-cli-command-output arguments)
+            (is-equal 0 first-status)
+            (is-equal 0 second-status)
+            (is-equal first-output second-output)
+            (is-equal "" first-errors)
+            (is-equal "" second-errors))))))))
+
+(deftest compiler-cli-backend-ir-refuses-unproved-layouts-before-emission
+  "Planner inspection may classify blockers; backend IR does not lower past them."
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory"
+                                        +compiler-test-planner-layout+))
+           (topology (compiler-test-write directory "topology.ivory"
+                                          +compiler-test-planner-topology+))
+           (device (compiler-test-write directory "device.ivory"
+                                        +compiler-test-planner-device+))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream)))
+      (let ((*standard-output* standard-output)
+            (*error-output* error-output))
+        ;; Planned inspection is intentionally able to expose every
+        ;; unsupported obligation without calling a later stage.
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "planned" "--layout"
+                         (namestring layout) "--topology" (namestring topology)
+                         "--device" (namestring device) "--realization"
+                         (namestring realization))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "backend" "--layout"
+                         (namestring layout) "--topology" (namestring topology)
+                         "--device" (namestring device) "--realization"
+                         (namestring realization)))))
+      (let ((output (get-output-stream-string standard-output)))
+        (is (search "selector/case: unsupported" output))
+        (is (not (search "backend-ir planner" output))))
+      (let ((errors (get-output-stream-string error-output)))
+        ;; The compiler sorts all blockers canonically, so a named-output or
+        ;; modifier issue may precede context selection in another valid
+        ;; fixture.  The backend-stage boundary, rather than that incidental
+        ;; first issue, is the contract under test here.
+        (is (search "BACKEND [" (string-upcase errors))))
+      (is (not (probe-file (merge-pathnames "keymap.xkb" directory))))
+      (is (not (probe-file (merge-pathnames "layout.kbd" directory)))))))
+
+(deftest compiler-cli-dump-ir-requires-stage-specific-direct-inputs
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (device (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream)))
+      (let ((*standard-output* standard-output)
+            (*error-output* error-output))
+        ;; A typed dump does not decode a device; accepting the pathname would
+        ;; hide a caller mistake about the boundary being inspected.
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "typed" "--layout"
+                         (namestring layout) "--device" (namestring device))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "planned" "--layout"
+                         (namestring layout)))))
+      (let ((errors (get-output-stream-string error-output)))
+        (is (search "does not accept --device" errors))
+        (is (search "Missing required option --device" errors)))
+      (is-equal "" (get-output-stream-string standard-output)))))
 
 (deftest compiler-explain-reports-planner-obligations-without-relaxing-emission
   (with-compiler-test-directory (directory)
@@ -1308,3 +1492,94 @@ or consumed-modifier behavior.
                     (ivory-key.model::realization-static-type-group-two-type
                      (ivory-key.model::realization-policy-static-type-for-position
                       policy "q"))))))))
+
+(defun compiler-test-staged-validation-evidence (&key (kanata-status "passed"))
+  "Synthetic private validator observations; no host tool is invoked in tests."
+  (flet ((record (artifact tool version result status)
+           (list :artifact artifact :tool tool :version version
+                 :version-sha256
+                 (ivory-key.build-contract:sha256-hex (format nil "~A~%" version))
+                 :status status
+                 :result-sha256
+                 (ivory-key.build-contract:sha256-hex (format nil "~A~%" result)))))
+    (list (record "layout.kbd" "kanata" "kanata test-version"
+                  "kanata result" kanata-status)
+          (record "keymap.xkb" "xkbcli" "xkbcli test-version"
+                  "xkb result" "passed"))))
+
+(deftest compiler-validates-only-in-staging-and-refuses-failed-publication
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (success-output (merge-pathnames "validated-build/" directory))
+           (failure-output (merge-pathnames "rejected-build/" directory))
+           (failure-staging nil))
+      (let ((ivory-key.cli::*staged-pipeline-validation-runner*
+              (lambda (pipeline temporary)
+                (declare (ignore pipeline))
+                (is (probe-file (merge-pathnames "keymap.xkb" temporary)))
+                (is (probe-file (merge-pathnames "layout.kbd" temporary)))
+                ;; Contract files are deliberately absent while validators see
+                ;; the trusted staged artifact directory.
+                (is (not (probe-file (merge-pathnames "manifest.json" temporary))))
+                (compiler-test-staged-validation-evidence))))
+        (is (ivory-key.cli:compile-layout-source
+             layout :topology-path topology :device-path device
+             :realization-path realization :output-directory success-output
+             :validate-before-publish t)))
+      (let ((manifest (uiop:read-file-string (merge-pathnames "manifest.json" success-output)))
+            (report (uiop:read-file-string (merge-pathnames "REPORT.md" success-output))))
+        (is (search "\"validation\":[{\"artifact\":\"keymap.xkb\"" manifest))
+        (is (search "\"version\":\"xkbcli test-version\"" manifest))
+        (is (not (search "xkb result" manifest)))
+        (is (search "Result SHA-256" report)))
+      (let ((ivory-key.cli::*staged-pipeline-validation-runner*
+              (lambda (pipeline temporary)
+                (declare (ignore pipeline))
+                (setf failure-staging temporary)
+                (compiler-test-staged-validation-evidence :kanata-status "failed"))))
+        (is-equal :validation-failed
+                  (compiler-stage-code-from
+                   (lambda ()
+                     (ivory-key.cli:compile-layout-source
+                      layout :topology-path topology :device-path device
+                      :realization-path realization :output-directory failure-output
+                      :validate-before-publish t)))))
+      (is (not (probe-file failure-output)))
+      (is (probe-file failure-staging))
+      (is (search "\"status\":\"failed\""
+                  (uiop:read-file-string
+                   (merge-pathnames "manifest.json" failure-staging)))))))
+
+(deftest compiler-cli-validation-switch-is-explicit-and-opt-in
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (output (merge-pathnames "cli-validated-build/" directory))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream))
+           (ivory-key.cli::*staged-pipeline-validation-runner*
+             (lambda (pipeline temporary)
+               (declare (ignore pipeline temporary))
+               (compiler-test-staged-validation-evidence))))
+      (let ((*standard-output* standard-output)
+            (*error-output* error-output))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "compile" "--validate-before-publish"
+                         "--layout" (namestring layout)
+                         "--topology" (namestring topology)
+                         "--device" (namestring device)
+                         "--realization" (namestring realization)
+                         "--output" (namestring output)))))
+      (is (search "Staged validation passed before publication"
+                  (get-output-stream-string standard-output)))
+      (is (zerop (length (get-output-stream-string error-output))))
+      (is (search "\"validation\""
+                  (uiop:read-file-string (merge-pathnames "manifest.json" output)))))))

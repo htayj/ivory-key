@@ -974,11 +974,16 @@ layout data, and is used only after the profile has supplied the exact
 "
   (format nil "I~D" (+ carrier 8)))
 
-(defun %carrier-entry (feature carrier xkb-output)
+(defun %carrier-entry (feature carrier xkb-output &key origin)
   (make-instance 'ivory-key.backend:key-entry
                  :position (format nil "carrier-~D/~A" carrier feature)
                  :physical-code (list :xkb (%xkb-carrier-key-name carrier))
-                 :outputs (list :xkb (list xkb-output))))
+                 :outputs (list :xkb (list xkb-output))
+                 ;; Carrier entries are materialized from a single sparse
+                 ;; patch entry.  Keep that exact source rather than treating
+                 ;; the realization-owned carrier spelling as layout data.
+                 :sources (list (ivory-key.backend:make-key-entry-source
+                                 nil :origin origin))))
 
 (defun %patch-lowering (normalized placement vocabulary issues)
   "Return function-layer metadata, XKB carrier entries, and updated ISSUES.
@@ -1036,12 +1041,18 @@ refusal; this function never synthesizes a tap-hold, layer switch, or timing.
                                              issues))
                                       (t
                                        (push (cons feature (getf lowering :kanata)) outputs)
-                                       (push (%carrier-entry feature carrier (getf lowering :xkb))
+                                       (let ((origin
+                                               (ivory-key.model:normalized-entry-origin
+                                                (first variants))))
+                                         (push (%carrier-entry feature carrier
+                                                               (getf lowering :xkb)
+                                                               :origin origin)
                                              carrier-entries)
-                                       (push (list :feature feature :carrier carrier
-                                                   :xkb-key-name (%xkb-carrier-key-name carrier)
-                                                   :keysym (getf lowering :xkb))
-                                             allocations))))))))))))
+                                         (push (list :feature feature :carrier carrier
+                                                     :xkb-key-name (%xkb-carrier-key-name carrier)
+                                                     :keysym (getf lowering :xkb)
+                                                     :origin origin)
+                                               allocations)))))))))))))
         ;; An inactive layer declaration is safe to inspect and validate, but
         ;; never makes this an exact realization.  The Manna evidence names
         ;; source tap-holds, not an Ivory Key candidate/arbitration contract.
@@ -1202,7 +1213,15 @@ compile gate.
                                               (list :xkb (mapcar (lambda (output)
                                                                    (getf output :xkb))
                                                                  outputs)
-                                                    :kanata (list kanata-output)))
+                                                    :kanata (list kanata-output))
+                                              :sources
+                                              (mapcar
+                                               (lambda (entry)
+                                                 (ivory-key.backend:make-key-entry-source
+                                                  (ivory-key.model:normalized-entry-tuple entry)
+                                                  :origin
+                                                  (ivory-key.model:normalized-entry-origin entry)))
+                                               entries-for-binding))
                                entries))))))))))
     (multiple-value-bind (kanata-layers xkb-carrier-entries carrier-allocations updated-issues)
         (%patch-lowering normalized placement vocabulary issues)
@@ -1426,8 +1445,83 @@ modifiers, named symbols, commands, or interactions.
                 (ivory-key.model:identifier-name
                  (ivory-key.backend:bank-selector-requirement-position requirement))
                 (ivory-key.backend:bank-selector-requirement-bank-count requirement)
-                (ivory-key.backend:bank-selector-requirement-carrier-value-count
+                 (ivory-key.backend:bank-selector-requirement-carrier-value-count
                  requirement))))))
+
+(defun %realization-result< (left right)
+  "Order inspection results by stable semantic identity, never object address."
+  (string< (format nil "~A/~A"
+                   (%planner-inspection-name
+                    (ivory-key.backend:realization-feature left))
+                   (%planner-inspection-name
+                    (ivory-key.backend:realization-grade left)))
+           (format nil "~A/~A"
+                   (%planner-inspection-name
+                    (ivory-key.backend:realization-feature right))
+                   (%planner-inspection-name
+                    (ivory-key.backend:realization-grade right)))))
+
+(defun %write-realization-results (stream results)
+  "Write complete, source-path-free realization dispositions."
+  (if results
+      (dolist (result (sort (copy-list results) #'%realization-result<))
+        (format stream "  ~A: ~A -- ~A~%"
+                (%planner-inspection-name
+                 (ivory-key.backend:realization-feature result))
+                (%planner-inspection-name
+                 (ivory-key.backend:realization-grade result))
+                (ivory-key.backend:realization-detail result)))
+      (format stream "  none~%")))
+
+(defun %planner-allocation< (left right)
+  "Order allocation report rows without relying on resource-pool mutation order."
+  (let ((left-requirement (ivory-key.backend:planner-allocation-requirement left))
+        (right-requirement (ivory-key.backend:planner-allocation-requirement right)))
+    (string<
+     (format nil "~A/~A/~A"
+             (%planner-inspection-name
+              (ivory-key.backend:planner-allocation-pool-kind left))
+             (%planner-inspection-name
+              (ivory-key.backend:planner-resource-requirement-owner left-requirement))
+             (ivory-key.backend:planner-allocation-value left))
+     (format nil "~A/~A/~A"
+             (%planner-inspection-name
+              (ivory-key.backend:planner-allocation-pool-kind right))
+             (%planner-inspection-name
+              (ivory-key.backend:planner-resource-requirement-owner right-requirement))
+             (ivory-key.backend:planner-allocation-value right)))))
+
+(defun %write-planner-allocations (stream plan)
+  "Write all finite reservations, without claiming that reservation is lowering."
+  (format stream "Planner allocations (not lowering proof)~%")
+  (let ((allocations (ivory-key.backend:lowering-plan-allocations plan)))
+    (if allocations
+        (dolist (allocation (sort (copy-list allocations) #'%planner-allocation<))
+          (let ((requirement
+                  (ivory-key.backend:planner-allocation-requirement allocation)))
+            (format stream "  ~A ~A -> ~A~%"
+                    (%planner-inspection-name
+                     (ivory-key.backend:planner-allocation-pool-kind allocation))
+                    (%planner-inspection-name
+                     (ivory-key.backend:planner-resource-requirement-owner requirement))
+                    (ivory-key.backend:planner-allocation-value allocation))))
+        (format stream "  none~%"))))
+
+(defun %write-planner-interaction-obligations (stream plan)
+  "Show every timed interaction as a semantic planner obligation."
+  (format stream "Planner timed-interaction obligations~%")
+  (let ((interactions
+          (sort (copy-list
+                 (ivory-key.model:normalized-layout-interactions
+                  (ivory-key.backend:lowering-plan-layout plan)))
+                #'ivory-key.model:identifier<
+                :key #'ivory-key.model:normalized-interaction-name)))
+    (if interactions
+        (dolist (interaction interactions)
+          (format stream "  ~A~%"
+                  (ivory-key.model:identifier-name
+                   (ivory-key.model:normalized-interaction-name interaction))))
+        (format stream "  none~%"))))
 
 (defun %write-planner-inspection (stream plan refusal)
   "Write a canonical capability-planner report without implying emission."
@@ -1495,7 +1589,155 @@ modifiers, named symbols, commands, or interactions.
                     (and (> cardinality 1) cardinality))
                   (ivory-key.backend:planner-resource-requirement-detail resource)))
         (format stream "  none~%")))
+  (%write-planner-interaction-obligations stream plan)
+  (format stream "Planner realization grades (complete)~%")
+  (%write-realization-results
+   stream (ivory-key.backend:lowering-plan-realizations plan))
+  (%write-planner-allocations stream plan)
   plan)
+
+(defun planned-layout-dump-string (unit placement realization)
+  "Return a deterministic, non-emitting capability-planning IR dump.
+
+Planning records a selected profile only after its existing direct-pipeline
+compatibility check; it still classifies unsupported obligations rather than
+pretending the profile can lower them.  This function never constructs backend
+plans, artifact text, contract data, or output paths.
+"
+  (%require-compatible-realization realization)
+  (multiple-value-bind (plan refusal)
+      (%plan-normalized-layout-for-inspection
+       (compiler-unit-normalized unit) placement)
+    (with-output-to-string (stream)
+      (format stream "planned-ir ~A~%"
+              (ivory-key.model:identifier-name
+               (ivory-key.model:normalized-layout-name
+                (compiler-unit-normalized unit))))
+      (format stream "device ~A~%realization ~A~%"
+              (compiler-placement-name placement)
+              (compiler-realization-name realization))
+      (%write-planner-inspection stream plan refusal))))
+
+(defun %write-backend-request-entry (stream entry)
+  "Write the closed, already-decoded backend spellings for one key entry."
+  (format stream "  ~A: xkb ~A => ~{~A~^ ~}; kanata ~A => ~{~A~^ ~}~%"
+          (ivory-key.backend:key-entry-position entry)
+          (ivory-key.backend:key-entry-code-for entry :xkb)
+          (ivory-key.backend:key-entry-outputs-for entry :xkb)
+          (ivory-key.backend:key-entry-code-for entry :kanata)
+          (ivory-key.backend:key-entry-outputs-for entry :kanata)))
+
+(defun %backend-request-entry< (left right)
+  (string< (ivory-key.backend:key-entry-position left)
+           (ivory-key.backend:key-entry-position right)))
+
+(defun %write-backend-request-inspection (stream request)
+  "Write backend-request data without serializing opaque or pathname metadata."
+  (format stream "Backend lowering request~%")
+  (format stream "  name: ~A~%" (ivory-key.backend:lowering-request-name request))
+  (format stream "  entries~%")
+  (let ((entries (ivory-key.backend:lowering-request-entries request)))
+    (if entries
+        (dolist (entry (sort (copy-list entries) #'%backend-request-entry<))
+          (%write-backend-request-entry stream entry))
+        (format stream "    none~%")))
+  (format stream "  metadata: only closed backend fields are shown~%")
+  (let ((metadata (ivory-key.backend:lowering-request-metadata request)))
+    (dolist (record (or (getf metadata :input-coverage) nil))
+      (format stream "    coverage ~A: ~A~%"
+              (getf record :position)
+              (%coverage-disposition-name (getf record :disposition))))
+    (dolist (allocation (or (getf metadata :carrier-allocations) nil))
+      (format stream "    carrier ~A: code ~D; XKB key ~A; keysym ~A~%"
+              (getf allocation :feature) (getf allocation :carrier)
+              (getf allocation :xkb-key-name) (getf allocation :keysym)))))
+
+(defun %write-xkb-plan-inspection (stream plan)
+  "Write one XKB backend IR, never its emitted keymap text."
+  (format stream "XKB backend plan~%")
+  (format stream "  name: ~A~%" (ivory-key.backend::xkb-plan-name plan))
+  (format stream "  entries~%")
+  (let ((entries (ivory-key.backend::xkb-plan-entries plan)))
+    (if entries
+        (dolist (entry (sort (copy-list entries) #'string<
+                              :key (lambda (entry)
+                                     (ivory-key.backend:key-entry-code-for entry :xkb))))
+          (format stream "    <~A> => ~{~A~^ ~}~%"
+                  (ivory-key.backend:key-entry-code-for entry :xkb)
+                  (ivory-key.backend:key-entry-outputs-for entry :xkb)))
+        (format stream "    none~%")))
+  (format stream "  realization grades~%")
+  (%write-realization-results stream (ivory-key.backend:xkb-plan-realizations plan)))
+
+(defun %write-kanata-plan-inspection (stream plan)
+  "Write one Kanata backend IR, never its emitted configuration text."
+  (format stream "Kanata backend plan~%")
+  (format stream "  name: ~A~%" (ivory-key.backend::kanata-plan-name plan))
+  (format stream "  source/output rows~%")
+  (let ((sources (ivory-key.backend::kanata-plan-sources plan))
+        (outputs (ivory-key.backend::kanata-plan-outputs plan)))
+    (if sources
+        (loop for source in sources
+              for output in outputs do
+                (format stream "    ~A => ~A~%" source output))
+        (format stream "    none~%")))
+  (format stream "  realization grades~%")
+  (%write-realization-results stream (ivory-key.backend:kanata-plan-realizations plan)))
+
+(defun %backend-request-for-inspection (unit placement realization)
+  "Return an all-exact request or fail before target plan construction."
+  (%require-compatible-realization realization)
+  (multiple-value-bind (request issues)
+      (analyze-normalized-layout
+       (compiler-unit-normalized unit) placement
+       :vocabulary (compiler-realization-vocabulary realization)
+       :selector-policy (compiler-realization-selector-policy realization))
+    (unless request
+      (%stage-error :backend :missing-lowering-request
+                    "No inspectable backend request was produced."))
+    (when issues
+      (let ((issue (first issues)))
+        (%stage-error :backend (compiler-fidelity-issue-code issue)
+                      "~A: ~A"
+                      (compiler-fidelity-issue-feature issue)
+                      (compiler-fidelity-issue-detail issue))))
+    request))
+
+(defun backend-layout-dump-string (unit placement realization)
+  "Return deterministic backend IR after exact lowering, without emission.
+
+Only an all-exact direct request reaches this stage.  Backend plans remain
+in-memory values; this function does not call EMIT-PLAN, create a pipeline
+result, write artifacts, invoke validators, or allocate an output directory.
+"
+  (let ((request (%backend-request-for-inspection unit placement realization)))
+    (handler-case
+        (let* ((xkb-plan
+                 (ivory-key.backend:lower-request
+                  (ivory-key.backend:make-xkb-backend) request))
+               (kanata-plan
+                 (ivory-key.backend:lower-request
+                  (ivory-key.backend:make-kanata-backend) request))
+               (results
+                 (append (ivory-key.backend:xkb-plan-realizations xkb-plan)
+                         (ivory-key.backend:kanata-plan-realizations kanata-plan))))
+          ;; Backend capability shape can still reject an otherwise accepted
+          ;; compiler request.  Do not print that plan as successful or enter
+          ;; pipeline/artifact construction; convert it into one stable stage
+          ;; refusal instead.
+          (ivory-key.backend:require-permitted-realizations results :allow-lossy nil)
+          (with-output-to-string (stream)
+            (format stream "backend-ir ~A~%"
+                    (ivory-key.backend:lowering-request-name request))
+            (format stream "device ~A~%realization ~A~%"
+                    (compiler-placement-name placement)
+                    (compiler-realization-name realization))
+            (%write-backend-request-inspection stream request)
+            (%write-xkb-plan-inspection stream xkb-plan)
+            (%write-kanata-plan-inspection stream kanata-plan)))
+      (compiler-stage-error (condition) (error condition))
+      (error (condition)
+        (%stage-error :backend :backend-refusal "~A" condition)))))
 
 (defun %behavior-summary (behavior)
   (cond ((typep behavior 'ivory-key.model:text-output)
@@ -1757,10 +1999,20 @@ non-concurrently-mutated parent directory.
                           "Temporary build directory failed trusted-parent verification."))
           (values physical-temporary reservation))))))
 
-(defun %expected-build-file-names (pipeline-result &optional marker)
+(defun %expected-staged-artifact-file-names (pipeline-result &optional marker)
+  "Return the exact backend-owned files permitted before contract rendering."
   (let ((names
           (append (mapcar #'ivory-key.backend:pipeline-artifact-relative-path
                           (ivory-key.backend:pipeline-result-artifacts pipeline-result))
+                  (and marker (list marker)))))
+    (unless (= (length names) (length (remove-duplicates names :test #'string=)))
+      (%stage-error :emit :duplicate-artifact-path
+                    "Backend returned duplicate artifact paths."))
+    (sort names #'string<)))
+
+(defun %expected-build-file-names (pipeline-result &optional marker)
+  (let ((names
+          (append (%expected-staged-artifact-file-names pipeline-result)
                   ;; The contract files are fixed compiler outputs, not backend
                   ;; artifacts.  Keeping them in this exact content check means
                   ;; an interrupted emission cannot publish a partial contract.
@@ -1797,19 +2049,187 @@ non-concurrently-mutated parent directory.
        (not (find #\/ path))
        (not (search ".." path))))
 
-(defun write-new-pipeline-result (pipeline-result output-directory &key build-contract)
+(defun %validation-backend-for-artifact (artifact)
+  "Return the exact backend that owns ARTIFACT's validator, or refuse."
+  (case (ivory-key.backend:pipeline-artifact-kind artifact)
+    (:xkb (ivory-key.backend:make-xkb-backend))
+    (:kanata (ivory-key.backend:make-kanata-backend))
+    (otherwise
+     (%stage-error :validate-before-publish :unsupported-validation-artifact
+                   "No staged validator is defined for artifact kind ~S."
+                   (ivory-key.backend:pipeline-artifact-kind artifact)))))
+
+(defun %staged-artifact-pathname (artifact temporary)
+  (let ((relative (ivory-key.backend:pipeline-artifact-relative-path artifact)))
+    (unless (%safe-artifact-relative-path-p relative)
+      (%stage-error :validate-before-publish :unsafe-artifact-path
+                    "Cannot validate unsafe artifact path ~S." relative))
+    (let ((pathname (merge-pathnames relative temporary)))
+      (unless (probe-file pathname)
+        (%stage-error :validate-before-publish :missing-staged-artifact
+                      "Staged artifact ~A is missing before validation." relative))
+      pathname)))
+
+(defun %staged-artifact-digests (pipeline-result temporary)
+  "Hash the exact artifact bytes that are about to be externally validated."
+  (sort
+   (mapcar
+    (lambda (artifact)
+      (let ((relative (ivory-key.backend:pipeline-artifact-relative-path artifact)))
+        (handler-case
+            (cons relative
+                  (ivory-key.build-contract:sha256-hex
+                   (%staged-artifact-pathname artifact temporary)))
+          (error (condition)
+            (%stage-error :validate-before-publish :staged-artifact-hash-failure
+                          "Could not hash staged artifact ~A: ~A" relative condition)))))
+    (ivory-key.backend:pipeline-result-artifacts pipeline-result))
+   #'string< :key #'car))
+
+(defun %validation-version-output (program)
+  "Run PROGRAM --version through an argument vector, never a shell command."
+  (handler-case
+      (values t
+              (uiop:run-program (list program "--version")
+                                :output :string :error-output :output))
+    (error (condition)
+      (values nil (princ-to-string condition)))))
+
+(defun %normalized-validation-version (program output)
+  "Return a bounded one-line version value safe to publish with PROGRAM.
+
+The raw stream remains evidence only by hash.  A version probe which emits an
+empty, multiline, control-containing, or path-like response is not safe to
+turn into a build manifest claim and therefore fails closed before publication.
+"
+  (unless (stringp output)
+    (%stage-error :validate-before-publish :invalid-validation-version
+                  "Validator ~A did not return string version output." program))
+  (let ((normalized (string-trim '(#\Space #\Tab #\Newline #\Return) output)))
+    (unless (and (plusp (length normalized))
+                 (<= (length normalized) 256)
+                 (not (find #\Newline normalized))
+                 (not (find #\Return normalized))
+                 (not (find #\\ normalized))
+                 (not (find #\/ normalized))
+                 (every (lambda (character)
+                          (<= 32 (char-code character) 126))
+                        normalized))
+      (%stage-error :validate-before-publish :unsafe-validation-version
+                    "Validator ~A returned a version string unsafe for publication."
+                    program))
+    normalized))
+
+(defun %staged-validation-evidence-record (artifact program version-output
+                                             status result-output)
+  "Make privacy-preserving exact evidence for one direct validator invocation."
+  (unless (and (stringp result-output) (member status '("passed" "failed" "unavailable")
+                                             :test #'string=))
+    (%stage-error :validate-before-publish :invalid-validation-result
+                  "Validator ~A returned malformed result evidence." program))
+  (list :artifact artifact
+        :tool program
+        :version (%normalized-validation-version program version-output)
+        :version-sha256 (ivory-key.build-contract:sha256-hex version-output)
+        :status status
+        :result-sha256 (ivory-key.build-contract:sha256-hex result-output)))
+
+(defun %run-staged-pipeline-validation (pipeline-result temporary)
+  "Return closed evidence for validation of staged artifacts in TEMPORARY.
+
+An unavailable version probe is a validation result, not an optimistic skip.
+The caller records it in the retained staging contract and refuses publication.
+"
+  (mapcar
+   (lambda (artifact)
+     (let* ((backend (%validation-backend-for-artifact artifact))
+            (program (ivory-key.backend:capability-validation-program
+                      (ivory-key.backend:capabilities backend)))
+            (relative (ivory-key.backend:pipeline-artifact-relative-path artifact))
+            (pathname (%staged-artifact-pathname artifact temporary)))
+       (unless (and (stringp program) (plusp (length program)))
+         (%stage-error :validate-before-publish :missing-validation-program
+                       "Artifact ~A has no configured validation program." relative))
+       (multiple-value-bind (version-available-p version-output)
+           (%validation-version-output program)
+         (if (not version-available-p)
+             ;; Version output still has an exact digest, but no observed
+             ;; version can be published when the probe itself is unavailable.
+             (list :artifact relative :tool program :version "unavailable"
+                   :version-sha256 (ivory-key.build-contract:sha256-hex version-output)
+                   :status "unavailable"
+                   :result-sha256 (ivory-key.build-contract:sha256-hex version-output))
+             (handler-case
+                 (multiple-value-bind (success output arguments)
+                     (ivory-key.backend:validate-artifact backend pathname)
+                   ;; Backend methods already own their direct argument vectors;
+                   ;; they are intentionally not serialized because TEMPORARY is
+                   ;; randomized and must not leak into the immutable contract.
+                   (declare (ignore arguments))
+                   (%staged-validation-evidence-record
+                    relative program version-output (if success "passed" "failed") output))
+               (error (condition)
+                 (%staged-validation-evidence-record
+                  relative program version-output "failed" (princ-to-string condition))))))))
+   (sort (copy-list (ivory-key.backend:pipeline-result-artifacts pipeline-result))
+         #'string< :key #'ivory-key.backend:pipeline-artifact-relative-path)))
+
+(defparameter *staged-pipeline-validation-runner*
+  #'%run-staged-pipeline-validation
+  "Internal test seam for the staged validator; production uses direct tools.")
+
+(defun %passed-staged-validation-p (evidence)
+  (and evidence
+       (every (lambda (record)
+                (and (listp record)
+                     (string= (getf record :status) "passed")))
+              evidence)))
+
+(defun %validation-evidence-covers-staged-artifacts-p (pipeline-result evidence)
+  "Whether EVIDENCE gives one unambiguous validator result per emitted artifact."
+  (let ((expected
+          (sort
+           (mapcar #'ivory-key.backend:pipeline-artifact-relative-path
+                   (ivory-key.backend:pipeline-result-artifacts pipeline-result))
+           #'string<))
+        (observed
+          (sort (mapcar (lambda (record) (getf record :artifact)) evidence)
+                #'string<)))
+    (equal expected observed)))
+
+(defun %staged-validation-summary (evidence)
+  (format nil "~{~A~^, ~}"
+          (mapcar (lambda (record)
+                    (format nil "~A/~A" (getf record :tool)
+                            (getf record :status)))
+                  evidence)))
+
+(defun write-new-pipeline-result (pipeline-result output-directory
+                                  &key build-contract validate-before-publish)
   "Write a new build through a reserved sibling directory without overwriting.
 
 The current backend API owns deterministic artifact text but not atomic output
-handling.  This wrapper verifies each observable pathname transition and
-deliberately does not invoke external validators or deployment machinery.
-Portable Common Lisp cannot make a final directory rename non-replacing against
-a hostile concurrent writer, so OUTPUT-DIRECTORY's existing parent must be
-trusted and not concurrently mutable by an untrusted principal.
+handling.  With VALIDATE-BEFORE-PUBLISH true, direct argument-vector validators
+run only against the verified staging directory, their result is rendered into
+a fresh immutable contract, and any non-pass refuses the final rename.  NIL
+preserves ordinary compilation without tool invocation.  Post-build validation
+remains a separate read-only observation.  Portable Common Lisp cannot make a
+final directory rename non-replacing against a hostile concurrent writer, so
+OUTPUT-DIRECTORY's existing parent must be trusted and not concurrently mutable
+by an untrusted principal.
 "
   (unless build-contract
     (%stage-error :emit :missing-build-contract
                   "Build emission requires an explicit generated-output contract."))
+  (unless (member validate-before-publish '(nil t))
+    (%stage-error :arguments :invalid-validation-mode
+                  "VALIDATE-BEFORE-PUBLISH must be true or NIL, got ~S."
+                  validate-before-publish))
+  (when (and (not validate-before-publish)
+             (ivory-key.build-contract::build-contract-validation-evidence
+              build-contract))
+    (%stage-error :emit :validation-evidence-without-validation
+                  "Refusing to publish supplied validation evidence without a staged validation run."))
   (let* ((target (%safe-output-directory output-directory))
          (parent (%parent-directory target))
          (marker ".ivory-key-build-owner")
@@ -1831,10 +2251,50 @@ trusted and not concurrently mutable by an untrusted principal.
                                            :if-does-not-exist :create)
                (write-line "Ivory Key temporary build ownership marker." stream))
              (ivory-key.backend:write-pipeline-result pipeline-result temporary)
-             (ivory-key.build-contract:write-build-contract-files
-              build-contract temporary)
+             ;; Verify the staging directory before a validator is allowed to
+             ;; inspect it.  At this point it contains exactly backend artifacts
+             ;; plus our ownership marker—not a partially published contract.
              (%verify-temporary-build-directory
-              temporary parent (%expected-build-file-names pipeline-result marker))
+              temporary parent
+              (%expected-staged-artifact-file-names pipeline-result marker))
+             (let ((final-contract build-contract))
+               (if validate-before-publish
+                   (let* ((before (%staged-artifact-digests pipeline-result temporary))
+                          (evidence
+                            (funcall *staged-pipeline-validation-runner*
+                                     pipeline-result temporary))
+                          (after (%staged-artifact-digests pipeline-result temporary)))
+                     ;; A validator must not change the artifact bytes it just
+                     ;; accepted.  The manifest hashes below therefore name the
+                     ;; exact bytes validated in this trusted staging directory.
+                     (unless (equal before after)
+                       (%stage-error :validate-before-publish :staged-artifact-changed
+                                     "Validation changed a staged artifact; refusing publication."))
+                     (setf final-contract
+                           (ivory-key.build-contract::with-build-contract-validation-evidence
+                            build-contract evidence))
+                     (unless (%validation-evidence-covers-staged-artifacts-p
+                              pipeline-result
+                              (ivory-key.build-contract::build-contract-validation-evidence
+                               final-contract))
+                       (%stage-error :validate-before-publish
+                                     :incomplete-validation-evidence
+                                     "Staged validation must report exactly one result for every emitted artifact."))
+                     ;; Failed and unavailable observations are retained in this
+                     ;; private staging contract for diagnosis, then the target is
+                     ;; refused below.  They are never renamed into a build.
+                     (ivory-key.build-contract:write-build-contract-files
+                      final-contract temporary)
+                     (%verify-temporary-build-directory
+                      temporary parent (%expected-build-file-names pipeline-result marker))
+                     (unless (%passed-staged-validation-p evidence)
+                       (%stage-error :validate-before-publish :validation-failed
+                                     "Refusing to publish staged build ~A: ~A."
+                                     temporary (%staged-validation-summary evidence))))
+                   (ivory-key.build-contract:write-build-contract-files
+                    final-contract temporary))
+               (%verify-temporary-build-directory
+                temporary parent (%expected-build-file-names pipeline-result marker)))
              (delete-file owner)
              (%verify-temporary-build-directory
               temporary parent (%expected-build-file-names pipeline-result))
@@ -1897,6 +2357,61 @@ is an emission refusal, never an omitted manifest entry.
            records))))
     (sort records #'string<
           :key #'ivory-key.build-contract:source-hash-record-path)))
+
+(defun %contract-source-name-identities (labeled-pathnames)
+  "Resolve parser source-file names to stable contract input identities.
+
+The parser may have retained either the spelling supplied to PARSE-FILE or a
+canonical physical spelling supplied by the confined project loader.  Both are
+accepted here, but neither physical pathname enters BUILD-CONTRACT.  If one
+parser name could designate two declared contract identities, provenance would
+be ambiguous after relocation, so final emission fails closed.
+"
+  (let ((by-name (make-hash-table :test #'equal))
+        (known-identities (make-hash-table :test #'equal))
+        (result nil))
+    (dolist (source labeled-pathnames)
+      (unless (and (consp source) (stringp (car source))
+                   (plusp (length (car source))))
+        (%stage-error :emit :invalid-contract-source-identity
+                      "Build-contract source identity must be a non-empty string, got ~S."
+                      source))
+      (let ((identity (car source))
+            (pathname (cdr source)))
+        (when (gethash identity known-identities)
+          (%stage-error :emit :ambiguous-contract-source-identity
+                        "Build-contract source identity ~S names more than one input."
+                        identity))
+        (setf (gethash identity known-identities) t)
+        (let ((physical
+                (handler-case
+                    (truename pathname)
+                  (error (condition)
+                    (%stage-error :emit :unreadable-contract-source
+                                  "Could not re-open source ~A for provenance: ~A"
+                                  pathname condition)))))
+          (dolist (name
+                   (remove-duplicates
+                    (list (namestring (uiop:ensure-pathname pathname))
+                          (uiop:native-namestring
+                           (uiop:ensure-pathname pathname))
+                          (namestring physical)
+                          (uiop:native-namestring physical))
+                    :test #'string=))
+            (let ((previous (gethash name by-name)))
+              (cond ((null previous)
+                     (setf (gethash name by-name) identity))
+                    ((not (string= previous identity))
+                     (%stage-error :emit :ambiguous-contract-origin-source
+                                   "Parser source name ~S maps to both contract inputs ~S and ~S."
+                                   name previous identity))))))))
+    (maphash (lambda (name identity)
+               (push (cons name identity) result))
+             by-name)
+    ;; Physical names are deliberately consumed only above.  Sort by internal
+    ;; parser-name key for deterministic construction; renderers serialize the
+    ;; stable identity values only.
+    (sort result #'string< :key #'car)))
 
 (defun %contract-project-roots (project-path source-roots)
   "Return the project's canonical source roots.
@@ -2011,12 +2526,19 @@ identity.  No physical pathname or root ordering enters generated data.
      :device (compiler-placement-name placement)
      :profile (compiler-realization-name realization)
      :source-hashes (%source-hash-records-for-pathnames source-inputs)
+     :source-name-identities (%contract-source-name-identities source-inputs)
      :input-coverage input-coverage
      :pipeline-result pipeline-result)))
 
 (defun compile-layout-source (layout-path &key topology-path device-path
-                                          realization-path output-directory)
-  "Compile one fully-supported layout into a new non-deploying build directory."
+                                          realization-path output-directory
+                                          validate-before-publish)
+  "Compile one fully-supported layout into a new non-deploying build directory.
+
+VALIDATE-BEFORE-PUBLISH is explicit opt-in environmental evidence.  Ordinary
+compilation remains tool-free, while an enabled path refuses publication unless
+each staged artifact has passed its exact backend validator.
+"
   (unless (and device-path realization-path output-directory)
     (%stage-error :arguments :missing-compile-input
                   "Compile requires layout, device, realization, and output paths."))
@@ -2033,11 +2555,13 @@ identity.  No physical pathname or root ordering enters generated data.
                           (cons "device" device-path)
                           (cons "realization" realization-path))))))
     (write-new-pipeline-result pipeline-result output-directory
-                               :build-contract build-contract)
+                               :build-contract build-contract
+                               :validate-before-publish validate-before-publish)
     pipeline-result))
 
 (defun compile-project-source (project-path composition-name &key source-roots
-                                                        output-directory)
+                                                        output-directory
+                                                        validate-before-publish)
   "Compile one named project composition into a fresh non-deploying build.
 
 PROJECT-PATH is loaded exactly once by the confined project loader.  The
@@ -2059,7 +2583,8 @@ and realization profile; no imported source is parsed again by this bridge.
                project-path source-roots
                (ivory-key.project:project-load-result-source-paths project-result)))))
       (write-new-pipeline-result pipeline-result output-directory
-                                 :build-contract build-contract)
+                                 :build-contract build-contract
+                                 :validate-before-publish validate-before-publish)
       pipeline-result)))
 
 (defun %explain-compiler-unit (unit placement realization stream)

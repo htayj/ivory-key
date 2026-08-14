@@ -9,6 +9,31 @@
 ;; the frozen carriers.  The direct one-key Greek and Top selectors below have
 ;; an exact immediate held lifecycle; tap-hold activation and all other timing
 ;; remain explicitly unresolved.
+;; Static XKB tables.  NAMED-SYMBOL is a semantic registry name, not an XKB
+;; keysym escape hatch; the raw source spelling remains in the frozen truth
+;; table.  Unicode scalars and named keys are recorded directly.
+;; Both frozen primary normal layers retain lshift and rshift as direct
+;; physical keys.  Each contributes the same held case state; owner-scoped
+;; lifetime means releasing either source cannot clear the other source's
+;; contribution.  The home-row Shift aliases are separate tap-holds and are
+;; deliberately not represented here.
+;; Both frozen primary layered variants map their direct lctl source position
+;; to the Greek carrier and direct rctl to the Top carrier.  Unlike the
+;; Delete/Enter aliases, these source paths have no tap-hold timing or
+;; arbitration: they immediately select their state while physically held.
+;; The interaction consumes the selector position and restores the documented
+;; initial axis state on release.  Backend spellings and carrier numbers live
+;; exclusively in the device/profile realization.
+;; The frozen primary layered files contain this entire function table.  It
+;; is a semantic patch, not a Kanata layer spelling.  The two 200 ms
+;; tap-hold activators (End and PgDn) and their cancellation policy are not
+;; represented here: no activation behavior is guessed from Kanata.
+;; These function results have frozen alias identities and exact carrier
+;; pairs.  They are named symbols rather than direct Unicode here so the
+;; realization—not the layout—owns the carrier/XKB spelling.
+;; The shared logical mode-key denotes the same physical location in both
+;; devices.  Its inactive result differs (Menu on Advantage 2, Caps Lock
+;; on Advantage 360), so only its common active function result is stated.
 
 (ivory-key 1)
 (define-layout
@@ -20,11 +45,8 @@
   (axis function (:states inactive active) (:resolution patch))
   (level-order case script plane)
   (modifiers control meta super hyper alt)
-
-  ;; Static XKB tables.  NAMED-SYMBOL is a semantic registry name, not an XKB
-  ;; keysym escape hatch; the raw source spelling remains in the frozen truth
-  ;; table.  Unicode scalars and named keys are recorded directly.
-  (binding number-1
+  (binding
+    number-1
     (at (plain roman base) (unicode "1"))
     (at (shifted roman base) (named-symbol exclam))
     (at (plain greek base) (named-symbol dagger))
@@ -34,7 +56,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-2
+  (binding
+    number-2
     (at (plain roman base) (unicode "2"))
     (at (shifted roman base) (named-symbol at))
     (at (plain greek base) (named-symbol doubledagger))
@@ -44,7 +67,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-3
+  (binding
+    number-3
     (at (plain roman base) (unicode "3"))
     (at (shifted roman base) (named-symbol numbersign))
     (at (plain greek base) (named-symbol opentribulletdown))
@@ -54,7 +78,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-4
+  (binding
+    number-4
     (at (plain roman base) (unicode "4"))
     (at (shifted roman base) (named-symbol dollar))
     (at (plain greek base) (named-symbol cent))
@@ -64,7 +89,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-5
+  (binding
+    number-5
     (at (plain roman base) (unicode "5"))
     (at (shifted roman base) (named-symbol percent))
     (at (plain greek base) (named-symbol circle))
@@ -74,7 +100,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-6
+  (binding
+    number-6
     (at (plain roman base) (unicode "6"))
     (at (shifted roman base) (named-symbol asciicircum))
     (at (plain greek base) (unicode "▯"))
@@ -84,7 +111,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-7
+  (binding
+    number-7
     (at (plain roman base) (unicode "7"))
     (at (shifted roman base) (named-symbol ampersand))
     (at (plain greek base) (named-symbol division))
@@ -94,7 +122,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-8
+  (binding
+    number-8
     (at (plain roman base) (unicode "8"))
     (at (shifted roman base) (named-symbol asterisk))
     (at (plain greek base) (named-symbol multiply))
@@ -104,7 +133,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-9
+  (binding
+    number-9
     (at (plain roman base) (unicode "9"))
     (at (shifted roman base) (named-symbol parenleft))
     (at (plain greek base) (named-symbol paragraph))
@@ -114,7 +144,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-0
+  (binding
+    number-0
     (at (plain roman base) (unicode "0"))
     (at (shifted roman base) (named-symbol parenright))
     (at (plain greek base) (named-symbol emopencircle))
@@ -124,7 +155,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-minus
+  (binding
+    number-minus
     (at (plain roman base) (named-symbol minus))
     (at (shifted roman base) (named-symbol underscore))
     (at (plain greek base) (unicode "≈"))
@@ -134,7 +166,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding number-equals
+  (binding
+    number-equals
     (at (plain roman base) (named-symbol equal))
     (at (shifted roman base) (named-symbol plus))
     (at (plain greek base) (unicode "∅"))
@@ -144,7 +177,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding backspace
+  (binding
+    backspace
     (at (plain roman base) (named-key backspace))
     (at (shifted roman base) (named-key backspace))
     (at (plain greek base) (named-key backspace))
@@ -154,7 +188,8 @@
     (at (plain greek top) (named-key backspace))
     (at (shifted greek top) (named-key backspace))
   )
-  (binding tab
+  (binding
+    tab
     (at (plain roman base) (named-key tab))
     (at (shifted roman base) (named-key iso-left-tab))
     (at (plain greek base) (named-key tab))
@@ -164,7 +199,8 @@
     (at (plain greek top) (named-key tab))
     (at (shifted greek top) (named-key iso-left-tab))
   )
-  (binding q
+  (binding
+    q
     (at (plain roman base) (unicode "q"))
     (at (shifted roman base) (unicode "Q"))
     (at (plain greek base) (named-symbol greek-small-theta))
@@ -174,7 +210,8 @@
     (at (plain greek top) (named-symbol upcaret))
     (at (shifted greek top) none)
   )
-  (binding w
+  (binding
+    w
     (at (plain roman base) (unicode "w"))
     (at (shifted roman base) (unicode "W"))
     (at (plain greek base) (named-symbol greek-small-omega))
@@ -184,7 +221,8 @@
     (at (plain greek top) (named-symbol downcaret))
     (at (shifted greek top) none)
   )
-  (binding e
+  (binding
+    e
     (at (plain roman base) (unicode "e"))
     (at (shifted roman base) (unicode "E"))
     (at (plain greek base) (named-symbol greek-small-epsilon))
@@ -194,7 +232,8 @@
     (at (plain greek top) (named-symbol downshoe))
     (at (shifted greek top) none)
   )
-  (binding r
+  (binding
+    r
     (at (plain roman base) (unicode "r"))
     (at (shifted roman base) (unicode "R"))
     (at (plain greek base) (named-symbol greek-small-rho))
@@ -204,7 +243,8 @@
     (at (plain greek top) (named-symbol upshoe))
     (at (shifted greek top) none)
   )
-  (binding t
+  (binding
+    t
     (at (plain roman base) (unicode "t"))
     (at (shifted roman base) (unicode "T"))
     (at (plain greek base) (named-symbol greek-small-tau))
@@ -214,7 +254,8 @@
     (at (plain greek top) (named-symbol leftshoe))
     (at (shifted greek top) none)
   )
-  (binding y
+  (binding
+    y
     (at (plain roman base) (unicode "y"))
     (at (shifted roman base) (unicode "Y"))
     (at (plain greek base) (named-symbol greek-small-psi))
@@ -224,7 +265,8 @@
     (at (plain greek top) (named-symbol rightshoe))
     (at (shifted greek top) none)
   )
-  (binding u
+  (binding
+    u
     (at (plain roman base) (unicode "u"))
     (at (shifted roman base) (unicode "U"))
     (at (plain greek base) (named-symbol greek-small-upsilon))
@@ -234,7 +276,8 @@
     (at (plain greek top) (unicode "∀"))
     (at (shifted greek top) none)
   )
-  (binding i
+  (binding
+    i
     (at (plain roman base) (unicode "i"))
     (at (shifted roman base) (unicode "I"))
     (at (plain greek base) (named-symbol greek-small-iota))
@@ -244,7 +287,8 @@
     (at (plain greek top) (named-symbol infinity))
     (at (shifted greek top) none)
   )
-  (binding o
+  (binding
+    o
     (at (plain roman base) (unicode "o"))
     (at (shifted roman base) (unicode "O"))
     (at (plain greek base) (named-symbol greek-small-omicron))
@@ -254,7 +298,8 @@
     (at (plain greek top) (unicode "∃"))
     (at (shifted greek top) none)
   )
-  (binding p
+  (binding
+    p
     (at (plain roman base) (unicode "p"))
     (at (shifted roman base) (unicode "P"))
     (at (plain greek base) (named-symbol greek-small-pi))
@@ -264,7 +309,8 @@
     (at (plain greek top) (named-symbol partialderivative))
     (at (shifted greek top) none)
   )
-  (binding left-bracket
+  (binding
+    left-bracket
     (at (plain roman base) (named-symbol bracketleft))
     (at (shifted roman base) (named-symbol braceleft))
     (at (plain greek base) (unicode "⟦"))
@@ -274,7 +320,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding right-bracket
+  (binding
+    right-bracket
     (at (plain roman base) (named-symbol bracketright))
     (at (shifted roman base) (named-symbol braceright))
     (at (plain greek base) (unicode "⟧"))
@@ -284,7 +331,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding return
+  (binding
+    return
     (at (plain roman base) (named-key return))
     (at (shifted roman base) none)
     (at (plain greek base) (named-key linefeed))
@@ -294,7 +342,8 @@
     (at (plain greek top) (named-key return))
     (at (shifted greek top) none)
   )
-  (binding a
+  (binding
+    a
     (at (plain roman base) (unicode "a"))
     (at (shifted roman base) (unicode "A"))
     (at (plain greek base) (named-symbol greek-small-alpha))
@@ -304,7 +353,8 @@
     (at (plain greek top) (named-symbol uptack))
     (at (shifted greek top) none)
   )
-  (binding s
+  (binding
+    s
     (at (plain roman base) (unicode "s"))
     (at (shifted roman base) (unicode "S"))
     (at (plain greek base) (named-symbol greek-small-sigma))
@@ -314,7 +364,8 @@
     (at (plain greek top) (named-symbol downtack))
     (at (shifted greek top) none)
   )
-  (binding d
+  (binding
+    d
     (at (plain roman base) (unicode "d"))
     (at (shifted roman base) (unicode "D"))
     (at (plain greek base) (named-symbol greek-small-delta))
@@ -324,7 +375,8 @@
     (at (plain greek top) (named-symbol righttack))
     (at (shifted greek top) none)
   )
-  (binding f
+  (binding
+    f
     (at (plain roman base) (unicode "f"))
     (at (shifted roman base) (unicode "F"))
     (at (plain greek base) (named-symbol greek-small-phi))
@@ -334,7 +386,8 @@
     (at (plain greek top) (named-symbol lefttack))
     (at (shifted greek top) none)
   )
-  (binding g
+  (binding
+    g
     (at (plain roman base) (unicode "g"))
     (at (shifted roman base) (unicode "G"))
     (at (plain greek base) (named-symbol greek-small-gamma))
@@ -344,7 +397,8 @@
     (at (plain greek top) (named-symbol uparrow))
     (at (shifted greek top) none)
   )
-  (binding h
+  (binding
+    h
     (at (plain roman base) (unicode "h"))
     (at (shifted roman base) (unicode "H"))
     (at (plain greek base) (named-symbol greek-small-eta))
@@ -354,7 +408,8 @@
     (at (plain greek top) (named-symbol downarrow))
     (at (shifted greek top) none)
   )
-  (binding j
+  (binding
+    j
     (at (plain roman base) (unicode "j"))
     (at (shifted roman base) (unicode "J"))
     (at (plain greek base) (unicode "ϑ"))
@@ -364,7 +419,8 @@
     (at (plain greek top) (named-symbol leftarrow))
     (at (shifted greek top) none)
   )
-  (binding k
+  (binding
+    k
     (at (plain roman base) (unicode "k"))
     (at (shifted roman base) (unicode "K"))
     (at (plain greek base) (named-symbol greek-small-kappa))
@@ -374,7 +430,8 @@
     (at (plain greek top) (named-symbol rightarrow))
     (at (shifted greek top) none)
   )
-  (binding l
+  (binding
+    l
     (at (plain roman base) (unicode "l"))
     (at (shifted roman base) (unicode "L"))
     (at (plain greek base) (named-symbol greek-small-lambda))
@@ -384,7 +441,8 @@
     (at (plain greek top) (unicode "↔"))
     (at (shifted greek top) none)
   )
-  (binding semicolon
+  (binding
+    semicolon
     (at (plain roman base) (named-symbol semicolon))
     (at (shifted roman base) (named-symbol colon))
     (at (plain greek base) (named-symbol diaeresis))
@@ -394,7 +452,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding apostrophe
+  (binding
+    apostrophe
     (at (plain roman base) (named-symbol apostrophe))
     (at (shifted roman base) (named-symbol quotedbl))
     (at (plain greek base) (named-symbol periodcentered))
@@ -404,7 +463,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding grave
+  (binding
+    grave
     (at (plain roman base) (named-symbol grave))
     (at (shifted roman base) (named-symbol asciitilde))
     (at (plain greek base) (named-symbol grave))
@@ -414,7 +474,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding backslash
+  (binding
+    backslash
     (at (plain roman base) (named-symbol backslash))
     (at (shifted roman base) (named-symbol bar))
     (at (plain greek base) (unicode "‖"))
@@ -424,7 +485,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding z
+  (binding
+    z
     (at (plain roman base) (unicode "z"))
     (at (shifted roman base) (unicode "Z"))
     (at (plain greek base) (named-symbol greek-small-zeta))
@@ -434,7 +496,8 @@
     (at (plain greek top) (named-symbol downcaret))
     (at (shifted greek top) none)
   )
-  (binding x
+  (binding
+    x
     (at (plain roman base) (unicode "x"))
     (at (shifted roman base) (unicode "X"))
     (at (plain greek base) (named-symbol greek-small-xi))
@@ -444,7 +507,8 @@
     (at (plain greek top) (named-symbol downstile))
     (at (shifted greek top) none)
   )
-  (binding c
+  (binding
+    c
     (at (plain roman base) (unicode "c"))
     (at (shifted roman base) (unicode "C"))
     (at (plain greek base) (named-symbol greek-small-chi))
@@ -454,7 +518,8 @@
     (at (plain greek top) (named-symbol upstile))
     (at (shifted greek top) none)
   )
-  (binding v
+  (binding
+    v
     (at (plain roman base) (unicode "v"))
     (at (shifted roman base) (unicode "V"))
     (at (plain greek base) (named-symbol greek-small-finalsmallsigma))
@@ -464,7 +529,8 @@
     (at (plain greek top) (named-symbol similarequal))
     (at (shifted greek top) none)
   )
-  (binding b
+  (binding
+    b
     (at (plain roman base) (unicode "b"))
     (at (shifted roman base) (unicode "B"))
     (at (plain greek base) (named-symbol greek-small-beta))
@@ -474,7 +540,8 @@
     (at (plain greek top) (named-symbol identical))
     (at (shifted greek top) none)
   )
-  (binding n
+  (binding
+    n
     (at (plain roman base) (unicode "n"))
     (at (shifted roman base) (unicode "N"))
     (at (plain greek base) (named-symbol greek-small-nu))
@@ -484,7 +551,8 @@
     (at (plain greek top) (named-symbol lessthanequal))
     (at (shifted greek top) none)
   )
-  (binding m
+  (binding
+    m
     (at (plain roman base) (unicode "m"))
     (at (shifted roman base) (unicode "M"))
     (at (plain greek base) (named-symbol greek-small-mu))
@@ -494,7 +562,8 @@
     (at (plain greek top) (named-symbol greaterthanequal))
     (at (shifted greek top) none)
   )
-  (binding comma
+  (binding
+    comma
     (at (plain roman base) (named-symbol comma))
     (at (shifted roman base) (named-symbol less))
     (at (plain greek base) (named-symbol guillemetleft))
@@ -504,7 +573,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding period
+  (binding
+    period
     (at (plain roman base) (named-symbol period))
     (at (shifted roman base) (named-symbol greater))
     (at (plain greek base) (named-symbol guillemetright))
@@ -514,7 +584,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding slash
+  (binding
+    slash
     (at (plain roman base) (named-symbol slash))
     (at (shifted roman base) (named-symbol question))
     (at (plain greek base) (named-symbol integral))
@@ -524,7 +595,8 @@
     (at (plain greek top) none)
     (at (shifted greek top) none)
   )
-  (binding space
+  (binding
+    space
     (at (plain roman base) (named-symbol space))
     (at (shifted roman base) none)
     (at (plain greek base) (named-symbol space))
@@ -534,7 +606,8 @@
     (at (plain greek top) (named-symbol space))
     (at (shifted greek top) none)
   )
-  (binding less-greater
+  (binding
+    less-greater
     (at (plain roman base) (named-symbol less))
     (at (shifted roman base) (named-symbol greater))
     (at (plain greek base) (named-symbol less))
@@ -544,64 +617,59 @@
     (at (plain greek top) (named-symbol bar))
     (at (shifted greek top) (named-symbol brokenbar))
   )
-
-  ;; Both frozen primary normal layers retain lshift and rshift as direct
-  ;; physical keys.  Each contributes the same held case state; owner-scoped
-  ;; lifetime means releasing either source cannot clear the other source's
-  ;; contribution.  The home-row Shift aliases are separate tap-holds and are
-  ;; deliberately not represented here.
-  (interaction hold-case-left-shift
+  (interaction
+    hold-case-left-shift
     (:participants case-left-shift)
-    (case held
+    (case
+      held
       (:match (down case-left-shift))
       (:commit when-matched)
       (:do none)
       (:while (hold-axis-state case shifted))
-      (:exit (set-axis-state case plain))))
-  (interaction hold-case-right-shift
+      (:exit (set-axis-state case plain))
+    )
+  )
+  (interaction
+    hold-case-right-shift
     (:participants case-right-shift)
-    (case held
+    (case
+      held
       (:match (down case-right-shift))
       (:commit when-matched)
       (:do none)
       (:while (hold-axis-state case shifted))
-      (:exit (set-axis-state case plain))))
-
-  ;; Both frozen primary layered variants map their direct lctl source position
-  ;; to the Greek carrier and direct rctl to the Top carrier.  Unlike the
-  ;; Delete/Enter aliases, these source paths have no tap-hold timing or
-  ;; arbitration: they immediately select their state while physically held.
-  ;; The interaction consumes the selector position and restores the documented
-  ;; initial axis state on release.  Backend spellings and carrier numbers live
-  ;; exclusively in the device/profile realization.
-  (interaction hold-greek-selector
+      (:exit (set-axis-state case plain))
+    )
+  )
+  (interaction
+    hold-greek-selector
     (:participants greek)
-    (case held
+    (case
+      held
       (:match (down greek))
       (:commit when-matched)
       (:do none)
       (:while (hold-axis-state script greek))
-      (:exit (set-axis-state script roman))))
-  (interaction hold-top-selector
+      (:exit (set-axis-state script roman))
+    )
+  )
+  (interaction
+    hold-top-selector
     (:participants top)
-    (case held
+    (case
+      held
       (:match (down top))
       (:commit when-matched)
       (:do none)
       (:while (hold-axis-state plane top))
-      (:exit (set-axis-state plane base))))
-
-  ;; The frozen primary layered files contain this entire function table.  It
-  ;; is a semantic patch, not a Kanata layer spelling.  The two 200 ms
-  ;; tap-hold activators (End and PgDn) and their cancellation policy are not
-  ;; represented here: no activation behavior is guessed from Kanata.
-  (overlay primary-function
+      (:exit (set-axis-state plane base))
+    )
+  )
+  (overlay
+    primary-function
     (:axis function)
     (:state active)
     (:precedence 100)
-    ;; These function results have frozen alias identities and exact carrier
-    ;; pairs.  They are named symbols rather than direct Unicode here so the
-    ;; realization—not the layout—owns the carrier/XKB spelling.
     (binding number-1 (named-symbol roman-one))
     (binding number-2 (named-symbol roman-two))
     (binding number-3 (named-symbol roman-three))
@@ -630,9 +698,6 @@
     (binding m (command resume))
     (binding period (command repeat))
     (binding grave (command mode-lock))
-    ;; The shared logical mode-key denotes the same physical location in both
-    ;; devices.  Its inactive result differs (Menu on Advantage 2, Caps Lock
-    ;; on Advantage 360), so only its common active function result is stated.
     (binding mode-key (command alt-mode))
   )
 )

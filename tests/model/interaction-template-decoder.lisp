@@ -252,3 +252,148 @@
           interaction-template-source-must-not-intern (:position q)))")
     (is (null (find-symbol (string-upcase name) package)))
     (is (null (find-symbol (string-upcase instance-name) package)))))
+
+(defun origin-span-start (origin)
+  (let ((span (ivory-key.source:source-origin-definition-span origin)))
+    (list (ivory-key.source:source-span-start-line span)
+          (ivory-key.source:source-span-start-column span))))
+
+(defun origin-use-starts (origin)
+  (mapcar (lambda (span)
+            (list (ivory-key.source:source-span-start-line span)
+                  (ivory-key.source:source-span-start-column span)))
+          (ivory-key.source:source-origin-use-spans origin)))
+
+(defparameter +behavior-template-origin-source+
+  "(ivory-key 1)
+(define-layout origin-demo
+(define-behavior core () (unicode \"x\"))
+(define-behavior wrapper () (core))
+(binding a (wrapper)))")
+
+(deftest interaction-template-decoder-preserves-behavior-template-origins
+  (labels ((decode ()
+             (ivory-key.model:decode-layout-forms
+              (ivory-key.syntax:parse-string +behavior-template-origin-source+
+                                              :name "logical/origin-demo.ivory"))))
+    (let* ((layout (decode))
+           (binding (ivory-key.model:layout-binding layout "a" :errorp t))
+           (behavior (ivory-key.model:binding-behavior binding))
+           (origin (ivory-key.model:behavior-origin behavior))
+           (normalized (ivory-key.model:normalize-layout layout))
+           (entry (first (ivory-key.model:normalized-binding-entries
+                          (first (ivory-key.model:normalized-layout-bindings normalized))))))
+      ;; CORE's body is the definition, while the nested reference in WRAPPER
+      ;; and materializing binding use are ordered from inner to outer.
+      (is-equal '(3 26) (origin-span-start origin))
+      (is-equal '((4 29) (5 12)) (origin-use-starts origin))
+      (is-equal '(5 1)
+                (origin-span-start (ivory-key.model:binding-origin binding)))
+      (is (ivory-key.source:source-origin=
+           origin (ivory-key.model:normalized-entry-origin entry)))
+      (is-equal '(5 1)
+                (origin-span-start
+                 (ivory-key.model:normalized-binding-origin
+                  (first (ivory-key.model:normalized-layout-bindings normalized)))))
+      ;; Origin equality is structural: separately parsed source has a fresh
+      ;; SOURCE-FILE object but the same logical identity and bytes.
+      (let* ((other (decode))
+             (other-origin
+               (ivory-key.model:behavior-origin
+                (ivory-key.model:binding-behavior
+                 (ivory-key.model:layout-binding other "a" :errorp t)))))
+        (is (ivory-key.source:source-origin= origin other-origin))))))
+
+(defparameter +interaction-template-origin-source+
+  "(ivory-key 1)
+(define-layout interaction-origin-demo
+(define-interaction-template core-interaction (position)
+(interaction template-body
+(:participants position)
+(:anchor position)
+(:match (sequence (down position) (up position)))
+(:commit (up position))
+(:do (unicode \"i\"))))
+(define-interaction-template wrapper-interaction (position)
+(instantiate-interaction core-interaction (:position position)))
+(instantiate-interaction materialized wrapper-interaction (:position a)))")
+
+(deftest interaction-template-decoder-preserves-nested-interaction-origins
+  (let* ((layout
+           (ivory-key.model:decode-layout-forms
+            (ivory-key.syntax:parse-string +interaction-template-origin-source+
+                                            :name "logical/interaction-origin.ivory")))
+         (interaction (first (ivory-key.model:layout-interactions layout)))
+         (candidate (first (ivory-key.model:interaction-candidates interaction)))
+         (origin (ivory-key.model:candidate-origin candidate))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (normalized-interaction
+           (first (ivory-key.model:normalized-layout-interactions normalized)))
+         (normalized-candidate
+           (first (ivory-key.model:normalized-interaction-candidates normalized-interaction))))
+    ;; The candidate body is defined by INTERACTION; its path crosses the
+    ;; non-materializing nested delegation then the top-level materialization.
+    (is-equal '(4 1) (origin-span-start origin))
+    (is-equal '((11 1) (12 1)) (origin-use-starts origin))
+    (is-equal '(4 1)
+              (origin-span-start (ivory-key.model:interaction-origin interaction)))
+    (is-equal '((11 1) (12 1))
+              (origin-use-starts (ivory-key.model:interaction-origin interaction)))
+    (is (ivory-key.source:source-origin=
+         origin (ivory-key.model:normalized-candidate-origin normalized-candidate)))
+    (is-equal "materialized"
+              (ivory-key.model:identifier-name
+               (ivory-key.model:normalized-interaction-name normalized-interaction)))))
+
+(defparameter +table-entry-origin-source+
+  "(ivory-key 1)
+(define-layout table-entry-origin-demo
+(axis case (:states plain shifted) (:resolution product))
+(define-behavior inherited-none ()
+  (by-level
+    ((plain) none)
+    ((shifted) (inherit (plain)))))
+(binding inherited (inherited-none))
+(binding fallback-none
+  (at (plain) none)
+  (fallback none)))")
+
+(defun normalized-entry-origin-for (layout position context)
+  (let* ((normalized (ivory-key.model:normalize-layout layout))
+         (binding (find position
+                        (ivory-key.model:normalized-layout-bindings normalized)
+                        :key (lambda (entry)
+                               (ivory-key.model:identifier-name
+                                (ivory-key.model:normalized-binding-position entry)))
+                        :test #'string=))
+         (entry
+           (ivory-key.model:normalized-binding-entry-for-context
+            binding
+            (ivory-key.model:make-semantic-context
+             (ivory-key.model:layout-axes layout) :values context))))
+    (ivory-key.model:normalized-entry-origin entry)))
+
+(deftest interaction-template-decoder-preserves-none-and-inheritance-entry-origins
+  (let ((layout
+          (ivory-key.model:decode-layout-forms
+           (ivory-key.syntax:parse-string +table-entry-origin-source+
+                                           :name "logical/table-entry-origin.ivory"))))
+    ;; NONE is defined by the selected concrete AT entry, even after the
+    ;; enclosing table is materialized through a behavior template.
+    (let ((plain-origin
+            (normalized-entry-origin-for layout "inherited" '(("case" . "plain"))))
+          (shifted-origin
+            (normalized-entry-origin-for layout "inherited" '(("case" . "shifted")))))
+      (is-equal '(6 5) (origin-span-start plain-origin))
+      (is-equal '((8 20)) (origin-use-starts plain-origin))
+      ;; The inherited result retains the source NONE declaration and records
+      ;; the target INHERIT entry before the outer template materialization.
+      (is-equal '(6 5) (origin-span-start shifted-origin))
+      (is-equal '((7 5) (8 20)) (origin-use-starts shifted-origin)))
+    ;; Generated entries supplied by FALLBACK retain that concrete FALLBACK
+    ;; clause instead of inheriting the enclosing binding's source span.
+    (let ((origin
+            (normalized-entry-origin-for layout "fallback-none"
+                                         '(("case" . "shifted")))))
+      (is-equal '(11 3) (origin-span-start origin))
+      (is-equal nil (origin-use-starts origin)))))

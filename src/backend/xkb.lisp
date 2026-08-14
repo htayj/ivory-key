@@ -15,13 +15,16 @@
 (defmethod capabilities ((backend xkb-backend))
   (declare (ignore backend))
   (make-instance 'backend-capabilities
+                 :input-identities '(:xkb-key-name)
                  :native-level-limit 8
                  :native-group-limit 4
                  :modifier-slots '("Shift" "Lock" "Control"
                                    "Mod1" "Mod2" "Mod3" "Mod4" "Mod5")
                  :interaction-features nil
                  :output-features '(:keysym :unicode :modifier :group-selector)
-                 :validation-program "xkbcli"))
+                 :carrier-channels '(:xkb-keycode-input)
+                 :validation-program "xkbcli"
+                 :platform-assumptions '(:xkb-keymap)))
 
 (defun safe-xkb-identifier-p (value)
   (and (stringp value)

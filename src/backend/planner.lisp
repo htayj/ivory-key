@@ -30,12 +30,15 @@
    ;; entries must therefore never be sorted by a backend or hash table.
    (axes :initarg :axes :reader static-table-requirement-axes)
    (entries :initarg :entries :reader static-table-requirement-entries)
+   ;; The binding declaration's semantic provenance.  Individual ENTRIES
+   ;; retain their more specific normalized-entry origins above.
+   (origin :initarg :origin :initform nil :reader static-table-requirement-origin)
    (state-count :initarg :state-count
                 :reader static-table-requirement-state-count)
    (static-p :initarg :static-p :reader static-table-requirement-static-p)))
 
 (defun make-static-table-requirement (position physical-input axes entries
-                                      &key (static-p t))
+                                      &key (static-p t) origin)
   "Make an immutable-by-convention request for one normalized binding table.
 
 ENTRIES stay in normalized order: the first declared axis varies fastest.
@@ -46,18 +49,21 @@ No fixed-width selector or modifier representation is introduced here.
                  :physical-input physical-input
                  :axes (copy-list axes)
                  :entries (copy-list entries)
+                 :origin (first (%planner-canonical-origins (list origin)))
                  :state-count (length entries)
                  :static-p static-p))
 
 (defclass planned-binding (static-table-requirement) ())
 
-(defun make-planned-binding (position physical-input axes entries &key (static-p t))
+(defun make-planned-binding (position physical-input axes entries
+                             &key (static-p t) origin)
   "Construct the binding-table form retained in a LOWERING-PLAN."
   (make-instance 'planned-binding
                  :position (ensure-identifier position)
                  :physical-input physical-input
                  :axes (copy-list axes)
                  :entries (copy-list entries)
+                 :origin (first (%planner-canonical-origins (list origin)))
                  :state-count (length entries)
                  :static-p static-p))
 
@@ -176,28 +182,40 @@ fastest after partitioning.
    (cardinality :initarg :cardinality :initform 1
                 :reader planner-resource-requirement-cardinality)
    (detail :initarg :detail :initform "" :reader planner-resource-requirement-detail)
-   ;; The current normalized model has no source-span slot.  Keep this field
-   ;; now so a decoder can attach the source authority without changing the
-   ;; planner IR later.
-   (source :initarg :source :initform nil :reader planner-resource-requirement-source)))
+   ;; SOURCE predates typed model provenance and stays available to callers
+   ;; that attach a diagnostic authority of their own.  ORIGINS is the closed
+   ;; list of normalized binding/entry sources that require this resource.
+   ;; A one-resource allocation can serve several equal abstract uses, so
+   ;; collapsing it to one arbitrary location would be misleading.
+   (source :initarg :source :initform nil :reader planner-resource-requirement-source)
+   (origins :initarg :origins :initform nil
+            :reader planner-resource-requirement-origins)))
 
 (defun make-planner-resource-requirement (kind owner
-                                           &key (cardinality 1) (detail "") source)
+                                           &key (cardinality 1) (detail "") source origins)
   "Make one target-independent finite-resource obligation."
   (check-type cardinality (integer 1 *))
   (make-instance 'planner-resource-requirement
                  :kind kind :owner owner :cardinality cardinality
-                 :detail detail :source source))
+                 :detail detail :source source
+                 :origins (%planner-canonical-origins origins)))
 
 (defclass planner-allocation ()
   ((requirement :initarg :requirement :reader planner-allocation-requirement)
    (pool-kind :initarg :pool-kind :reader planner-allocation-pool-kind)
-   (value :initarg :value :reader planner-allocation-value)))
+   (value :initarg :value :reader planner-allocation-value)
+   ;; Snapshot the causal origins rather than requiring a contract writer to
+   ;; walk mutable planner objects back to a normalized layout.
+   (origins :initarg :origins :initform nil :reader planner-allocation-origins)))
 
-(defun make-planner-allocation (requirement pool-kind value)
+(defun make-planner-allocation (requirement pool-kind value &key origins)
   "Record one deterministic concrete allocation made during capability planning."
   (make-instance 'planner-allocation :requirement requirement
-                 :pool-kind pool-kind :value value))
+                 :pool-kind pool-kind :value value
+                 :origins
+                 (%planner-canonical-origins
+                  (or origins
+                      (planner-resource-requirement-origins requirement)))))
 
 (defclass lowering-plan ()
   ((layout :initarg :layout :reader lowering-plan-layout)
@@ -249,6 +267,45 @@ fastest after partitioning.
 
 (defun %planner-key (kind owner)
   (format nil "~A/~A" (%planner-name kind) (%planner-name owner)))
+
+(defun %planner-origin= (left right)
+  "Compare the only two provenance states the planner accepts.
+
+NIL denotes intentionally programmatic model data.  Any non-NIL provenance
+must already be a typed SOURCE:SOURCE-ORIGIN; accepting a pathname, condition,
+or arbitrary host object here would make a later contract impossible to render
+without guessing.
+"
+  (cond ((null left) (null right))
+        ((null right) nil)
+        ((and (typep left 'ivory-key.source:source-origin)
+              (typep right 'ivory-key.source:source-origin))
+         (ivory-key.source:source-origin= left right))
+        (t nil)))
+
+(defun %planner-canonical-origins (origins)
+  "Copy ORIGINS in semantic order, retaining one explicit NIL when needed."
+  (let ((result nil))
+    (dolist (origin origins (nreverse result))
+      (unless (or (null origin)
+                  (typep origin 'ivory-key.source:source-origin))
+        (error 'planner-refusal :code :invalid-source-origin
+               :detail "Planner provenance must be a SOURCE:SOURCE-ORIGIN or NIL."))
+      (unless (find origin result :test #'%planner-origin=)
+        (push origin result)))))
+
+(defun %planner-combine-origins (&rest origin-lists)
+  (%planner-canonical-origins (apply #'append (mapcar #'copy-list origin-lists))))
+
+(defun %planner-requirement-feature (category owner)
+  "Return a stable, non-colliding feature identity for one planner obligation.
+
+Static-table results retain their logical-position feature names for existing
+inspection.  Requirements which are not themselves table entries must not
+reuse those names: doing so would allow a capacity-only :EXACT result to hide
+an unproved selector, semantic modifier, interaction, or resource use.
+"
+  (%planner-key category owner))
 
 (defun %planner-resource-requirement< (left right)
   (string< (%planner-key (planner-resource-requirement-kind left)
@@ -359,7 +416,8 @@ non-NIL list with no record is missing evidence and is refused below.
         (%planner-require-covered-input placement position input)
         (push (make-planned-binding position input axes
                                     (normalized-binding-entries binding)
-                                    :static-p (%planner-static-p axes))
+                                    :static-p (%planner-static-p axes)
+                                    :origin (normalized-binding-origin binding))
               requirements)))
     (sort requirements #'%planner-binding<)))
 
@@ -399,31 +457,40 @@ non-NIL list with no record is missing evidence and is refused below.
            partitions)
    #'identifier< :key #'bank-selector-requirement-position))
 
-(defun %planner-output-resource-requirements (behavior)
+(defun %planner-output-resource-requirements (behavior entry-origin)
   "Describe resources implied by a complete abstract output recursively."
-  (cond
-    ((typep behavior 'command-output)
-     (list (make-planner-resource-requirement
-            :command (command-name behavior)
-            :detail "Application-visible command identity.")))
-    ((typep behavior 'named-symbol-output)
-     (list (make-planner-resource-requirement
-            :named-symbol (named-symbol-name behavior)
-            :detail "Backend spelling for an abstract named symbol.")))
-    ((typep behavior 'named-key-output)
-     (list (make-planner-resource-requirement
-            :named-key (named-key-name behavior)
-            :detail "Backend spelling for an abstract named key.")))
-    ((typep behavior 'axis-operation-behavior)
-     (list (make-planner-resource-requirement
-            :axis-operation (axis-operation-axis behavior)
-            :detail "A realization for a semantic context-axis operation.")))
-    ((typep behavior 'modifier-operation-behavior)
-     (list (make-planner-resource-requirement
-            :semantic-modifier (modifier-operation-modifier behavior)
-            :detail "Application-visible semantic modifier operation.")))
-    (t (mapcan #'%planner-output-resource-requirements
-               (behavior-children behavior)))))
+  (let ((origins
+          (%planner-canonical-origins
+           (list entry-origin (behavior-origin behavior)))))
+    (cond
+      ((typep behavior 'command-output)
+       (list (make-planner-resource-requirement
+              :command (command-name behavior)
+              :detail "Application-visible command identity."
+              :origins origins)))
+      ((typep behavior 'named-symbol-output)
+       (list (make-planner-resource-requirement
+              :named-symbol (named-symbol-name behavior)
+              :detail "Backend spelling for an abstract named symbol."
+              :origins origins)))
+      ((typep behavior 'named-key-output)
+       (list (make-planner-resource-requirement
+              :named-key (named-key-name behavior)
+              :detail "Backend spelling for an abstract named key."
+              :origins origins)))
+      ((typep behavior 'axis-operation-behavior)
+       (list (make-planner-resource-requirement
+              :axis-operation (axis-operation-axis behavior)
+              :detail "A realization for a semantic context-axis operation."
+              :origins origins)))
+      ((typep behavior 'modifier-operation-behavior)
+       (list (make-planner-resource-requirement
+              :semantic-modifier (modifier-operation-modifier behavior)
+              :detail "Application-visible semantic modifier operation."
+              :origins origins)))
+      (t (mapcan (lambda (child)
+                   (%planner-output-resource-requirements child entry-origin))
+                 (behavior-children behavior))))))
 
 (defun %planner-deduplicate-resource-requirements (requirements)
   (let ((seen (make-hash-table :test #'equal))
@@ -431,12 +498,40 @@ non-NIL list with no record is missing evidence and is refused below.
     (dolist (requirement requirements)
       (let ((key (%planner-key (planner-resource-requirement-kind requirement)
                                (planner-resource-requirement-owner requirement))))
-        (unless (gethash key seen)
-          (setf (gethash key seen) t)
-          (push requirement result))))
+        (let ((previous (gethash key seen)))
+          (if previous
+              ;; One finite allocation may discharge equal abstract resource
+              ;; obligations from several entries.  Keep every cause in
+              ;; normalized encounter order instead of assigning a fabricated
+              ;; primary source to the shared allocation.
+              (setf (gethash key seen)
+                    (make-planner-resource-requirement
+                     (planner-resource-requirement-kind previous)
+                     (planner-resource-requirement-owner previous)
+                     :cardinality
+                     (planner-resource-requirement-cardinality previous)
+                     :detail (planner-resource-requirement-detail previous)
+                     :source (planner-resource-requirement-source previous)
+                     :origins
+                     (%planner-combine-origins
+                      (planner-resource-requirement-origins previous)
+                      (planner-resource-requirement-origins requirement))))
+              (setf (gethash key seen) requirement)))))
+    (maphash (lambda (key requirement)
+               (declare (ignore key))
+               (push requirement result))
+             seen)
     (sort result #'%planner-resource-requirement<)))
 
-(defun %planner-resource-requirements (bindings selectors bank-selectors modifiers)
+(defun %planner-binding-origins-for-positions (bindings positions)
+  (%planner-canonical-origins
+   (loop for position in positions
+         for binding = (find position bindings
+                             :test #'identifier=
+                             :key #'static-table-requirement-position)
+         when binding collect (static-table-requirement-origin binding))))
+
+(defun %planner-resource-requirements (layout bindings selectors bank-selectors modifiers)
   (let ((requirements
           (append
            (loop for selector in selectors collect
@@ -445,7 +540,9 @@ non-NIL list with no record is missing evidence and is refused below.
               :detail (format nil "Selector for ~A with states ~{~A~^, ~}."
                               (identifier-name (selector-requirement-axis selector))
                               (mapcar #'identifier-name
-                                      (selector-requirement-states selector)))))
+                                      (selector-requirement-states selector)))
+              :origins (%planner-binding-origins-for-positions
+                        bindings (selector-requirement-positions selector))))
            (loop for selector in bank-selectors append
              (let ((position (bank-selector-requirement-position selector))
                    (bank-count (bank-selector-requirement-bank-count selector))
@@ -456,20 +553,30 @@ non-NIL list with no record is missing evidence and is refused below.
                  :bank-selector position
                  :detail (format nil
                                  "Abstract selection among ~D native-level banks; no selector lowering is implied."
-                                 bank-count))
+                                 bank-count)
+                 :origins (%planner-binding-origins-for-positions
+                           bindings (list position)))
                 (make-planner-resource-requirement
                  :bank-carrier position :cardinality carrier-count
                  :detail (format nil
                                  "~D distinguishable abstract carrier values are required to select ~D banks."
-                                 carrier-count bank-count)))))
+                                 carrier-count bank-count)
+                 :origins (%planner-binding-origins-for-positions
+                           bindings (list position))))))
            (loop for modifier in modifiers collect
              (make-planner-resource-requirement
               :semantic-modifier (modifier-requirement-modifier modifier)
-              :detail "Application-visible semantic modifier."))
+              :detail "Application-visible semantic modifier."
+              ;; The source model currently records one origin for the layout
+              ;; modifier declaration set.  Retain that authority until a
+              ;; future per-modifier declaration supplies a narrower origin.
+              :origins (%planner-canonical-origins
+                        (list (normalized-layout-origin layout)))))
            (loop for binding in bindings append
              (loop for entry in (static-table-requirement-entries binding) append
                (%planner-output-resource-requirements
-                (normalized-entry-behavior entry)))))))
+                (normalized-entry-behavior entry)
+                (normalized-entry-origin entry)))))))
     (%planner-deduplicate-resource-requirements requirements)))
 
 ;;; Capability grading -------------------------------------------------------
@@ -599,6 +706,65 @@ NIL rather than guessed from another backend's layer model.
                     (static-table-requirement-state-count binding)
                     xkb-level-limit)))))))
 
+(defun %planner-selector-realizations (selectors)
+  "Classify every normalized context selector independently of table capacity.
+
+The current capability protocol can advertise a table capacity, but no selected
+backend supplies a complete selector transition, consumption, and
+client-visible-state realization.  Do not promote an ordinary XKB modifier or
+group capability to that stronger claim merely because its spelling resembles
+an abstract axis.
+"
+  (mapcar
+   (lambda (selector)
+     (let ((axis (selector-requirement-axis selector)))
+       (make-realization-result
+        (%planner-requirement-feature :selector axis) :unsupported
+        :detail
+        (format nil
+                "No selected backend declares an exact ~A selector realization for ~A; table capacity or a resource reservation does not prove its event, consumption, or client-visible semantics."
+                (selector-requirement-resolution selector)
+                (identifier-name axis)))))
+   selectors))
+
+(defun %planner-bank-selector-realizations (selectors)
+  "Classify every multi-bank selection transition as an explicit obligation."
+  (mapcar
+   (lambda (selector)
+     (let ((position (bank-selector-requirement-position selector)))
+       (make-realization-result
+        (%planner-requirement-feature :bank-selector position) :unsupported
+        :detail
+        (format nil
+                "No selected backend declares an exact transition selecting ~D native-level banks for ~A; bank capacity and carrier inventory do not prove runtime selection."
+                (bank-selector-requirement-bank-count selector)
+                (identifier-name position)))))
+   selectors))
+
+(defun %planner-modifier-realizations (modifiers)
+  "Classify semantic modifiers separately from physical modifier-slot inventory."
+  (mapcar
+   (lambda (modifier)
+     (let ((name (modifier-requirement-modifier modifier)))
+       (make-realization-result
+        (%planner-requirement-feature :semantic-modifier name) :unsupported
+        :detail
+        (format nil
+                "No selected backend declares an exact semantic-modifier realization for ~A; a modifier slot or resource reservation alone does not prove application-visible behavior."
+                (identifier-name name)))))
+   modifiers))
+
+(defun %planner-interaction-realizations (interactions)
+  "Classify every timed interaction rather than leaving it as an implicit gap."
+  (mapcar
+   (lambda (interaction)
+     (let ((name (identifier-name (normalized-interaction-name interaction))))
+       (make-realization-result
+        (%planner-requirement-feature :interaction name) :unsupported
+        :detail "No selected backend declares an exact timed-interaction lowering."
+        :source (normalized-interaction-origin interaction))))
+   interactions))
+
 ;;; Deterministic resource allocation ---------------------------------------
 
 (defun %planner-resource-pool (resource-pools kind)
@@ -624,6 +790,18 @@ NIL rather than guessed from another backend's layer model.
           for pool = (%planner-resource-pool resource-pools kind)
           when pool collect (cons kind (%planner-copy-pool pool)))))
 
+(defun %planner-resource-feature (requirement)
+  (%planner-requirement-feature
+   (format nil "resource-~A"
+           (%planner-name (planner-resource-requirement-kind requirement)))
+   (planner-resource-requirement-owner requirement)))
+
+(defun %planner-resource-result (requirement detail)
+  (make-realization-result (%planner-resource-feature requirement) :unsupported
+                           :detail detail
+                           :source (or (first (planner-resource-requirement-origins requirement))
+                                       (planner-resource-requirement-source requirement))))
+
 (defun %planner-reserve-physical-inputs (pools bindings)
   "Keep any resource spellings that are physical inputs out of every pool.
 
@@ -645,34 +823,62 @@ inventory before allocation.  The original caller-owned pools stay untouched.
     (dolist (requirement requirements)
       (let ((pool (cdr (assoc (planner-resource-requirement-kind requirement)
                               pools :test #'eq))))
-        (when pool
-          (handler-case
-              (loop for ordinal below (planner-resource-requirement-cardinality requirement)
-                    for owner = (if (zerop ordinal)
-                                    (%planner-key
-                                     (planner-resource-requirement-kind requirement)
-                                     (planner-resource-requirement-owner requirement))
-                                    (format nil "~A#~D"
-                                            (%planner-key
-                                             (planner-resource-requirement-kind requirement)
-                                             (planner-resource-requirement-owner requirement))
-                                            ordinal))
-                    for value = (allocate-resource pool owner)
-                    do (push (make-planner-allocation
-                              requirement
-                              (planner-resource-requirement-kind requirement)
-                              value)
-                             allocations))
-            (error (condition)
-              (let ((detail (princ-to-string condition)))
-                (push detail diagnostics)
-                (push (make-realization-result
-                       (planner-resource-requirement-owner requirement)
-                       :unsupported
-                       :detail (format nil "Resource ~A is unavailable: ~A"
-                                       (planner-resource-requirement-kind requirement)
-                                       detail))
-                      results)))))))
+        (cond
+          ((null pool)
+           ;; An unallocated resource requirement is not merely advisory: it
+           ;; is a feature with no selected implementation.  Record that fact
+           ;; so REQUIRE-PLANNED-REALIZATIONS cannot accept it by omission.
+           (push (%planner-resource-result
+                  requirement
+                  (format nil
+                          "Resource ~A for ~A has no selected finite allocation; its semantic use remains unproved."
+                          (planner-resource-requirement-kind requirement)
+                          (%planner-name
+                           (planner-resource-requirement-owner requirement))))
+                 results))
+          (t
+           (let ((allocated-values nil))
+             (handler-case
+                 (progn
+                   (loop for ordinal below (planner-resource-requirement-cardinality requirement)
+                         for owner = (if (zerop ordinal)
+                                         (%planner-key
+                                          (planner-resource-requirement-kind requirement)
+                                          (planner-resource-requirement-owner requirement))
+                                         (format nil "~A#~D"
+                                                 (%planner-key
+                                                  (planner-resource-requirement-kind requirement)
+                                                  (planner-resource-requirement-owner requirement))
+                                                 ordinal))
+                         for value = (allocate-resource pool owner)
+                         do (push value allocated-values)
+                            (push (make-planner-allocation
+                                   requirement
+                                   (planner-resource-requirement-kind requirement)
+                                   value)
+                                  allocations))
+                   ;; Reserving a finite value prevents collisions, but cannot
+                   ;; by itself select a target transition or establish its
+                   ;; observable semantics.  Keep the resource result refused
+                   ;; until a concrete backend lowering closes that proof.
+                   (push (%planner-resource-result
+                          requirement
+                          (format nil
+                                  "Resource ~A for ~A reserved ~{~A~^, ~}, but no selected backend declares an exact lowering that consumes it."
+                                  (planner-resource-requirement-kind requirement)
+                                  (%planner-name
+                                   (planner-resource-requirement-owner requirement))
+                                  (nreverse allocated-values)))
+                         results))
+               (error (condition)
+                 (let ((detail (princ-to-string condition)))
+                   (push detail diagnostics)
+                   (push (%planner-resource-result
+                          requirement
+                          (format nil "Resource ~A is unavailable: ~A"
+                                  (planner-resource-requirement-kind requirement)
+                                  detail))
+                         results)))))))))
     (values (nreverse allocations) (nreverse results) (nreverse diagnostics))))
 
 ;;; Public planning protocol -------------------------------------------------
@@ -688,8 +894,10 @@ mutate a profile's reusable inventory.
 
 The returned LOWERING-PLAN preserves every normalized table entry.  Tables
 over the selected XKB conventional capacity are marked unsupported with an
-emulation obligation; no state is truncated, replaced with NoSymbol, or
-silently assigned to Kanata/QMK.
+emulation obligation; selectors, semantic modifiers, timed interactions, and
+unconsumed resource requirements also receive explicit unsupported results.
+No state is truncated, replaced with NoSymbol, or silently assigned to
+Kanata/QMK.
 "
   (unless (typep layout 'normalized-layout)
     (error 'planner-refusal :code :invalid-normalized-layout
@@ -703,7 +911,7 @@ silently assigned to Kanata/QMK.
          (selectors (%planner-selector-requirements bindings))
          (bank-selectors (%planner-bank-selector-requirements partitions))
          (modifiers (%planner-modifier-requirements layout))
-         (resources (%planner-resource-requirements bindings selectors bank-selectors
+         (resources (%planner-resource-requirements layout bindings selectors bank-selectors
                                                     modifiers))
          (pools (%planner-copy-resource-pools resource-pools resources)))
     (%planner-reserve-physical-inputs pools bindings)
@@ -715,16 +923,17 @@ silently assigned to Kanata/QMK.
                          binding xkb-level-limit
                          (%planner-partition-for-binding partitions binding)))
                       bindings))
+            (selector-results (%planner-selector-realizations selectors))
+            (bank-selector-results
+              (%planner-bank-selector-realizations bank-selectors))
+            (modifier-results (%planner-modifier-realizations modifiers))
             (interaction-results
-              (mapcar (lambda (interaction)
-                        (make-realization-result
-                         (identifier-name (normalized-interaction-name interaction))
-                         :unsupported
-                         :detail "No target-neutral timed-interaction lowering is claimed by this planner."))
-                      (normalized-layout-interactions layout))))
+              (%planner-interaction-realizations
+               (normalized-layout-interactions layout))))
         (make-lowering-plan layout placement bindings selectors modifiers resources
                             allocations
-                            (append binding-results resource-results interaction-results)
+                            (append binding-results selector-results bank-selector-results
+                                    modifier-results resource-results interaction-results)
                             diagnostics
                             :multi-bank-partition-requirements partitions
                             :bank-selector-requirements bank-selectors)))))

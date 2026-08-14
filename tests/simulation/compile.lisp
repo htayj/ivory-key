@@ -78,12 +78,70 @@
             :between (list (ivory-key.model::pattern-down "a")
                            (ivory-key.model::pattern-up "a")))
            (ivory-key.model::pattern-repeat
-            (ivory-key.model::pattern-down "a") :at-least 1 :at-most 2))))
+            (ivory-key.model::pattern-down "a") :at-least 1 :at-most 2)
+           (ivory-key.model::pattern-context-is "script" "greek"))))
     (dolist (pattern patterns)
       (compile-simulation-assert
        (typep (ivory-key.simulate::compile-model-temporal-pattern pattern)
               'ivory-key.simulate::event-pattern)
        "model pattern ~S should compile into simulator IR" pattern))))
+
+(defun compile-simulation-context-interaction ()
+  (let* ((candidate
+           (ivory-key.model::make-interaction-candidate
+            "greek-release"
+            (ivory-key.model::pattern-conjunction
+             (ivory-key.model::pattern-sequence
+              (ivory-key.model::pattern-down "a")
+              (ivory-key.model::pattern-up "a"))
+             (ivory-key.model::pattern-context-is "script" "greek"))
+            :when-matched
+            (ivory-key.model::make-text-output "alpha")))
+         (interaction
+           (ivory-key.model::make-interaction
+            "context-a" '("a") (list candidate))))
+    (ivory-key.simulate::compile-model-interaction interaction)))
+
+(deftest simulation-compile-context-is-uses-anchor-snapshot-and-latch-shadow
+  (let* ((interaction (compile-simulation-context-interaction))
+         (machine
+           (ivory-key.simulate::make-simulator
+            :interactions (list interaction)
+            :axes '(("script" . "greek")))))
+    (ivory-key.simulate::simulator-feed-event
+     machine (compile-simulation-event 0 :down "a"))
+    ;; Context predicates observe the dependency-scoped anchor snapshot, not
+    ;; mutable commit-time state.
+    (ivory-key.simulate::simulator-set-axis machine "script" "roman")
+    (ivory-key.simulate::simulator-feed-event
+     machine (compile-simulation-event 10 :up "a"))
+    (let* ((result (ivory-key.simulate::simulator-result machine))
+           (commit
+             (find :commit (ivory-key.simulate::simulation-result-trace result)
+                   :key #'ivory-key.simulate::simulation-trace-entry-kind)))
+      (compile-simulation-assert-equal
+       '((:text "alpha"))
+       (ivory-key.simulate::simulation-result-outputs result)
+       "CONTEXT-IS retains the anchor-down state")
+      (compile-simulation-assert
+       (search ":CONTEXT-IS"
+               (prin1-to-string
+                (ivory-key.simulate::simulation-trace-entry-provenance commit)))
+       "CONTEXT-IS is retained in canonical commit provenance")))
+  (let ((result
+          (compile-simulation-result
+           (list (compile-simulation-context-interaction))
+           (list (compile-simulation-event 0 :down "a")
+                 (compile-simulation-event 10 :up "a"))
+           :axes '(("script" . "roman"))
+           :latches '(("script" . "greek")))))
+    (compile-simulation-assert-equal
+     '((:text "alpha"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "a captured latch shadows the ordinary axis value for CONTEXT-IS")
+    (compile-simulation-assert-equal
+     nil (ivory-key.simulate::simulation-result-latches result)
+     "the committed contextual candidate consumes its consulted latch")))
 
 (defun compile-simulation-tap-hold-fixture ()
   (let* ((effects

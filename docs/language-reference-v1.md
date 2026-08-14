@@ -178,6 +178,14 @@ its arguments.  Template recursion, an unknown template, wrong arity, or a
 parameter that cannot become a valid behavior value is refused.  Expansion
 happens before semantic validation.
 
+The typed behavior and normalized binding-entry IR retain optional immutable
+source provenance.  A source-defined behavior records its body definition
+span; after expansion it also records an ordered inner-to-outer list of the
+template reference spans crossed to materialize it.  Programmatic model
+objects legitimately have no origin.  This is model provenance for later
+diagnostics, allocation reports, and source maps—not a backend spelling or a
+host pathname contract.
+
 The representative `(tap-hold ...)` used by the plan's illustrative
 `tap-hold-shift-key` template is **reserved**.  There is no V1 source behavior
 named `tap-hold`, no implicit duration named `thumb`, and no inferred mapping
@@ -376,9 +384,10 @@ closing `up` must be for that same position. A capture name cannot be rebound,
 and unbound references, nested captures, repeated captures, alternatives, and
 unordered capture arrangements are rejected. This rule makes the captured
 foreign-key identity explicit without assigning replay, ordinary-binding
-suppression, or same-frontier ordering semantics. `context-is` remains decoded
-but refused by the reference adapter because it has no runtime context
-predicate.
+suppression, or same-frontier ordering semantics. `context-is` is decoded and
+executable: it compares the named axis/state with the candidate's
+dependency-scoped anchor-down snapshot. A captured latch shadows the ordinary
+axis value. Other context-observation instants remain refused.
 
 **P-TIME-UNITS-01 — literal durations.**  The current source vocabulary uses
 literal integer milliseconds.  `(deadline 200 :after (down a))` and `(within
@@ -443,6 +452,12 @@ and source maps.  Nested delegation retains that outer concrete identity and
 does not create another addressable interaction.  This is a surface identity
 decision, not a new interaction semantic; see
 [Decision 0001](decisions/0001-explicit-interaction-instance-names.md).
+
+Interaction and candidate IR use the same optional provenance rule: the
+candidate preserves the source `interaction`/`case` definition span plus every
+nested delegation and final materialization use span, in that deterministic
+inner-to-outer order.  Normalization preserves those origins unchanged for
+later diagnostic or allocator consumers.
 
 ## 4. Section 5.2 representative-form disposition
 

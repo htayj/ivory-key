@@ -8,8 +8,9 @@
 
 ;;; The simulator deliberately has a smaller executable vocabulary than the
 ;;; model.  It implements only the first, explicitly delimited capture store
-;;; slice and has no context predicate or representation for a multi-position
-;;; exclusion.  This adapter refuses the rest instead of making the reference
+;;; slice and no representation for a multi-position exclusion.  Anchor-time
+;;; context predicates share the candidate snapshot used by behavior dispatch.
+;;; This adapter refuses the rest instead of making the reference
 ;;; oracle silently less precise than the source model.
 
 (defvar *capture-slice-compilation* nil
@@ -216,10 +217,9 @@ MODEL-SIMULATION-COMPILATION-ERROR rather than being weakened or ignored."
               "CAPTURE must bind one direct DOWN event."))
            (capture-pattern (model-identifier->simulation-value name) child))))
       (:context-is
-       (%simulation-compilation-error
-        :unsupported-contextual-temporal-pattern pattern
-        "The reference simulator has no context predicate for ~A."
-        kind))
+       (destructuring-bind (axis state) (%model-pattern-arguments pattern 2)
+         (context-is-pattern (model-identifier->simulation-value axis)
+                             (model-identifier->simulation-value state))))
       (otherwise
        (%simulation-compilation-error
         :unknown-temporal-pattern-kind pattern

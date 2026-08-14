@@ -21,12 +21,15 @@
   ;; selector into a QMK layer key.  Advertising one exact level prevents an
   ;; unreachable emitted layer from being graded as exact.
   (make-instance 'backend-capabilities
+                 :input-identities '(:qmk-layout-position)
                  :native-level-limit 1
                  :native-group-limit nil
                  :modifier-slots nil
                  :interaction-features nil
                  :output-features '(:keycode)
-                 :validation-program "qmk"))
+                 :validation-program "qmk"
+                 :platform-assumptions '(:qmk-configurator-json
+                                         :qmk-firmware-checkout)))
 
 (defun safe-qmk-name-p (value &key slash)
   (and (stringp value)

@@ -2,7 +2,6 @@
 ;; Loading or compiling this project never installs or activates a keymap.
 
 (ivory-key 1)
-
 (import "topologies/kinesis-advantage.ivory")
 (import "layouts/manna-cadet.ivory")
 (import "devices/kinesis-advantage2.ivory")

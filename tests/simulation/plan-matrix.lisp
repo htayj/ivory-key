@@ -404,6 +404,19 @@
       (lambda () (ivory-key.simulate::compile-model-interaction interaction)))
      "model longest-match remains an explicit simulator refusal")))
 
+(deftest simulation-plan-matrix-refuses-unproved-raw-longest-match-scheduling
+  (let ((interaction
+          (ivory-key.simulate::make-sim-interaction
+           :name "raw-longest" :participants '("a") :cases nil
+           :arbitration :longest-match)))
+    (plan-matrix-assert
+     (handler-case
+         (progn
+           (ivory-key.simulate::make-simulator :interactions (list interaction))
+           nil)
+       (ivory-key.simulate::unproved-simulation-arbitration () t))
+     "direct simulator IR must not bypass the model's longest-match refusal")))
+
 ;;; Effect timing, ownership, repetition, and malformed input ----------------
 
 (defun plan-matrix-effect-interactions ()

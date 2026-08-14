@@ -296,10 +296,23 @@ guessed.
   the frozen 360 placement only; it does not select or implement the game
   layer.
 - The migration regression test verifies the frozen five-file hash set and
-  deterministic static truth table. It also data-checks all 14 primary
+  deterministic static truth table. Its generated `diff` report additionally
+  enumerates all 52 static tables/416 cells, both 29-row function placements,
+  and all four direct selectors. It refuses an unexpected table, placement,
+  carrier, selector, or count before printing `Unchecked differences: 0`; that
+  terminal count means every frozen-versus-fixture difference is classified,
+  not that a refusal is solved. It separately data-checks all 14 primary
   `tap-hold-release` aliases, their normal-layer selection, direct Shift
   holders, and relevant `defcfg` policy without making them active Manna
   semantics.
+
+Run `sbcl --script tools/manna-truth-table.lisp diff ROOT` against the
+hash-verified frozen checkout for the complete review artifact.  The report's
+only non-exact classes are deliberate: unplaced `<LSGT>`, the device-specific
+inactive mode-key result, 16 selected tap-hold paths whose lifecycle is still
+unselected, two inactive historical Shift aliases, the eight Advantage-360
+game aliases, and the Group-2/selector-lowering boundary.  The latter remains
+a compiler refusal even for the four direct semantic interactions.
 
 The compiler can inspect a deterministic partial lowering: 51 placed static
 tables, all 29 function carriers, their 29 XKB `I(N+8)` carrier key entries,

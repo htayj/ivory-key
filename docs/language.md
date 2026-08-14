@@ -80,7 +80,8 @@ Implemented behavior forms include `unicode`, `named-key`, `named-symbol`,
 `by-axis`, `by-level`, and explicit `none`, `inherit`, and `transparent`
 entries where applicable. Implemented temporal patterns include `down`, `up`,
 `sequence`, `all`, `either`, `and`, `duration`, `deadline`, `within`,
-`overlap`, `without`, `repeat`, and `context-is`.
+`overlap`, `without`, `repeat`, the finite immutable `capture` slice, and
+`context-is`.
 
 `hold-modifier` and `hold-axis-state` are lifecycle behaviors, not ordinary
 bindings: V1 accepts them only in an interaction candidate's `:while` list.
@@ -145,9 +146,13 @@ one compatible layout, device, and realization profile.
 The CLI's `dump-ir`, `levels`, `simulate`, `explain`, and `compile` commands
 support either their explicit single-file inputs or
 `--project PROJECT --composition NAME`.
-The modes cannot be mixed. Project `dump-ir` supports typed and normalized
-stages, not raw parsed output. `check` remains a syntax command; it does not
-load a project graph.
+The modes cannot be mixed. Project `dump-ir` supports typed, normalized,
+planned, and backend stages, not raw parsed output. `planned` reports the
+canonical capability plan—obligations, grades, and finite allocations—without
+backend lowering. `backend` accepts only an all-exact direct request and shows
+the in-memory XKB/Kanata plans; it writes no artifacts, invokes no validators,
+and refuses unresolved behavior before any pipeline emission. `check` remains
+a syntax command; it does not load a project graph.
 
 Projects may declare realization-owned output spellings without putting them
 in layout bindings:

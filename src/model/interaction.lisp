@@ -159,9 +159,10 @@ IR."
    (commit :initarg :commit :initform nil :reader effect-commit-behaviors)
    (while :initarg :while :initform nil :reader effect-while-behaviors)
    (exit :initarg :exit :initform nil :reader effect-exit-behaviors)
-   (cancel :initarg :cancel :initform nil :reader effect-cancel-behaviors)))
+   (cancel :initarg :cancel :initform nil :reader effect-cancel-behaviors)
+   (origin :initarg :origin :initform nil :reader interaction-effects-origin)))
 
-(defun make-interaction-effects (&key entry commit while exit cancel)
+(defun make-interaction-effects (&key entry commit while exit cancel origin)
   "Create explicit lifecycle effects for one candidate.
 
 All values are lists of complete model behaviors.  The semantic validator
@@ -170,7 +171,7 @@ HOLD-AXIS-STATE are valid only in :WHILE and release automatically when their
 owning effect exits or is cancelled."
   (make-instance 'interaction-effects :entry (copy-list entry)
                  :commit (copy-list commit) :while (copy-list while)
-                 :exit (copy-list exit) :cancel (copy-list cancel)))
+                 :exit (copy-list exit) :cancel (copy-list cancel) :origin origin))
 
 (defun interaction-effects-behaviors (effects)
   (append (effect-entry-behaviors effects)
@@ -198,12 +199,13 @@ owning effect exits or is cancelled."
    ;; effect must not acquire until arbitration has selected the commitment.
    (effect-start :initarg :effect-start :initform :on-match
                  :reader candidate-effect-start)
-   (metadata :initarg :metadata :initform nil :reader candidate-metadata)))
+   (metadata :initarg :metadata :initform nil :reader candidate-metadata)
+   (origin :initarg :origin :initform nil :reader candidate-origin)))
 
 (defun make-interaction-candidate (name match commit behavior
                                     &key effects context-axes
                                       (context-policy :anchor-down)
-                                        (effect-start :on-match) metadata)
+                                        (effect-start :on-match) metadata origin)
   "Create a candidate with an explicit match, commitment, behavior, lifecycle."
   (unless (member context-policy '(:anchor-down :commit))
     (error "Unknown context observation policy ~S." context-policy))
@@ -214,7 +216,7 @@ owning effect exits or is cancelled."
                  :behavior behavior :effects (or effects (make-interaction-effects))
                  :context-axes (and context-axes (copy-identifier-list context-axes))
                  :context-policy context-policy :effect-start effect-start
-                 :metadata metadata))
+                 :metadata metadata :origin origin))
 
 (defun candidate-axis-dependencies (candidate)
   "The exact dependency scope for a candidate's captured context."
@@ -236,16 +238,17 @@ owning effect exits or is cancelled."
    (candidates :initarg :candidates :reader interaction-candidates)
    ;; NIL deliberately means no implicit policy; conflicts then fail.
    (arbitration :initarg :arbitration :initform nil :reader interaction-arbitration)
-   (metadata :initarg :metadata :initform nil :reader interaction-metadata)))
+   (metadata :initarg :metadata :initform nil :reader interaction-metadata)
+   (origin :initarg :origin :initform nil :reader interaction-origin)))
 
 (defun make-interaction (name participants candidates
-                          &key (observe :participants) anchor arbitration metadata)
+                          &key (observe :participants) anchor arbitration metadata origin)
   "Create a finite interaction over logical press intervals."
   (make-instance 'interaction :name (ensure-identifier name)
                  :participants (mapcar #'%interaction-identifier-or-parameter participants)
                  :observe observe :anchor (and anchor (%interaction-identifier-or-parameter anchor))
                  :candidates (copy-list candidates) :arbitration arbitration
-                 :metadata metadata))
+                 :metadata metadata :origin origin))
 
 (defun priority-arbitration (&rest candidate-names)
   "A deterministic priority order, highest priority first."
@@ -258,20 +261,23 @@ owning effect exits or is cancelled."
 (defclass interaction-template ()
   ((name :initarg :name :reader interaction-template-name)
    (parameters :initarg :parameters :reader interaction-template-parameters)
-   (body :initarg :body :reader interaction-template-body)))
+   (body :initarg :body :reader interaction-template-body)
+   (origin :initarg :origin :initform nil :reader interaction-template-origin)))
 
-(defun make-interaction-template (name parameters body)
+(defun make-interaction-template (name parameters body &key origin)
   "Create a declarative interaction template; no arbitrary Lisp is evaluated."
   (make-instance 'interaction-template :name (ensure-identifier name)
-                 :parameters (copy-identifier-list parameters) :body body))
+                 :parameters (copy-identifier-list parameters) :body body
+                 :origin origin))
 
 (defclass interaction-template-reference ()
   ((name :initarg :name :reader interaction-reference-name)
-   (arguments :initarg :arguments :reader interaction-reference-arguments)))
+   (arguments :initarg :arguments :reader interaction-reference-arguments)
+   (origin :initarg :origin :initform nil :reader interaction-reference-origin)))
 
-(defun make-interaction-template-reference (name arguments)
+(defun make-interaction-template-reference (name arguments &key origin)
   (make-instance 'interaction-template-reference :name (ensure-identifier name)
-                 :arguments (copy-list arguments)))
+                 :arguments (copy-list arguments) :origin origin))
 
 (defun temporal-pattern-finite-p (pattern)
   "Cheap structural finiteness predicate used before detailed diagnostics.

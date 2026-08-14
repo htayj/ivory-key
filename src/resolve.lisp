@@ -37,11 +37,152 @@
 
 (defun %copy-table-entry-with-behavior (entry behavior)
   (ecase (behavior-entry-disposition entry)
-    (:behavior (make-behavior-entry (behavior-entry-tuple entry) behavior))
-    (:none (make-none-entry (behavior-entry-tuple entry)))
-    (:transparent (make-transparent-entry (behavior-entry-tuple entry)))
+    (:behavior (make-behavior-entry (behavior-entry-tuple entry) behavior
+                                    :origin (behavior-entry-origin entry)))
+    (:none (make-none-entry (behavior-entry-tuple entry)
+                            :origin (behavior-entry-origin entry)))
+    (:transparent (make-transparent-entry (behavior-entry-tuple entry)
+                                          :origin (behavior-entry-origin entry)))
     (:inherit (make-inherit-entry (behavior-entry-tuple entry)
-                                  (behavior-entry-inherit-tuple entry)))))
+                                  (behavior-entry-inherit-tuple entry)
+                                  :origin (behavior-entry-origin entry)))))
+
+(defun %common-origin-use-suffix-length (left right)
+  "Return the structural common-suffix length of two origin use paths."
+  (loop with left-index = (1- (length left))
+        with right-index = (1- (length right))
+        with count = 0
+        while (and (>= left-index 0) (>= right-index 0)
+                   (source-span= (nth left-index left) (nth right-index right)))
+        do (decf left-index)
+           (decf right-index)
+           (incf count)
+        finally (return count)))
+
+(defun %origin-with-use-boundary (origin boundary)
+  "Extend ORIGIN through one concrete use BOUNDARY.
+
+BOUNDARY is normally a source span for a template reference.  An inherited
+table entry instead supplies a source origin: its declaration is one more use
+site, followed by the entry's already-recorded outer template uses.  Shared
+outer uses are retained only once so the resulting path remains ordered from
+the source definition through the inheritance edge to materialization.
+"
+  ;; A programmatic reference has no source span.  It must not erase the
+  ;; declaration provenance already carried by a source-defined body.
+  (cond ((null boundary) origin)
+        ((null origin) nil)
+        ((typep boundary 'source-span)
+         (source-origin-with-use-span origin boundary))
+        ((typep boundary 'source-origin)
+         (let* ((origin-uses (source-origin-use-spans origin))
+                (boundary-uses (source-origin-use-spans boundary))
+                (common (%common-origin-use-suffix-length origin-uses boundary-uses))
+                (prefix (subseq origin-uses 0 (- (length origin-uses) common)))
+                (boundary-definition (source-origin-definition-span boundary)))
+           (make-source-origin
+            :definition-span (source-origin-definition-span origin)
+            :use-spans (append prefix
+                               (if boundary-definition (list boundary-definition) nil)
+                               boundary-uses))))
+        (t (error "Unsupported provenance use boundary ~S." boundary))))
+
+(defun %behavior-with-use-span (behavior use-boundary)
+  "Copy BEHAVIOR through USE-BOUNDARY at every source-bearing descendant.
+
+An expansion boundary applies to the complete materialized body, not only its
+root behavior: diagnostics for nested BY-LEVEL entries and composed actions
+must be able to walk from their definition through the same template uses.
+Programmatic objects intentionally retain NIL origins.
+"
+  (labels ((copy-entry (entry)
+             (ecase (behavior-entry-disposition entry)
+               (:behavior (make-behavior-entry
+                           (behavior-entry-tuple entry)
+                           (copy* (behavior-entry-behavior entry))
+                           :origin (%origin-with-use-boundary
+                                    (behavior-entry-origin entry) use-boundary)))
+               (:none (make-none-entry
+                        (behavior-entry-tuple entry)
+                        :origin (%origin-with-use-boundary
+                                 (behavior-entry-origin entry) use-boundary)))
+               (:transparent (make-transparent-entry
+                              (behavior-entry-tuple entry)
+                              :origin (%origin-with-use-boundary
+                                       (behavior-entry-origin entry) use-boundary)))
+               (:inherit (make-inherit-entry
+                          (behavior-entry-tuple entry)
+                          (behavior-entry-inherit-tuple entry)
+                          :origin (%origin-with-use-boundary
+                                   (behavior-entry-origin entry) use-boundary)))))
+           (copy* (node)
+             (typecase node
+               (text-output
+                (make-text-output (output-text node)
+                                  :origin (%origin-with-use-boundary
+                                           (behavior-origin node) use-boundary)))
+               (named-key-output
+                (make-named-key-output (named-key-name node)
+                                       :origin (%origin-with-use-boundary
+                                                (behavior-origin node) use-boundary)))
+               (named-symbol-output
+                (make-named-symbol-output (named-symbol-name node)
+                                          :origin (%origin-with-use-boundary
+                                                   (behavior-origin node) use-boundary)))
+               (command-output
+                (make-command-output (command-name node)
+                                     :origin (%origin-with-use-boundary
+                                              (behavior-origin node) use-boundary)))
+               (no-output-behavior
+                (make-no-output-behavior
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (held-modifier-behavior
+                (make-held-modifier-operation
+                 (modifier-operation-modifier node)
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (modifier-operation-behavior
+                (make-modifier-operation
+                 (modifier-operation node) (modifier-operation-modifier node)
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (axis-operation-behavior
+                (make-axis-operation
+                 (axis-operation node) (axis-operation-axis node)
+                 (axis-operation-state node)
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (ordered-behavior
+                (make-sequence-behavior
+                 (mapcar #'copy* (ordered-behaviors node))
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (simultaneous-behavior
+                (make-simultaneous-behavior
+                 (mapcar #'copy* (simultaneous-behaviors node))
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (axis-choice-behavior
+                (make-axis-choice-behavior
+                 (choice-axis node)
+                 (mapcar (lambda (choice) (cons (car choice) (copy* (cdr choice))))
+                         (choice-behaviors node))
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (behavior-table
+                (make-behavior-table
+                 (behavior-table-axes node)
+                 (mapcar #'copy-entry (behavior-table-entries node))
+                 :allowed-tuples (behavior-table-allowed-tuples node)
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (behavior-template-parameter
+                (make-behavior-template-parameter
+                 (behavior-parameter-name node)
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (behavior-template-reference
+                (make-behavior-template-reference
+                 (behavior-reference-name node)
+                 (mapcar (lambda (argument)
+                           (if (typep argument 'behavior) (copy* argument) argument))
+                         (behavior-reference-arguments node))
+                 :origin (%origin-with-use-boundary (behavior-origin node) use-boundary)))
+               (behavior node)
+               (t node))))
+    (if use-boundary (copy* behavior) behavior)))
 
 (defun resolve-behavior (behavior layout &key environment stack)
   "Expand finite, named behavior templates in BEHAVIOR.
@@ -91,44 +232,59 @@ recursive template edge a stable, explicit error rather than a stack overflow."
                                                (resolve* argument environment stack))
                                               (t (%template-value argument environment)))))
                                     parameters arguments)))
-                      (resolve* (behavior-template-body template) bindings
-                                (cons key stack))))))
+                      (let ((resolved
+                              (resolve* (behavior-template-body template) bindings
+                                        (cons key stack))))
+                        (%behavior-with-use-span
+                         resolved
+                         (and (behavior-origin node)
+                              (source-origin-definition-span
+                               (behavior-origin node)))))))))
                (text-output
                 (make-text-output (%template-string (output-text node) environment
-                                                    "UNICODE")))
+                                                    "UNICODE")
+                                  :origin (behavior-origin node)))
                (named-key-output
                 (make-named-key-output
-                 (%template-identifier (named-key-name node) environment "NAMED-KEY")))
+                 (%template-identifier (named-key-name node) environment "NAMED-KEY")
+                 :origin (behavior-origin node)))
                (named-symbol-output
                 (make-named-symbol-output
-                 (%template-identifier (named-symbol-name node) environment "NAMED-SYMBOL")))
+                 (%template-identifier (named-symbol-name node) environment "NAMED-SYMBOL")
+                 :origin (behavior-origin node)))
                (command-output
                 (make-command-output
-                 (%template-identifier (command-name node) environment "COMMAND")))
+                 (%template-identifier (command-name node) environment "COMMAND")
+                 :origin (behavior-origin node)))
                (held-modifier-behavior
                 (make-held-modifier-operation
                  (%template-identifier (modifier-operation-modifier node) environment
-                                       "held modifier")))
+                                       "held modifier")
+                 :origin (behavior-origin node)))
                (modifier-operation-behavior
                 (make-modifier-operation
                  (modifier-operation node)
                  (%template-identifier (modifier-operation-modifier node) environment
-                                       "modifier operation")))
+                                       "modifier operation")
+                 :origin (behavior-origin node)))
                (axis-operation-behavior
                 (make-axis-operation
                  (axis-operation node)
                  (%template-identifier (axis-operation-axis node) environment
                                        "axis operation")
                  (let ((state (axis-operation-state node)))
-                   (and state (%template-identifier state environment "axis operation")))))
+                   (and state (%template-identifier state environment "axis operation")))
+                 :origin (behavior-origin node)))
                (ordered-behavior
                 (make-sequence-behavior
                  (mapcar (lambda (child) (resolve* child environment stack))
-                         (ordered-behaviors node))))
+                         (ordered-behaviors node))
+                 :origin (behavior-origin node)))
                (simultaneous-behavior
                 (make-simultaneous-behavior
                  (mapcar (lambda (child) (resolve* child environment stack))
-                         (simultaneous-behaviors node))))
+                         (simultaneous-behaviors node))
+                 :origin (behavior-origin node)))
                (axis-choice-behavior
                 (make-axis-choice-behavior
                  (%template-identifier (choice-axis node) environment "BY-AXIS")
@@ -136,7 +292,8 @@ recursive template edge a stable, explicit error rather than a stack overflow."
                            (cons (%template-identifier (car choice) environment
                                                        "BY-AXIS choice")
                                  (resolve* (cdr choice) environment stack)))
-                         (choice-behaviors node))))
+                         (choice-behaviors node))
+                 :origin (behavior-origin node)))
                (behavior-table
                 (make-behavior-table
                  (behavior-table-axes node)
@@ -146,7 +303,8 @@ recursive template edge a stable, explicit error rather than a stack overflow."
                             (let ((child (behavior-entry-behavior entry)))
                               (and child (resolve* child environment stack)))))
                          (behavior-table-entries node))
-                 :allowed-tuples (behavior-table-allowed-tuples node)))
+                 :allowed-tuples (behavior-table-allowed-tuples node)
+                 :origin (behavior-origin node)))
                (behavior node)
                (t (%resolution-error :invalid-behavior
                                       "Expected a behavior, got ~S." node)))))
@@ -219,7 +377,8 @@ reads nor evaluates source text.
                             (effect-exit-behaviors effects))
               :cancel (mapcar (lambda (behavior)
                                 (resolve-behavior behavior layout :environment environment))
-                              (effect-cancel-behaviors effects)))))
+                              (effect-cancel-behaviors effects))
+              :origin (interaction-effects-origin effects))))
     (make-interaction-candidate
      (candidate-name candidate)
      (%resolve-temporal-pattern (candidate-match candidate) environment)
@@ -232,7 +391,8 @@ reads nor evaluates source text.
      :context-axes (candidate-context-axes candidate)
      :context-policy (candidate-context-policy candidate)
      :effect-start (candidate-effect-start candidate)
-     :metadata (candidate-metadata candidate))))
+     :metadata (candidate-metadata candidate)
+     :origin (candidate-origin candidate))))
 
 (defun resolve-interaction (interaction layout &key environment)
   (make-interaction (interaction-name interaction)
@@ -247,13 +407,52 @@ reads nor evaluates source text.
                     :anchor (let ((anchor (interaction-anchor interaction)))
                               (and anchor (%interaction-template-value anchor environment)))
                     :arbitration (interaction-arbitration interaction)
-                    :metadata (interaction-metadata interaction)))
+                    :metadata (interaction-metadata interaction)
+                    :origin (interaction-origin interaction)))
+
+(defun %interaction-effects-with-use-span (effects use-span)
+  (make-interaction-effects
+   :entry (mapcar (lambda (behavior) (%behavior-with-use-span behavior use-span))
+                  (effect-entry-behaviors effects))
+   :commit (mapcar (lambda (behavior) (%behavior-with-use-span behavior use-span))
+                   (effect-commit-behaviors effects))
+   :while (mapcar (lambda (behavior) (%behavior-with-use-span behavior use-span))
+                  (effect-while-behaviors effects))
+   :exit (mapcar (lambda (behavior) (%behavior-with-use-span behavior use-span))
+                 (effect-exit-behaviors effects))
+   :cancel (mapcar (lambda (behavior) (%behavior-with-use-span behavior use-span))
+                   (effect-cancel-behaviors effects))
+   :origin (%origin-with-use-boundary (interaction-effects-origin effects) use-span)))
+
+(defun %interaction-with-use-span (interaction use-span)
+  "Copy an interaction body across one template-instantiation boundary."
+  (make-interaction
+   (interaction-name interaction) (interaction-participants interaction)
+   (mapcar
+    (lambda (candidate)
+      (make-interaction-candidate
+       (candidate-name candidate) (candidate-match candidate)
+       (candidate-commit candidate)
+       (%behavior-with-use-span (candidate-behavior candidate) use-span)
+       :effects (%interaction-effects-with-use-span (candidate-effects candidate) use-span)
+       :context-axes (candidate-context-axes candidate)
+       :context-policy (candidate-context-policy candidate)
+       :effect-start (candidate-effect-start candidate)
+       :metadata (candidate-metadata candidate)
+       :origin (%origin-with-use-boundary (candidate-origin candidate) use-span)))
+    (interaction-candidates interaction))
+   :observe (interaction-observe interaction) :anchor (interaction-anchor interaction)
+   :arbitration (interaction-arbitration interaction)
+   :metadata (interaction-metadata interaction)
+   :origin (%origin-with-use-boundary (interaction-origin interaction) use-span)))
 
 (defclass source-interaction-template-instance ()
   ((name :initarg :name :reader source-interaction-template-instance-name)
-   (reference :initarg :reference :reader source-interaction-template-instance-reference)))
+   (reference :initarg :reference :reader source-interaction-template-instance-reference)
+   (origin :initarg :origin :initform nil
+           :reader source-interaction-template-instance-origin)))
 
-(defun %make-source-interaction-template-instance (name reference)
+(defun %make-source-interaction-template-instance (name reference &key origin)
   "Keep a source-level instance name beside the existing model reference.
 
 The model's INTERACTION-TEMPLATE-REFERENCE deliberately describes only
@@ -263,7 +462,7 @@ private wrapper is eliminated by RESOLVE-INTERACTION-FORM; it never becomes
 part of the resolved layout model.
 "
   (make-instance 'source-interaction-template-instance
-                 :name (ensure-identifier name) :reference reference))
+                 :name (ensure-identifier name) :reference reference :origin origin))
 
 (defun %rename-resolved-interaction (interaction name)
   "Return INTERACTION with the explicit source instance NAME.
@@ -277,7 +476,8 @@ the sole materialized interaction identity after every parameter has resolved.
                     :observe (interaction-observe interaction)
                     :anchor (interaction-anchor interaction)
                     :arbitration (interaction-arbitration interaction)
-                    :metadata (interaction-metadata interaction)))
+                    :metadata (interaction-metadata interaction)
+                    :origin (interaction-origin interaction)))
 
 (defun resolve-interaction-form (form layout &key environment stack)
   "Expand an interaction template reference into a concrete finite interaction."
@@ -294,9 +494,14 @@ the sole materialized interaction identity after every parameter has resolved.
          (%resolution-error :invalid-interaction-template-instance
                             "Interaction instance ~A did not resolve to an interaction."
                             (identifier-name
-                             (source-interaction-template-instance-name form))))
+                            (source-interaction-template-instance-name form))))
        (%rename-resolved-interaction
-        interaction (source-interaction-template-instance-name form))))
+        (%interaction-with-use-span
+         interaction
+         (and (source-interaction-template-instance-origin form)
+              (source-origin-definition-span
+               (source-interaction-template-instance-origin form))))
+        (source-interaction-template-instance-name form))))
     (interaction-template-reference
      (let* ((name (interaction-reference-name form))
             (key (identifier-key name))
@@ -322,9 +527,13 @@ the sole materialized interaction identity after every parameter has resolved.
                                    (cons parameter
                                          (%interaction-template-value argument environment)))
                                  parameters arguments)))
-           (resolve-interaction-form (interaction-template-body template) layout
-                                     :environment (append bindings environment)
-                                     :stack (cons key stack))))))
+           (%interaction-with-use-span
+            (resolve-interaction-form (interaction-template-body template) layout
+                                      :environment (append bindings environment)
+                                      :stack (cons key stack))
+            (and (interaction-reference-origin form)
+                 (source-origin-definition-span
+                  (interaction-reference-origin form))))))))
     (t (%resolution-error :invalid-interaction
                          "Expected an interaction or interaction-template reference, got ~S."
                          form))))
@@ -354,7 +563,8 @@ handles the references whose target is a typed model declaration."
                (mapcar (lambda (binding)
                          (make-binding (binding-position binding)
                                        (resolve-behavior (binding-behavior binding) layout)
-                                       :metadata (binding-metadata binding)))
+                                       :metadata (binding-metadata binding)
+                                       :origin (binding-origin binding)))
                        (layout-bindings layout))
                :overlays
                (mapcar (lambda (overlay)
@@ -365,18 +575,22 @@ handles the references whose target is a typed model declaration."
                                     (if (eq (patch-binding-disposition patch-binding)
                                             :transparent)
                                         (make-transparent-patch-binding
-                                         (patch-binding-position patch-binding))
+                                         (patch-binding-position patch-binding)
+                                         :origin (patch-binding-origin patch-binding))
                                         (make-patch-binding
                                          (patch-binding-position patch-binding)
                                          (resolve-behavior
-                                          (patch-binding-behavior patch-binding) layout))))
+                                          (patch-binding-behavior patch-binding) layout)
+                                         :origin (patch-binding-origin patch-binding))))
                                   (overlay-patch-bindings overlay))
-                          :precedence (overlay-patch-precedence overlay)))
+                          :precedence (overlay-patch-precedence overlay)
+                          :origin (overlay-patch-origin overlay)))
                        (layout-overlays layout))
                :interactions (%resolve-layout-interactions layout)
                :behavior-templates (layout-behavior-templates layout)
                :interaction-templates (layout-interaction-templates layout)
-               :metadata (layout-metadata layout)))
+               :metadata (layout-metadata layout)
+               :origin (layout-origin layout)))
 
 ;;; Small schema decoder -----------------------------------------------------
 ;;;
@@ -397,6 +611,47 @@ handles the references whose target is a typed model declaration."
     "unlock-axis" "set-axis-state" "cycle-axis" "toggle-axis" "by-axis" "by-level"
     "on-tap")
   "Reserved behavior spellings, including the source-only ON-TAP shorthand.")
+
+;; Concrete parser nodes are deliberately converted to harmless primitive data
+;; for this closed decoder.  Keep the node->datum association lexical to one
+;; DECODE-LAYOUT-FORMS call and immutable after construction; the resulting
+;; semantic objects carry SOURCE-ORIGIN slots themselves, so no parser identity
+;; table, weak or otherwise, survives decoding.
+(defvar *decoder-origin-map* nil)
+
+(defun %decode-source-value-with-origins (node)
+  "Return NODE's harmless datum and an EQ association list to source spans."
+  (cond
+    ((syntax-atom-p node)
+     (let ((value (syntax-atom-value node)))
+       (values value (list (cons value (syntax-node-span node))))))
+    ((syntax-list-p node)
+     (let ((values nil) (origins nil))
+       (dolist (child (syntax-list-children node))
+         (multiple-value-bind (value child-origins)
+             (%decode-source-value-with-origins child)
+           (push value values)
+           (setf origins (nconc origins child-origins))))
+       (let ((value (nreverse values)))
+         (values value (cons (cons value (syntax-node-span node)) origins)))))
+    ;; This helper is reached only from a concrete SYNTAX-PARSE-RESULT.  Keep
+    ;; the same closed failure as %DECODE-VALUE if an embedding caller violates
+    ;; that invariant.
+    (t (%resolution-error :invalid-schema-form "Invalid concrete syntax node ~S." node))))
+
+(defun %decode-source-forms-with-origins (forms)
+  (let ((values nil) (origins nil))
+    (dolist (form forms)
+      (multiple-value-bind (value form-origins)
+          (%decode-source-value-with-origins form)
+        (push value values)
+        (setf origins (nconc origins form-origins))))
+    (values (nreverse values) origins)))
+
+(defun %decoded-origin (datum)
+  "Return a fresh immutable origin for DATUM in the active decoder call."
+  (let ((entry (assoc datum *decoder-origin-map* :test #'eq)))
+    (and entry (make-source-origin :definition-span (cdr entry)))))
 
 (defun %decode-value (node)
   (cond ((syntax-atom-p node) (syntax-atom-value node))
@@ -517,17 +772,18 @@ handles the references whose target is a typed model declaration."
              (cons (axis-name axis) (%require-identifier state "Context state")))
            axes states)))
 
-(defun %template-aware-instance (class initarg value parameters what constructor)
+(defun %template-aware-instance (class initarg value parameters what constructor &key origin)
   (let ((decoded (%template-parameter-value value parameters what)))
     (if (typep decoded 'behavior-template-parameter)
-        (make-instance class initarg decoded)
-        (funcall constructor decoded))))
+        (make-instance class initarg decoded :origin origin)
+        (funcall constructor decoded :origin origin))))
 
 (defun %decode-template-argument (argument axes template-names parameters)
   (cond ((and (stringp argument)
               (find (%require-identifier argument "Template argument") parameters
                     :test #'identifier=))
-         (make-behavior-template-parameter argument))
+         (make-behavior-template-parameter argument
+                                           :origin (%decoded-origin argument)))
         ((consp argument) (%decode-behavior argument axes :template-names template-names
                                               :parameters parameters))
         ((stringp argument) argument)
@@ -536,8 +792,9 @@ handles the references whose target is a typed model declaration."
                               argument))))
 
 (defun %decode-table-value (value axes template-names parameters &key allow-transparent)
-  (cond ((and (stringp value) (string= (string-downcase value) "none"))
-         (values :none +no-output+))
+  (let ((origin (%decoded-origin value)))
+    (cond ((and (stringp value) (string= (string-downcase value) "none"))
+           (values :none (make-no-output-behavior :origin origin)))
         ((and (stringp value) (string= (string-downcase value) "transparent"))
          (if allow-transparent
              (values :transparent nil)
@@ -547,25 +804,27 @@ handles the references whose target is a typed model declaration."
          (%require-form-arity value 2 2 :malformed-inherit "INHERIT entry")
          (values :inherit (%decode-tuple (second value) axes)))
         (t (values :behavior (%decode-behavior value axes :template-names template-names
-                                                :parameters parameters)))))
+                                                :parameters parameters))))))
 
 (defun %make-decoded-table-entry (tuple value axes template-names parameters
-                                  &key allow-transparent)
+                                  &key allow-transparent origin)
   (multiple-value-bind (disposition content)
       (%decode-table-value value axes template-names parameters
                            :allow-transparent allow-transparent)
     (ecase disposition
-      (:none (make-none-entry tuple))
-      (:transparent (make-transparent-entry tuple))
-      (:inherit (make-inherit-entry tuple content))
-      (:behavior (make-behavior-entry tuple content)))))
+      (:none (make-none-entry tuple :origin origin))
+      (:transparent (make-transparent-entry tuple :origin origin))
+      (:inherit (make-inherit-entry tuple content :origin origin))
+      (:behavior (make-behavior-entry tuple content :origin origin)))))
 
 (defun %decode-behavior (form axes &key template-names parameters)
-  (cond
-    ((and (stringp form) (string= (string-downcase form) "none")) +no-output+)
+  (let ((origin (%decoded-origin form)))
+    (cond
+    ((and (stringp form) (string= (string-downcase form) "none"))
+     (make-no-output-behavior :origin origin))
     ((and (stringp form)
           (find (%require-identifier form "Behavior parameter") parameters :test #'identifier=))
-     (make-behavior-template-parameter form))
+     (make-behavior-template-parameter form :origin origin))
     ((not (consp form))
      (%resolution-error :malformed-behavior "Malformed behavior ~S." form))
     ((string= (%form-name form) "unicode")
@@ -574,42 +833,44 @@ handles the references whose target is a typed model declaration."
        (if (and (stringp text)
                 (find (%require-identifier text "UNICODE parameter") parameters
                       :test #'identifier=))
-           (make-instance 'text-output :text (make-behavior-template-parameter text))
+           (make-instance 'text-output :text (make-behavior-template-parameter text
+                                                                         :origin (%decoded-origin text))
+                          :origin origin)
            (progn
              (unless (stringp text)
                (%resolution-error :invalid-unicode-output "UNICODE requires a string."))
-             (make-text-output text)))))
+             (make-text-output text :origin origin)))))
     ((string= (%form-name form) "named-key")
      (%require-form-arity form 2 2 :malformed-behavior "NAMED-KEY behavior")
      (%template-aware-instance 'named-key-output :name (second form) parameters "NAMED-KEY"
-                               #'make-named-key-output))
+                               #'make-named-key-output :origin origin))
     ((string= (%form-name form) "named-symbol")
      (%require-form-arity form 2 2 :malformed-behavior "NAMED-SYMBOL behavior")
      (%template-aware-instance 'named-symbol-output :name (second form) parameters "NAMED-SYMBOL"
-                               #'make-named-symbol-output))
+                               #'make-named-symbol-output :origin origin))
     ((string= (%form-name form) "command")
      (%require-form-arity form 2 2 :malformed-behavior "COMMAND behavior")
      (%template-aware-instance 'command-output :name (second form) parameters "COMMAND"
-                               #'make-command-output))
+                               #'make-command-output :origin origin))
     ((string= (%form-name form) "sequence")
      (when (null (rest form))
        (%resolution-error :empty-behavior-composition "SEQUENCE needs at least one behavior."))
      (make-sequence-behavior
       (mapcar (lambda (child) (%decode-behavior child axes :template-names template-names
                                                      :parameters parameters))
-              (rest form))))
+              (rest form)) :origin origin))
     ((string= (%form-name form) "simultaneous")
      (when (null (rest form))
        (%resolution-error :empty-behavior-composition "SIMULTANEOUS needs at least one behavior."))
      (make-simultaneous-behavior
       (mapcar (lambda (child) (%decode-behavior child axes :template-names template-names
                                                      :parameters parameters))
-              (rest form))))
+              (rest form)) :origin origin))
     ((string= (%form-name form) "hold-modifier")
      (%require-form-arity form 2 2 :malformed-behavior "HOLD-MODIFIER behavior")
      (%template-aware-instance 'held-modifier-behavior :modifier (second form) parameters
                                "HOLD-MODIFIER"
-                               #'make-held-modifier-operation))
+                               #'make-held-modifier-operation :origin origin))
     ((member (%form-name form) '("hold-axis-state" "latch-axis-state" "lock-axis-state"
                                  "set-axis-state") :test #'string=)
      (%require-form-arity form 3 3 :malformed-behavior "axis-state operation")
@@ -622,17 +883,20 @@ handles the references whose target is a typed model declaration."
              (state (%template-parameter-value (third form) parameters "Axis operation")))
          (if (or (typep axis 'behavior-template-parameter)
                  (typep state 'behavior-template-parameter))
-             (make-instance 'axis-operation-behavior :operation operation :axis axis :state state)
-             (make-axis-operation operation axis state)))))
+             (make-instance 'axis-operation-behavior :operation operation :axis axis :state state
+                            :origin origin)
+             (make-axis-operation operation axis state :origin origin)))))
     ((member (%form-name form) '("unlock-axis" "cycle-axis" "toggle-axis") :test #'string=)
      (%require-form-arity form 2 2 :malformed-behavior "axis operation")
      (let ((operation (cdr (assoc (%form-name form)
                                   '(("unlock-axis" . :unlock)
                                     ("cycle-axis" . :cycle)
                                     ("toggle-axis" . :toggle)) :test #'string=))))
-       (%template-aware-instance 'axis-operation-behavior :axis (second form) parameters
+      (%template-aware-instance 'axis-operation-behavior :axis (second form) parameters
                                  "Axis operation"
-                                 (lambda (axis) (make-axis-operation operation axis)))))
+                                 (lambda (axis &key origin)
+                                   (make-axis-operation operation axis :origin origin))
+                                 :origin origin)))
     ((string= (%form-name form) "by-axis")
      (%require-form-arity form 4 nil :malformed-behavior "BY-AXIS behavior")
      (let ((axis (%template-parameter-value (second form) parameters "BY-AXIS"))
@@ -646,8 +910,8 @@ handles the references whose target is a typed model declaration."
               (cddr form))))
        (if (or (typep axis 'behavior-template-parameter)
                (some (lambda (choice) (typep (car choice) 'behavior-template-parameter)) choices))
-           (make-instance 'axis-choice-behavior :axis axis :choices choices)
-           (make-axis-choice-behavior axis choices))))
+           (make-instance 'axis-choice-behavior :axis axis :choices choices :origin origin)
+           (make-axis-choice-behavior axis choices :origin origin))))
     ((string= (%form-name form) "by-level")
      (when (null (rest form))
        (%resolution-error :empty-level-table "BY-LEVEL needs at least one entry."))
@@ -662,24 +926,26 @@ handles the references whose target is a typed model declaration."
                (%resolution-error :duplicate-context-entry
                                   "BY-LEVEL repeats tuple ~A." (context-tuple-key tuple)))
              (setf (gethash (context-tuple-key tuple) seen) t)
-             (%make-decoded-table-entry tuple (second entry) axes template-names parameters)))
-         (rest form)))))
+             (%make-decoded-table-entry tuple (second entry) axes template-names parameters
+                                        :origin (%decoded-origin entry))))
+         (rest form)) :origin origin)))
     ((find (%require-identifier (%form-name form) "Behavior form") template-names :test #'identifier=)
      (make-behavior-template-reference
       (%form-name form)
       (mapcar (lambda (argument)
                 (%decode-template-argument argument axes template-names parameters))
-              (rest form))))
+              (rest form)) :origin origin))
     ((string= (%form-name form) "on-tap")
      (%resolution-error :on-tap-outside-binding
                         "ON-TAP is a binding shorthand, not a nested behavior."))
-    (t (%resolution-error :unknown-behavior-form "Unknown behavior form ~S." (%form-name form)))))
+    (t (%resolution-error :unknown-behavior-form "Unknown behavior form ~S." (%form-name form))))))
 
 (defun %decode-binding (form product-axes template-names)
   "Return two values: a base BINDING or NIL, and any shorthand INTERACTIONS."
   (%require-form-arity form 3 nil :malformed-binding "BINDING declaration")
   (let* ((position (%require-identifier (second form) "Binding position"))
-         (clauses (cddr form)))
+         (clauses (cddr form))
+         (origin (%decoded-origin form)))
     (when (and (= (length clauses) 1) (%named-form-p (first clauses) "on-tap"))
       (let ((shorthand (first clauses)))
         (%require-form-arity shorthand 2 2 :malformed-on-tap "ON-TAP shorthand")
@@ -693,12 +959,15 @@ handles the references whose target is a typed model declaration."
                                 (pattern-sequence (pattern-down position) (pattern-up position))
                                 (pattern-up position)
                                 (%decode-behavior (second shorthand) product-axes
-                                                  :template-names template-names)))
-                         :anchor position))))))
+                                                  :template-names template-names)
+                                :origin (%decoded-origin shorthand)))
+                         :anchor position :origin origin))))))
     (cond
       ((= (length clauses) 1)
        (values (make-binding position (%decode-behavior (first clauses) product-axes
-                                                :template-names template-names)) nil))
+                                                :template-names template-names)
+                             :origin origin)
+               nil))
       (t
        (%assert-known-forms clauses '("at" "fallback") "BINDING clause")
        (let* ((fallback-form (%single-form clauses "fallback" "BINDING"))
@@ -714,7 +983,8 @@ handles the references whose target is a typed model declaration."
                                           "BINDING ~A repeats tuple ~A."
                                           (identifier-name position) (context-tuple-key tuple)))
                      (setf (gethash (context-tuple-key tuple) seen) t)
-                     (%make-decoded-table-entry tuple (third clause) product-axes template-names nil)))
+                     (%make-decoded-table-entry tuple (third clause) product-axes template-names nil
+                                                :origin (%decoded-origin clause))))
                  at-forms)))
          (when (and (null at-forms) (null fallback-form))
            (%resolution-error :empty-binding-table "BINDING ~A has no behavior entries."
@@ -730,12 +1000,15 @@ handles the references whose target is a typed model declaration."
              (dolist (tuple (allowed-product-tuples product-axes))
                (unless (gethash (context-tuple-key tuple) seen)
                  (push (ecase disposition
-                         (:none (make-none-entry tuple))
-                         (:behavior (make-behavior-entry tuple content)))
+                         (:none (make-none-entry tuple :origin (%decoded-origin fallback-form)))
+                         (:behavior (make-behavior-entry tuple content
+                                                        :origin (%decoded-origin fallback-form))))
                        entries)))))
          (values (make-binding position
                                (make-behavior-table (mapcar #'axis-name product-axes)
-                                                    (nreverse entries)))
+                                                    (nreverse entries)
+                                                    :origin origin)
+                               :origin origin)
                  nil))))))
 
 (defun %decode-overlay (form axes product-axes template-names)
@@ -756,7 +1029,8 @@ binding.
   ;; for a partially written overlay rather than one generic arity failure.
   (%require-form-arity form 2 nil :malformed-overlay "OVERLAY declaration")
   (let* ((name (%require-identifier (second form) "Overlay name"))
-         (clauses (cddr form)))
+         (clauses (cddr form))
+         (origin (%decoded-origin form)))
     (%assert-known-forms clauses '("axis" "state" "precedence" "binding")
                          "OVERLAY clause")
     (let* ((axis-form (%single-form clauses "axis" "OVERLAY" :required t))
@@ -798,16 +1072,19 @@ binding.
                            (value (third binding-form)))
                        (if (and (stringp value)
                                 (string= (string-downcase value) "transparent"))
-                           (make-transparent-patch-binding position)
+                           (make-transparent-patch-binding
+                            position :origin (%decoded-origin binding-form))
                            (make-patch-binding
                             position
                             (%decode-behavior value product-axes
-                                              :template-names template-names)))))
+                                              :template-names template-names)
+                            :origin (%decoded-origin binding-form)))))
                    binding-forms)))
             (%require-unique-identifiers (mapcar #'patch-binding-position bindings)
                                          "overlay binding"
                                          :code :duplicate-overlay-binding)
-            (make-overlay-patch name axis-name state bindings :precedence precedence)))))))
+            (make-overlay-patch name axis-name state bindings :precedence precedence
+                                :origin origin)))))))
 
 (defun %decode-interaction-template-argument-value (value parameters what)
   "Decode one identifier-valued interaction-template argument.
@@ -965,7 +1242,7 @@ argument slot.
         (%decode-effect-list (rest form) product-axes template-names)
         nil)))
 
-(defun %decode-candidate (name options product-axes template-names &key parameters)
+(defun %decode-candidate (name options product-axes template-names &key parameters origin)
   (%assert-known-forms options '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel"
                                 "effect-start")
                        "interaction candidate option")
@@ -985,16 +1262,19 @@ argument slot.
                :commit (%decode-effect-option options "commit-effect" product-axes template-names)
                :while (%decode-effect-option options "while" product-axes template-names)
                :exit (%decode-effect-option options "exit" product-axes template-names)
-               :cancel (%decode-effect-option options "cancel" product-axes template-names))
+               :cancel (%decode-effect-option options "cancel" product-axes template-names)
+               :origin origin)
      :effect-start
      (cond ((null effect-start-form) :on-match)
-           (t (%require-form-arity effect-start-form 2 2 :malformed-effect-start
-                                   "EFFECT-START option")
-              (cond ((string= (second effect-start-form) "on-match") :on-match)
-                    ((string= (second effect-start-form) "on-commit") :on-commit)
-                    (t (%resolution-error :unknown-effect-start
-                                          "Unknown EFFECT-START policy ~S."
-                                          (second effect-start-form)))))))))
+           (t
+            (%require-form-arity effect-start-form 2 2 :malformed-effect-start
+                                 "EFFECT-START option")
+            (cond ((string= (second effect-start-form) "on-match") :on-match)
+                  ((string= (second effect-start-form) "on-commit") :on-commit)
+                  (t (%resolution-error :unknown-effect-start
+                                        "Unknown EFFECT-START policy ~S."
+                                        (second effect-start-form))))))
+     :origin origin)))
 
 (defun %decode-arbitration (form)
   (when form
@@ -1022,6 +1302,7 @@ argument slot.
   (%require-form-arity form 3 nil :malformed-interaction "INTERACTION declaration")
   (let* ((name (%require-identifier (second form) "Interaction name"))
          (clauses (cddr form))
+         (origin (%decoded-origin form))
          (case-forms (%forms-named clauses "case"))
          (direct-option-names '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel"
                                "effect-start"))
@@ -1064,13 +1345,14 @@ argument slot.
                             (%require-form-arity case-form 3 nil :malformed-interaction-case "CASE clause")
                             (%decode-candidate (second case-form) (cddr case-form)
                                                product-axes template-names
-                                               :parameters parameters))
+                                               :parameters parameters
+                                               :origin (%decoded-origin case-form)))
                           case-forms))
                  (direct-options
                   ;; The historical one-candidate spelling is normalized to a
                   ;; real named candidate.  There is no special interaction path.
                   (list (%decode-candidate "default" direct-options product-axes template-names
-                                           :parameters parameters)))
+                                           :parameters parameters :origin origin)))
                  (t (%resolution-error :interaction-without-candidates
                                        "INTERACTION ~A has no CASE or direct candidate."
                                        (identifier-name name))))))
@@ -1080,7 +1362,8 @@ argument slot.
         (%require-unique-identifiers (mapcar #'candidate-name candidates) "interaction candidate"
                                      :code :duplicate-interaction-candidate)
         (make-interaction name participants candidates :observe observe :anchor anchor
-                          :arbitration (%decode-arbitration arbitration-form))))))
+                          :arbitration (%decode-arbitration arbitration-form)
+                          :origin origin)))))
 
 (defun %decode-interaction-template-header (form)
   "Return the declaration's name, unique parameter identifiers, and one body.
@@ -1100,14 +1383,15 @@ source spelling.
             (%require-unique-identifiers
              parameters "interaction-template parameter"
              :code :duplicate-interaction-template-parameter)
-            (fourth form))))
+            (fourth form)
+            (%decoded-origin form))))
 
 (defun %find-interaction-template-header (name headers)
   (find (%require-identifier name "Interaction template name") headers
         :test #'identifier= :key #'first))
 
 (defun %decode-interaction-template-reference (template-name argument-forms headers
-                                                &key parameters)
+                                                &key parameters origin)
   "Decode one named-argument delegation into the existing model reference.
 
 The model reference stores arguments in declaration order.  The source surface
@@ -1154,7 +1438,8 @@ change meaning through incidental position.
             ;; The lookup is total after the arity/unknown checks above.
             (%decode-interaction-template-argument-value
              (second argument-form) parameters "Interaction template argument")))
-        target-parameters)))))
+        target-parameters)
+       :origin origin))))
 
 (defun %decode-nested-interaction-template-reference (form headers parameters)
   "Decode a non-materializing delegation in an interaction-template body.
@@ -1174,7 +1459,8 @@ That spelling is not accepted at a layout's top level.
     (%resolution-error :nested-interaction-template-instance-name
                        "Nested INSTANTIATE-INTERACTION is delegation: omit the instance name."))
   (%decode-interaction-template-reference (second form) (cddr form) headers
-                                          :parameters parameters))
+                                          :parameters parameters
+                                          :origin (%decoded-origin form)))
 
 (defun %decode-interaction-template-instance (form headers)
   "Decode one materializing top-level interaction-template instantiation.
@@ -1194,7 +1480,8 @@ template-body interaction name as the instance identity.
   (let ((instance-name (%require-identifier (second form) "Interaction instance name"))
         (reference (%decode-interaction-template-reference
                     (third form) (cdddr form) headers)))
-    (%make-source-interaction-template-instance instance-name reference)))
+    (%make-source-interaction-template-instance instance-name reference
+                                                :origin (%decoded-origin form))))
 
 (defun %decode-interaction-template-body (body product-axes behavior-template-names
                                            headers parameters)
@@ -1256,7 +1543,8 @@ template-body interaction name as the instance identity.
                 (first header) (second header)
                 (%decode-interaction-template-body
                  (third header) product-axes behavior-template-names headers
-                 (second header))))
+                 (second header))
+                :origin (fourth header)))
              headers)))
       (%assert-acyclic-interaction-template-graph templates)
       (values templates headers))))
@@ -1270,7 +1558,7 @@ template-body interaction name as the instance identity.
                          "DEFINE-BEHAVIOR parameters must be a list."))
     (values name (%require-unique-identifiers parameters "behavior-template parameter"
                                                 :code :duplicate-template-parameter)
-            (fourth form))))
+            (fourth form) (%decoded-origin form))))
 
 (defun %decode-behavior-templates (forms product-axes)
   (let ((headers (mapcar (lambda (form)
@@ -1286,7 +1574,8 @@ template-body interaction name as the instance identity.
                 (make-behavior-template (first header) (second header)
                                         (%decode-behavior (third header) product-axes
                                                           :template-names names
-                                                          :parameters (second header))))
+                                                          :parameters (second header))
+                                        :origin (fourth header)))
               headers))))
 
 (defun %decode-layout-axes (clauses)
@@ -1360,9 +1649,12 @@ PARSED may be a SYNTAX-PARSE-RESULT, its harmless datum representation, or a
 form list supplied by a test.  TOPOLOGY may be supplied directly; otherwise a
 TOPOLOGY-RESOLVER receives the declared topology identifier.  Cross-file
 topology/import loading is deliberately outside this decoder."
-  (let* ((forms (%decode-value (if (syntax-parse-result-p parsed)
-                                   (syntax-parse-result-forms parsed) parsed)))
-         (layout-forms (%forms-named forms "define-layout")))
+  (multiple-value-bind (forms origins)
+      (if (syntax-parse-result-p parsed)
+          (%decode-source-forms-with-origins (syntax-parse-result-forms parsed))
+          (values (%decode-value parsed) nil))
+    (let ((*decoder-origin-map* origins))
+      (let* ((layout-forms (%forms-named forms "define-layout")))
     (unless layout-forms
       (%resolution-error :missing-layout "Input contains no DEFINE-LAYOUT form."))
     (when (rest layout-forms)
@@ -1438,4 +1730,5 @@ topology/import loading is deliberately outside this decoder."
                             axes (if modifiers-form (rest modifiers-form) nil)
                             :bindings bindings :overlays overlays :interactions interactions
                             :behavior-templates templates
-                            :interaction-templates interaction-templates))))))))))
+                            :interaction-templates interaction-templates
+                            :origin (%decoded-origin layout-form)))))))))))))

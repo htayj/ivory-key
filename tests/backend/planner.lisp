@@ -51,6 +51,12 @@
   (find feature (ivory-key.backend::lowering-plan-realizations plan)
         :key #'ivory-key.backend:realization-feature :test #'equal))
 
+(defun planner-result-grade (plan feature)
+  (let ((result (planner-result-for plan feature)))
+    (unless result
+      (error "Planner emitted no realization result for ~S." feature))
+    (ivory-key.backend:realization-grade result)))
+
 (defun planner-partition-for (plan position)
   (find position
         (ivory-key.backend::lowering-plan-multi-bank-partition-requirements plan)
@@ -65,6 +71,20 @@
                    position
                    (ivory-key.backend::planner-resource-requirement-owner resource))))
            (ivory-key.backend::lowering-plan-resource-requirements plan)))
+
+(defun planner-test-origin (&key (name "planner-origin.ivory")
+                                  (definition-line 3) (definition-column 5)
+                                  use-lines)
+  (let ((source (ivory-key.source:make-source-file :name name :text "")))
+    (ivory-key.source:make-source-origin
+     :definition-span
+     (ivory-key.source:make-source-span
+      :source source :start-line definition-line :start-column definition-column)
+     :use-spans
+     (mapcar (lambda (line)
+               (ivory-key.source:make-source-span
+                :source source :start-line line :start-column 3))
+             use-lines))))
 
 (deftest planner-preserves-eight-level-first-axis-fastest-table
   (let* ((case (ivory-key.model:make-context-axis "case" '("plain" "shifted")))
@@ -105,7 +125,15 @@
                                (ivory-key.backend::selector-requirement-axis requirement))
                               (length (ivory-key.backend::selector-requirement-states requirement))))
                       (ivory-key.backend::lowering-plan-selector-requirements plan)))
-    (is (ivory-key.backend::require-planned-realizations plan))))
+    ;; A table-capacity result remains exact, but each selector and its
+    ;; unconsumed resource is a separate refusal.  REQUIRE-PLANNED-REALIZATIONS
+    ;; must no longer accept the plan by looking only at the table result.
+    (dolist (feature '("selector/case" "selector/plane" "selector/script"
+                       "resource-selector/case" "resource-selector/plane"
+                       "resource-selector/script"))
+      (is-equal :unsupported (planner-result-grade plan feature)))
+    (signals ivory-key.backend::planner-refusal
+      (ivory-key.backend::require-planned-realizations plan))))
 
 (deftest planner-manna-static-inventory-is-exact-capacity-but-not-selector-proof
   "Keep table capacity distinct from the unresolved Manna realization policy."
@@ -143,7 +171,14 @@
               (mapcar (lambda (requirement)
                         (ivory-key.model:identifier-name
                          (ivory-key.backend::modifier-requirement-modifier requirement)))
-                      (ivory-key.backend::lowering-plan-modifier-requirements plan)))))
+                      (ivory-key.backend::lowering-plan-modifier-requirements plan)))
+    (dolist (feature '("selector/case" "selector/plane" "selector/script"
+                       "semantic-modifier/alt" "semantic-modifier/control"
+                       "semantic-modifier/hyper" "semantic-modifier/meta"
+                       "semantic-modifier/super"))
+      (is-equal :unsupported (planner-result-grade plan feature)))
+    (signals ivory-key.backend::planner-refusal
+      (ivory-key.backend::require-planned-realizations plan))))
 
 (deftest planner-refuses-twenty-level-static-table-without-dropping-states
   (let* ((case (ivory-key.model:make-context-axis
@@ -292,7 +327,14 @@
                       (ivory-key.backend::lowering-plan-selector-requirements plan)))
     (is-equal '(:selector :semantic-modifier :semantic-modifier)
               (mapcar #'ivory-key.backend::planner-resource-requirement-kind
-                      (ivory-key.backend::lowering-plan-resource-requirements plan)))))
+                      (ivory-key.backend::lowering-plan-resource-requirements plan)))
+    (dolist (feature '("selector/case" "semantic-modifier/hyper"
+                       "semantic-modifier/meta" "resource-selector/case"
+                       "resource-semantic-modifier/hyper"
+                       "resource-semantic-modifier/meta"))
+      (is-equal :unsupported (planner-result-grade plan feature)))
+    (signals ivory-key.backend::planner-refusal
+      (ivory-key.backend::require-planned-realizations plan))))
 
 (deftest planner-resource-collision-is-visible-and-refused
   (let* ((case (ivory-key.model:make-context-axis "case" '("plain" "shifted")))
@@ -304,8 +346,7 @@
          (pool (ivory-key.backend:make-resource-pool "selectors" '("P01")))
          (plan (planner-test-plan layout placement
                                   :resource-pools (list :selector pool)))
-         (result (find :unsupported (ivory-key.backend::lowering-plan-realizations plan)
-                       :key #'ivory-key.backend:realization-grade)))
+         (result (planner-result-for plan "resource-selector/case")))
     (is result)
     (is (search "RESOURCE SELECTOR IS UNAVAILABLE"
                 (string-upcase (ivory-key.backend:realization-detail result))))
@@ -327,8 +368,52 @@
     (is-equal '("S1" "S2")
               (mapcar #'ivory-key.backend::planner-allocation-value
                       (ivory-key.backend::lowering-plan-allocations plan)))
-    (is (= 1 (count :unsupported (ivory-key.backend::lowering-plan-realizations plan)
-                    :key #'ivory-key.backend:realization-grade)))
+    ;; The first two sorted requirements (one, then three) are recorded but
+    ;; remain explicitly unproved.  The final sorted requirement (two)
+    ;; reports deterministic exhaustion.
+    (dolist (feature '("selector/one" "selector/two" "selector/three"
+                       "resource-selector/one" "resource-selector/two"
+                       "resource-selector/three"))
+      (is-equal :unsupported (planner-result-grade plan feature)))
+    (is (search "RESOURCE SELECTOR IS UNAVAILABLE"
+                (string-upcase
+                 (ivory-key.backend:realization-detail
+                  (planner-result-for plan "resource-selector/two")))))
+    (signals ivory-key.backend::planner-refusal
+      (ivory-key.backend::require-planned-realizations plan))))
+
+(deftest planner-accepts-a-complete-direct-static-plan-with-no-hidden-obligations
+  (let* ((layout (planner-test-layout "plain-static" nil))
+         (placement (planner-test-placement
+                     (ivory-key.model:layout-topology layout) '(("P01" . "q"))))
+         (plan (planner-test-plan layout placement)))
+    (is-equal :exact (planner-result-grade plan "q"))
+    (is-equal 1 (length (ivory-key.backend::lowering-plan-realizations plan)))
+    (is (ivory-key.backend::require-planned-realizations plan))))
+
+(deftest planner-refuses-every-timed-interaction-requirement-explicitly
+  (let* ((topology (planner-test-topology "a"))
+         (origin (planner-test-origin :name "interaction.ivory"))
+         (candidate
+           (ivory-key.model::make-interaction-candidate
+            "tap"
+            (ivory-key.model::pattern-sequence
+             (ivory-key.model::pattern-down "a")
+             (ivory-key.model::pattern-up "a"))
+            :when-matched
+            (ivory-key.model:make-text-output "a")))
+         (interaction (ivory-key.model::make-interaction "tap-a" '("a")
+                                                          (list candidate)
+                                                          :origin origin))
+         (layout (ivory-key.model:make-layout "interaction-only" topology nil nil
+                                               :interactions (list interaction)))
+         (placement (planner-test-placement topology '(("P01" . "a"))))
+         (plan (planner-test-plan layout placement)))
+    (is-equal :unsupported (planner-result-grade plan "interaction/tap-a"))
+    (is (ivory-key.source:source-origin=
+         origin
+         (ivory-key.backend:realization-source
+          (planner-result-for plan "interaction/tap-a"))))
     (signals ivory-key.backend::planner-refusal
       (ivory-key.backend::require-planned-realizations plan))))
 
@@ -366,3 +451,41 @@
                                             '(("P01" . "q") ("P02" . "q")))))
     (signals ivory-key.backend::planner-refusal
       (planner-test-plan layout placement))))
+
+(deftest planner-retains-normalized-entry-origins-through-concrete-allocation
+  (let* ((origin (planner-test-origin :use-lines '(11 17)))
+         (topology (planner-test-topology "q"))
+         (binding
+           (ivory-key.model:make-binding
+            "q"
+            (ivory-key.model:make-named-key-output "escape" :origin origin)
+            :origin origin))
+         (layout (ivory-key.model:make-layout "origin-plan" topology nil '("meta")
+                                              :bindings (list binding)
+                                              :origin origin))
+         (placement (planner-test-placement topology '(("P01" . "q"))))
+         (plan (planner-test-plan
+                layout placement
+                :resource-pools
+                (list :named-key
+                      (ivory-key.backend:make-resource-pool "named" '("Escape")))))
+         (planned-binding (first (ivory-key.backend::lowering-plan-bindings plan)))
+         (requirement (planner-resource-for plan :named-key "escape"))
+         (modifier-requirement (planner-resource-for plan :semantic-modifier "meta"))
+         (allocation (first (ivory-key.backend::lowering-plan-allocations plan))))
+    (is (ivory-key.source:source-origin=
+         origin (ivory-key.backend:static-table-requirement-origin planned-binding)))
+    (is-equal 1 (length (ivory-key.backend:planner-resource-requirement-origins
+                         requirement)))
+    (is (ivory-key.source:source-origin=
+         origin
+         (first (ivory-key.backend:planner-resource-requirement-origins requirement))))
+    (is-equal 1 (length (ivory-key.backend:planner-resource-requirement-origins
+                         modifier-requirement)))
+    (is (ivory-key.source:source-origin=
+         origin
+         (first (ivory-key.backend:planner-resource-requirement-origins
+                 modifier-requirement))))
+    (is-equal 1 (length (ivory-key.backend:planner-allocation-origins allocation)))
+    (is (ivory-key.source:source-origin=
+         origin (first (ivory-key.backend:planner-allocation-origins allocation))))))

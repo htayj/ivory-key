@@ -5,9 +5,12 @@
 ;;;; Invoke from the checkout root with, for example:
 ;;;;   sbcl --script tests/external/xkb-kanata.lisp
 ;;;;
-;;;; This test only proves that the installed XKB and Kanata parsers accept one
-;;;; exact, direct pipeline request.  It does not simulate either backend or
-;;;; claim differential equivalence with the reference simulator.
+;;;; This test proves that the installed XKB and Kanata parsers accept one
+;;;; exact, direct pipeline request.  It also compiles a focused two-level XKB
+;;;; plan and uses libxkbcommon state APIs to inspect its groups, levels,
+;;;; symbols, actions, modifier selection, and consumed/unconsumed Shift state.
+;;;; It does not simulate Kanata or claim differential equivalence for any
+;;;; interaction or selector policy which the compiler refuses.
 
 (require "asdf")
 
@@ -78,7 +81,8 @@ rejects a generated artifact remains a test failure.
   "Compile a small static source layout through the public compiler bridge.
 
 This reaches normalization, the conservative exact-only bridge, combined
-pipeline lowering, fresh output emission, and the generated-output contract.
+pipeline lowering, validation inside trusted staging, fresh output emission,
+and the generated-output contract.
 Timed interactions, carrier allocation, and selector semantics are deliberately
 absent: neither emitter has backend differential proof for them yet.
 "
@@ -121,8 +125,29 @@ absent: neither emitter has backend differential proof for them yet.
     (values
      (ivory-key.cli:compile-layout-source
       layout :topology-path topology :device-path device
-      :realization-path realization :output-directory output)
+      :realization-path realization :output-directory output
+      :validate-before-publish t)
      output)))
+
+(defun require-published-validation-evidence (output-directory temporary-root)
+  "Require immutable evidence from the actual staged validator invocations."
+  (let ((manifest
+          (uiop:read-file-string
+           (merge-pathnames "manifest.json" output-directory))))
+    (unless (and (search "\"validation\"" manifest)
+                 (= 2 (loop with start = 0
+                            for position = (search "\"status\":\"passed\""
+                                                   manifest :start2 start)
+                            while position
+                            do (setf start (1+ position))
+                            count position))
+                 (search "\"version_sha256\"" manifest)
+                 (search "\"result_sha256\"" manifest))
+      (error "Published contract lacks complete passing staged-validation evidence:~%~A"
+             manifest))
+    (when (search (namestring temporary-root) manifest)
+      (error "Published validation evidence leaked its temporary checkout path."))
+    manifest))
 
 (defun validation-for-kind (validations kind)
   (or (find kind validations :key (lambda (validation) (getf validation :kind)))
@@ -138,13 +163,69 @@ absent: neither emitter has backend differential proof for them yet.
              kind (getf validation :output)))
     validation))
 
+(defun write-semantic-xkb-keymap (directory)
+  "Write a focused supported XKB plan with two-level and one-level keys."
+  (let* ((backend (ivory-key.backend:make-xkb-backend))
+         (request
+           (make-instance
+            'ivory-key.backend:lowering-request
+            :name "external-state"
+            :entries
+            (list (make-instance 'ivory-key.backend:key-entry
+                                 :position "q" :physical-code "AD01"
+                                 :outputs '("q" "Q"))
+                  (make-instance 'ivory-key.backend:key-entry
+                                 :position "w" :physical-code "AD02"
+                                 :outputs '("w")))))
+         (plan (ivory-key.backend:lower-request backend request))
+         (pathname (merge-pathnames "state-keymap.xkb" directory)))
+    (write-external-source
+     directory "state-keymap.xkb"
+     (ivory-key.backend:emit-plan-to-string backend plan))
+    pathname))
+
+(defun split-tool-flags (text)
+  "Split PKG-CONFIG's whitespace-separated compiler flags without a shell."
+  (remove ""
+          (uiop:split-string text
+                             :separator '(#\Space #\Tab #\Newline #\Return))
+          :test #'string=))
+
+(defun compile-xkb-state-probe (directory)
+  "Compile the checked-in semantic probe through literal argument vectors."
+  (let* ((source (merge-pathnames "tests/external/xkb-state.c"
+                                  (repository-root)))
+         (binary (merge-pathnames "xkb-state" directory))
+         (flags
+           (split-tool-flags
+            (uiop:run-program '("pkg-config" "--cflags" "--libs" "xkbcommon")
+                              :output :string :error-output :output)))
+         (arguments
+           (append (list "gcc" "-std=c11" "-Wall" "-Wextra" "-Werror"
+                         (namestring source) "-o" (namestring binary))
+                   flags)))
+    (uiop:run-program arguments :output :string :error-output :output)
+    binary))
+
+(defun require-semantic-xkb-state (directory)
+  "Inspect compiled XKB behavior through libxkbcommon, not text heuristics."
+  (let* ((keymap (write-semantic-xkb-keymap directory))
+         (binary (compile-xkb-state-probe directory))
+         (arguments (list (namestring binary) (namestring keymap)))
+         (output (uiop:run-program arguments :output :string
+                                             :error-output :output)))
+    (unless (search "XKB-SEMANTIC-VALIDATION: PASSED" output)
+      (error "Semantic XKB probe did not report success:~%~A" output))
+    (values output arguments)))
+
 (defun run-external-xkb-kanata-validation ()
   "Run the explicitly tagged XKB/Kanata parser validation.
 
 Returns :SKIPPED with a visible capability disposition when one or both tools
 are unavailable, and otherwise errors on either rejection.
 "
-  (let ((missing (remove-if #'tool-available-p '("xkbcli" "kanata"))))
+  (let ((missing (remove-if #'tool-available-p
+                            '("xkbcli" "kanata" "gcc" "pkg-config"))))
     (when missing
       (format t "EXTERNAL-VALIDATION ~S: SKIPPED (missing tool~:P ~{~A~^, ~}).~%"
               +external-validation-tag+ (length missing) missing)
@@ -159,6 +240,7 @@ are unavailable, and otherwise errors on either rejection.
                        written output-directory))
                     (xkb (merge-pathnames "keymap.xkb" output-directory))
                     (kanata (merge-pathnames "layout.kbd" output-directory)))
+               (require-published-validation-evidence output-directory directory)
                ;; The backend methods construct these literal lists, making this
                ;; an executable regression against accidentally introducing shell
                ;; invocation or changing the real validator command contract.
@@ -168,7 +250,8 @@ are unavailable, and otherwise errors on either rejection.
                (require-successful-validator
                 validations :kanata
                 (list "kanata" "--check" "-c" (namestring kanata)))
-               (format t "EXTERNAL-VALIDATION ~S: PASSED (xkbcli and kanata accepted generated artifacts).~%"
+               (require-semantic-xkb-state directory)
+               (format t "EXTERNAL-VALIDATION ~S: PASSED (xkbcli and kanata accepted generated artifacts; libxkbcommon state inspection passed).~%"
                        +external-validation-tag+)
                :passed))
         (when (probe-file directory)

@@ -5,23 +5,27 @@
 
 (defclass normalized-binding-entry ()
   ((tuple :initarg :tuple :reader normalized-entry-tuple)
-   (behavior :initarg :behavior :reader normalized-entry-behavior)))
+   (behavior :initarg :behavior :reader normalized-entry-behavior)
+   (origin :initarg :origin :initform nil :reader normalized-entry-origin)))
 
-(defun make-normalized-binding-entry (tuple behavior)
-  (make-instance 'normalized-binding-entry :tuple tuple :behavior behavior))
+(defun make-normalized-binding-entry (tuple behavior &key origin)
+  (make-instance 'normalized-binding-entry :tuple tuple :behavior behavior
+                 :origin origin))
 
 (defclass normalized-binding ()
   ((position :initarg :position :reader normalized-binding-position)
    ;; Context axes in LAYOUT declaration order, limited to actual dependencies.
    (axes :initarg :axes :reader normalized-binding-axes)
-   (entries :initarg :entries :reader normalized-binding-entries)))
+   (entries :initarg :entries :reader normalized-binding-entries)
+   (origin :initarg :origin :initform nil :reader normalized-binding-origin)))
 
 (defclass normalized-patch ()
   ((name :initarg :name :reader normalized-patch-name)
    (axis :initarg :axis :reader normalized-patch-axis)
    (state :initarg :state :reader normalized-patch-state)
    (precedence :initarg :precedence :reader normalized-patch-precedence)
-   (bindings :initarg :bindings :reader normalized-patch-bindings)))
+   (bindings :initarg :bindings :reader normalized-patch-bindings)
+   (origin :initarg :origin :initform nil :reader normalized-patch-origin)))
 
 (defclass normalized-interaction-candidate ()
   ((name :initarg :name :reader normalized-candidate-name)
@@ -34,7 +38,8 @@
    (context-policy :initarg :context-policy :reader normalized-candidate-context-policy)
    ;; Preserve the source-selected lifecycle start boundary; lowering must not
    ;; turn an :ON-COMMIT hold back into a speculative acquisition.
-   (effect-start :initarg :effect-start :reader normalized-candidate-effect-start)))
+   (effect-start :initarg :effect-start :reader normalized-candidate-effect-start)
+   (origin :initarg :origin :initform nil :reader normalized-candidate-origin)))
 
 (defclass normalized-interaction ()
   ((name :initarg :name :reader normalized-interaction-name)
@@ -42,7 +47,8 @@
    (observe :initarg :observe :reader normalized-interaction-observe)
    (anchor :initarg :anchor :reader normalized-interaction-anchor)
    (candidates :initarg :candidates :reader normalized-interaction-candidates)
-   (arbitration :initarg :arbitration :reader normalized-interaction-arbitration)))
+   (arbitration :initarg :arbitration :reader normalized-interaction-arbitration)
+   (origin :initarg :origin :initform nil :reader normalized-interaction-origin)))
 
 (defclass normalized-layout ()
   ((name :initarg :name :reader normalized-layout-name)
@@ -51,7 +57,8 @@
    (modifiers :initarg :modifiers :reader normalized-layout-modifiers)
    (bindings :initarg :bindings :reader normalized-layout-bindings)
    (patches :initarg :patches :reader normalized-layout-patches)
-   (interactions :initarg :interactions :reader normalized-layout-interactions)))
+   (interactions :initarg :interactions :reader normalized-layout-interactions)
+   (origin :initarg :origin :initform nil :reader normalized-layout-origin)))
 
 (defun %normalization-error (code control &rest arguments)
   (apply #'signal-semantic-error 'semantic-normalization-error code control arguments))
@@ -88,13 +95,22 @@
                             "Behavior-table inheritance cycles at ~A." key))
     (case (behavior-entry-disposition entry)
       (:behavior (behavior-entry-behavior entry))
-      (:none +no-output+)
+      ;; MAKE-NONE-ENTRY preserves its concrete AT/FALLBACK declaration on
+      ;; this otherwise output-free behavior.
+      (:none (behavior-entry-behavior entry))
       (:inherit (let ((source (find-behavior-entry (behavior-entry-inherit-tuple entry) table)))
                   (unless source
                     (%normalization-error :unknown-inheritance-source
                                           "No behavior-table entry exists for inherited tuple ~A."
                                           (context-tuple-key (behavior-entry-inherit-tuple entry))))
-                  (%resolved-table-entry-behavior source table (cons key seen))))
+                  ;; The selected source behavior keeps its declaration
+                  ;; origin.  The target INHERIT entry is a further concrete
+                  ;; use boundary, so preserve it in the normalized entry's
+                  ;; ordered provenance path rather than falling back to the
+                  ;; enclosing binding.
+                  (%behavior-with-use-span
+                   (%resolved-table-entry-behavior source table (cons key seen))
+                   (behavior-entry-origin entry))))
       (:transparent (%normalization-error :transparent-base-entry
                                           "Transparency has no behavior to normalize in a base table.")))))
 
@@ -181,9 +197,13 @@ state just because some unrelated axis exists in the layout."
     (make-instance 'normalized-binding
                    :position (binding-position binding)
                    :axes ordered-dependencies
+                   :origin (binding-origin binding)
                    :entries
                    (mapcar (lambda (variant)
-                             (make-normalized-binding-entry (car variant) (cdr variant)))
+                             (make-normalized-binding-entry
+                              (car variant) (cdr variant)
+                              :origin (or (behavior-origin (cdr variant))
+                                          (binding-origin binding))))
                            (%sort-variants variants layout ordered-dependencies)))))
 
 (defun %normalize-patch (patch layout)
@@ -192,6 +212,7 @@ state just because some unrelated axis exists in the layout."
                  :axis (overlay-patch-axis patch)
                  :state (overlay-patch-state patch)
                  :precedence (%overlay-precedence patch layout)
+                 :origin (overlay-patch-origin patch)
                  :bindings
                  (sort (loop for entry in (overlay-patch-bindings patch)
                              collect
@@ -200,7 +221,8 @@ state just because some unrelated axis exists in the layout."
                                  (cons (patch-binding-position entry)
                                        (%normalize-binding
                                         (make-binding (patch-binding-position entry)
-                                                      (patch-binding-behavior entry))
+                                                      (patch-binding-behavior entry)
+                                                      :origin (patch-binding-origin entry))
                                         layout))))
                        #'identifier< :key #'car)))
 
@@ -226,6 +248,7 @@ state just because some unrelated axis exists in the layout."
    :participants (copy-list (interaction-participants interaction))
    :observe (interaction-observe interaction) :anchor (interaction-anchor interaction)
    :arbitration (interaction-arbitration interaction)
+   :origin (interaction-origin interaction)
    :candidates
    (mapcar (lambda (candidate)
              (let* ((entries (%behavior-variants (candidate-behavior candidate) layout))
@@ -237,12 +260,16 @@ state just because some unrelated axis exists in the layout."
                               :commit (candidate-commit candidate)
                               :entries
                               (mapcar (lambda (variant)
-                                        (make-normalized-binding-entry (car variant) (cdr variant)))
+                                        (make-normalized-binding-entry
+                                         (car variant) (cdr variant)
+                                         :origin (or (behavior-origin (cdr variant))
+                                                     (candidate-origin candidate))))
                                       (%sort-variants entries layout ordered))
                               :effects (%normalize-effects (candidate-effects candidate) layout)
                               :context-axes ordered
                               :context-policy (candidate-context-policy candidate)
-                              :effect-start (candidate-effect-start candidate))))
+                              :effect-start (candidate-effect-start candidate)
+                              :origin (candidate-origin candidate))))
            (sort (copy-list (interaction-candidates interaction)) #'identifier<
                  :key #'candidate-name))))
 
@@ -260,6 +287,7 @@ Kanata, keycode, group, or fixed-bit-width assumptions."
      :topology (layout-topology resolved)
      :axes (copy-list (layout-axes resolved))
      :modifiers (layout-modifiers resolved)
+     :origin (layout-origin resolved)
      :bindings (sort (mapcar (lambda (binding) (%normalize-binding binding resolved))
                              (layout-bindings resolved))
                      #'identifier< :key #'normalized-binding-position)

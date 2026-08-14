@@ -21,6 +21,28 @@
   (find kind (ivory-key.backend:pipeline-result-artifacts result)
         :key #'ivory-key.backend:pipeline-artifact-kind))
 
+(deftest backend-capabilities-describe-the-complete-planning-boundary
+  (let ((xkb (ivory-key.backend:capabilities
+              (ivory-key.backend:make-xkb-backend)))
+        (kanata (ivory-key.backend:capabilities
+                 (ivory-key.backend:make-kanata-backend)))
+        (qmk (ivory-key.backend:capabilities
+              (ivory-key.backend:make-qmk-backend))))
+    (is (ivory-key.backend:capability-supports-p
+         xkb :input :xkb-key-name))
+    (is (ivory-key.backend:capability-supports-p
+         xkb :carrier :xkb-keycode-input))
+    (is (null (ivory-key.backend:capability-clock-semantics kanata)))
+    (is (null (ivory-key.backend:capability-lifecycle-semantics kanata)))
+    (is (null (ivory-key.backend:capability-interaction-features kanata)))
+    (is (ivory-key.backend:capability-supports-p
+         qmk :platform :qmk-firmware-checkout))
+    ;; Empty structured categories are meaningful: no backend may gain an
+    ;; abstract operation merely because its native platform has one.
+    (is (null (ivory-key.backend:capability-context-axis-operations xkb)))
+    (is (null (ivory-key.backend:capability-patch-operations kanata)))
+    (is (null (ivory-key.backend:capability-arbitration-semantics qmk)))))
+
 (deftest backend-resource-allocation-is-stable-and-exclusive
   (let ((pool (ivory-key.backend:make-resource-pool
                "carrier" '("C1" "C2" "C3") :reserved '("C2"))))

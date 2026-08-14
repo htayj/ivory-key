@@ -93,6 +93,12 @@ in the model. Latches are consumed only by a committed candidate that consults
 their axis. A rejected candidate, or a key that does not consult that axis,
 leaves the latch intact.
 
+The executable `context-is` predicate compares its axis against that same
+dependency-scoped anchor snapshot. A captured latch shadows the ordinary axis
+value, and a committing contextual candidate consumes only the matching latch
+generation. It never consults mutable commit-time state; context observation
+times other than anchor-down remain explicit simulator refusals.
+
 The reference simulator executes its own finite timed-event representation.
 It covers deadline boundaries, distinct release orders, unordered combos,
 priority conflicts, cancellation, latch non-consumption, and paired held
@@ -124,6 +130,11 @@ interaction, for unknown or unbound event positions, caller-supplied deadline
 events, invalid explicit context, and every behavior, pattern, arbitration, or
 effect the existing model adapter cannot represent. It does not lower a backend
 or deploy.
+
+Both model-compiled and direct simulator IR refuse `longest-match`. The
+reference machine has no participant-count shortcut: admitting that policy
+requires the still-unproved comparison and latency scheduler described by the
+language reference.
 
 ## Planning boundary and present limits
 

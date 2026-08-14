@@ -76,3 +76,105 @@ programmer error rather than a recoverable layout diagnostic."
             (if source (source-file-name source) "<unknown>")
             (source-span-start-line span)
             (source-span-start-column span))))
+
+;;; Semantic-model provenance ------------------------------------------------
+
+;; The concrete parser owns SOURCE-SPAN.  Semantic objects need one additional
+;; layer when a finite template body is materialized at one or more source
+;; sites: the body keeps its declaration span and records each reference crossed
+;; while reaching the concrete object.  Keep this data here, rather than in an
+;; identity side table, so an allocator or diagnostic writer can consume the
+;; typed IR long after the parser and decoder have returned.
+
+(defstruct (source-origin
+             (:constructor %make-source-origin (definition-span use-spans))
+             (:copier nil)
+             (:conc-name %source-origin-))
+  "Immutable-by-convention provenance for one semantic IR object.
+
+DEFINITION-SPAN identifies the concrete declaration or body form that supplied
+the object.  USE-SPANS are ordered from the definition-nearest template use to
+the outermost materializing use.  They are source spans, not pathnames or host
+objects, so this record neither requires nor derives a physical checkout path.
+"
+  (definition-span nil :type (or null source-span) :read-only t)
+  (use-spans nil :type list :read-only t))
+
+(defun make-source-origin (&key definition-span use-spans)
+  "Create immutable-by-convention semantic provenance.
+
+Both fields are optional so programmatic model construction can remain
+deliberately source-free.  The use list is copied on construction and returned
+as a fresh list by SOURCE-ORIGIN-USE-SPANS; callers therefore cannot mutate an
+origin's recorded template path through the public protocol.
+"
+  (when definition-span
+    (check-type definition-span source-span))
+  (dolist (span use-spans)
+    (check-type span source-span))
+  (%make-source-origin definition-span (copy-list use-spans)))
+
+(defun source-origin-definition-span (origin)
+  "Return ORIGIN's declaration/body span, or NIL for programmatic IR."
+  (check-type origin source-origin)
+  (%source-origin-definition-span origin))
+
+(defun source-origin-use-spans (origin)
+  "Return a fresh definition-nearest-to-outermost template-use span list."
+  (check-type origin source-origin)
+  (copy-list (%source-origin-use-spans origin)))
+
+(defun source-origin-with-use-span (origin use-span)
+  "Return a new origin with USE-SPAN appended as its outer template use."
+  (check-type origin source-origin)
+  (check-type use-span source-span)
+  (make-source-origin
+   :definition-span (%source-origin-definition-span origin)
+   :use-spans (append (%source-origin-use-spans origin) (list use-span))))
+
+(defun source-origin= (left right)
+  "Compare semantic provenance without exposing mutable implementation state."
+  (labels ((span= (left-span right-span)
+             ;; SOURCE-SPAN= intentionally treats the concrete SOURCE-FILE
+             ;; object as identity.  Origins instead need a structural value
+             ;; comparison so separately parsed, byte-identical logical source
+             ;; inputs have equal provenance without sharing host objects.
+             (and (typep left-span 'source-span)
+                  (typep right-span 'source-span)
+                  (let ((left-source (source-span-source left-span))
+                        (right-source (source-span-source right-span)))
+                    (and (if left-source
+                             (and right-source
+                                  (string= (source-file-name left-source)
+                                           (source-file-name right-source))
+                                  (string= (source-file-text left-source)
+                                           (source-file-text right-source)))
+                             (null right-source))
+                         (= (source-span-start-byte left-span)
+                            (source-span-start-byte right-span))
+                         (= (source-span-end-byte left-span)
+                            (source-span-end-byte right-span))
+                         (= (source-span-start-line left-span)
+                            (source-span-start-line right-span))
+                         (= (source-span-start-column left-span)
+                            (source-span-start-column right-span))
+                         (= (source-span-end-line left-span)
+                            (source-span-end-line right-span))
+                         (= (source-span-end-column left-span)
+                            (source-span-end-column right-span))
+                         (= (length (source-span-import-stack left-span))
+                            (length (source-span-import-stack right-span)))
+                         (every #'span=
+                                (source-span-import-stack left-span)
+                                (source-span-import-stack right-span)))))))
+    (and (typep left 'source-origin)
+         (typep right 'source-origin)
+         (let ((left-definition (%source-origin-definition-span left))
+               (right-definition (%source-origin-definition-span right))
+               (left-uses (%source-origin-use-spans left))
+               (right-uses (%source-origin-use-spans right)))
+           (and (if left-definition
+                    (and right-definition (span= left-definition right-definition))
+                    (null right-definition))
+                (= (length left-uses) (length right-uses))
+                (every #'span= left-uses right-uses))))))

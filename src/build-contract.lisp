@@ -8,9 +8,10 @@
 ;;; particular front-end and prevents this report layer from becoming another
 ;;; lowering path.
 
-;; Version 2 adds MANIFEST.JSON input_coverage, a deterministic topology
-;; disposition inventory independent of backend carrier allocation records.
-(defconstant +build-contract-schema-version+ 2)
+;; Version 5 adds typed, relocatable source provenance for every emitted
+;; direct mapping and concrete allocation.  Version 4's privacy-preserving
+;; validated-before-publication evidence remains observational and unchanged.
+(defconstant +build-contract-schema-version+ 5)
 (defconstant +ivory-key-language-version+ 1)
 (defparameter +ivory-key-compiler-version+ "0.1.0")
 
@@ -23,7 +24,8 @@
 (defstruct (build-contract
             (:constructor %make-build-contract
                 (language-version compiler-version layout topology device profile
-                 source-hashes input-coverage pipeline-result validation-evidence)))
+                 source-hashes source-name-identities input-coverage pipeline-result
+                 validation-evidence)))
   "The data from which all Phase 6 contract files are rendered.
 
 Every slot is immutable by convention.  VALIDATION-EVIDENCE is NIL unless a
@@ -37,6 +39,11 @@ not manufacture either tool versions or validation claims.
   device
   profile
   source-hashes
+  ;; Private parser-source-name -> stable contract-identity lookup.  This is
+  ;; constructed by the compiler from (IDENTITY . PATHNAME) inputs and is
+  ;; never rendered.  Keeping only the identity values in output prevents
+  ;; physical checkout paths from becoming build data.
+  source-name-identities
   ;; One closed physical-reachability record per selected topology position.
   ;; This stays independent of backend carrier allocation inventories.
   input-coverage
@@ -272,6 +279,35 @@ the contract records the bytes the toolchain observed.
                       (source-hash-record-path first)))
     ordered))
 
+(defun %canonical-source-name-identities (records source-hashes)
+  "Validate private parser-name to stable-contract-identity associations.
+
+RECORDS is deliberately not a source map output.  It merely lets the renderer
+translate the parser's physical source-file name in a typed origin through the
+compiler-provided stable input inventory.  Rejecting an ambiguous name here is
+essential: choosing a source based on a host pathname or hash-table order
+would make relocation silently change provenance.
+"
+  (unless (listp records)
+    (error "Build-contract source name identities must be a list or NIL."))
+  (let ((known (mapcar #'source-hash-record-path source-hashes))
+        (canonical nil))
+    (dolist (record records)
+      (unless (and (consp record) (stringp (car record))
+                   (plusp (length (car record)))
+                   (stringp (cdr record)) (plusp (length (cdr record))))
+        (error "Source name identity must be (parser-name . contract-identity), got ~S."
+               record))
+      (unless (member (cdr record) known :test #'string=)
+        (error "Parser source name ~S refers to unknown contract input ~S."
+               (car record) (cdr record)))
+      (let ((previous (assoc (car record) canonical :test #'string=)))
+        (cond ((null previous) (push (cons (car record) (cdr record)) canonical))
+              ((not (string= (cdr previous) (cdr record)))
+               (error "Parser source name ~S ambiguously names contract inputs ~S and ~S."
+                      (car record) (cdr previous) (cdr record))))))
+    (sort canonical #'string< :key #'car)))
+
 (defun %input-coverage-record< (left right)
   (string< (getf left :position) (getf right :position)))
 
@@ -303,10 +339,79 @@ of this contract vocabulary and cannot be serialized as device coverage.
                         (getf first :position)))
       ordered)))
 
+(defun %validation-evidence-value (record key)
+  (let ((missing (gensym "MISSING-VALIDATION-EVIDENCE-")))
+    (let ((value (getf record key missing)))
+      (if (eq value missing)
+          (error "Validation evidence record ~S omits ~S." record key)
+          value))))
+
+(defun %validation-evidence-record-p (record)
+  "Whether RECORD has the one closed, inspectable validation-evidence shape."
+  (and (listp record)
+       (= (length record) 12)
+       (let ((keys (loop for key in record by #'cddr collect key)))
+         (and (= (length keys) (length (remove-duplicates keys :test #'eq)))
+              (every (lambda (key)
+                       (member key '(:artifact :tool :version :version-sha256
+                                     :status :result-sha256)
+                               :test #'eq))
+                     keys)))
+       (every (lambda (key)
+                (stringp (%validation-evidence-value record key)))
+              '(:artifact :tool :version :version-sha256 :status :result-sha256))))
+
+(defun %validation-evidence-record< (left right)
+  (let ((left-artifact (%validation-evidence-value left :artifact))
+        (right-artifact (%validation-evidence-value right :artifact)))
+    (or (string< left-artifact right-artifact)
+        (and (string= left-artifact right-artifact)
+             (string< (%validation-evidence-value left :tool)
+                      (%validation-evidence-value right :tool))))))
+
+(defun %canonical-validation-evidence (evidence)
+  "Copy, validate, and canonically order actual validation observations.
+
+The record intentionally contains a stable artifact-relative name rather than
+the randomized staging pathname.  VERSION is a closed normalized display value;
+its raw byte stream and the raw validator result are retained only as SHA-256
+digests.  This keeps evidence exact and inspectable without publishing paths
+or environmental chatter from a trusted staging directory.
+"
+  (unless (listp evidence)
+    (error "Build-contract validation evidence must be a list or NIL."))
+  (dolist (record evidence)
+    (unless (%validation-evidence-record-p record)
+      (error "Validation evidence must have string :ARTIFACT, :TOOL, :VERSION, :VERSION-SHA256, :STATUS, and :RESULT-SHA256 fields: ~S."
+             record))
+    (unless (and (plusp (length (%validation-evidence-value record :artifact)))
+                 (plusp (length (%validation-evidence-value record :tool)))
+                 (member (%validation-evidence-value record :status)
+                         '("passed" "failed" "unavailable") :test #'string=)
+                 (%hex-sha256-p (%validation-evidence-value record :version-sha256))
+                 (%hex-sha256-p (%validation-evidence-value record :result-sha256)))
+      (error "Validation evidence record has an invalid artifact, tool, status, or SHA-256 digest: ~S."
+             record)))
+  (let ((ordered (sort (mapcar #'copy-list evidence)
+                       #'%validation-evidence-record<)))
+    (loop for tail on ordered
+          for first = (first tail)
+          for second = (second tail)
+          while second
+          when (and (string= (%validation-evidence-value first :artifact)
+                              (%validation-evidence-value second :artifact))
+                    (string= (%validation-evidence-value first :tool)
+                              (%validation-evidence-value second :tool)))
+            do (error "Duplicate validation evidence for artifact ~A and tool ~A."
+                      (%validation-evidence-value first :artifact)
+                      (%validation-evidence-value first :tool)))
+    ordered))
+
 (defun make-build-contract (&key (language-version +ivory-key-language-version+)
                                  (compiler-version +ivory-key-compiler-version+)
                                  layout topology device profile source-hashes
-                                 input-coverage pipeline-result validation-evidence)
+                                 source-name-identities input-coverage pipeline-result
+                                 validation-evidence)
   "Construct data for a deterministic current-build output contract.
 
 The selected names and source records are explicit inputs because a compiler
@@ -319,14 +424,36 @@ confinement.  NIL validation evidence is the normal compile-time state.
     (error "Build-contract compiler version must be a non-empty string."))
   ;; PIPELINE-RESULT is intentionally consumed through the public backend
   ;; readers below; the backend keeps its concrete result class private.
-  (unless (listp validation-evidence)
-    (error "Build-contract validation evidence must be a list or NIL."))
-  (%make-build-contract
-   language-version compiler-version
-   (%canonical-name layout) (%canonical-name topology) (%canonical-name device)
-   (%canonical-name profile) (%canonical-source-hashes source-hashes)
-   (%canonical-input-coverage input-coverage)
-   pipeline-result (copy-list validation-evidence)))
+  (let ((canonical-hashes (%canonical-source-hashes source-hashes)))
+    (%make-build-contract
+     language-version compiler-version
+     (%canonical-name layout) (%canonical-name topology) (%canonical-name device)
+     (%canonical-name profile) canonical-hashes
+     (%canonical-source-name-identities source-name-identities canonical-hashes)
+     (%canonical-input-coverage input-coverage)
+     pipeline-result (%canonical-validation-evidence validation-evidence))))
+
+(defun with-build-contract-validation-evidence (contract validation-evidence)
+  "Return a fresh CONTRACT whose one immutable rendering includes EVIDENCE.
+
+This is used only after staged artifacts have been validated and before their
+directory is renamed into its final location.  It never rewrites an already
+published contract, which keeps post-build validation a separate observation.
+"
+  (unless (typep contract 'build-contract)
+    (error "Validation evidence requires a BUILD-CONTRACT, got ~S." contract))
+  (make-build-contract
+   :language-version (build-contract-language-version contract)
+   :compiler-version (build-contract-compiler-version contract)
+   :layout (build-contract-layout contract)
+   :topology (build-contract-topology contract)
+   :device (build-contract-device contract)
+   :profile (build-contract-profile contract)
+   :source-hashes (build-contract-source-hashes contract)
+   :source-name-identities (build-contract-source-name-identities contract)
+   :input-coverage (build-contract-input-coverage contract)
+   :pipeline-result (build-contract-pipeline-result contract)
+   :validation-evidence validation-evidence))
 
 ;;; Restricted deterministic JSON ------------------------------------------------
 
@@ -427,6 +554,104 @@ confinement.  NIL validation evidence is the normal compile-time state.
   (%object (cons "path" (source-hash-record-path record))
            (cons "sha256" (source-hash-record-sha256 record))))
 
+(defun %contract-source-identity-for-span (contract span)
+  "Resolve one typed source SPAN without exposing its physical pathname."
+  (unless (typep span 'ivory-key.source:source-span)
+    (error "Contract provenance span must be a SOURCE:SOURCE-SPAN, got ~S." span))
+  (let ((source (ivory-key.source:source-span-source span)))
+    (unless (typep source 'ivory-key.source:source-file)
+      (error "Non-programmatic contract provenance has no source file."))
+    (let* ((name (ivory-key.source:source-file-name source))
+           (match (assoc name (build-contract-source-name-identities contract)
+                         :test #'string=)))
+      (unless match
+        (error "Contract provenance source ~S is not a declared build input." name))
+      (cdr match))))
+
+(defun %source-span-provenance-json (contract span)
+  "Render one span's relocatable start location, never its parser pathname."
+  (let ((line (ivory-key.source:source-span-start-line span))
+        (column (ivory-key.source:source-span-start-column span)))
+    (unless (and (integerp line) (plusp line)
+                 (integerp column) (plusp column))
+      (error "Contract provenance span has invalid start location ~S." span))
+    (%object (cons "column" column)
+             (cons "line" line)
+             (cons "source" (%contract-source-identity-for-span contract span)))))
+
+(defun %origin-json (contract origin)
+  "Render typed semantic ORIGIN or an explicit JSON null for programmatic IR."
+  (cond ((null origin) nil)
+        ((not (typep origin 'ivory-key.source:source-origin))
+         (error "Contract provenance must be a SOURCE:SOURCE-ORIGIN or NIL, got ~S."
+                origin))
+        (t
+         (let ((definition
+                 (ivory-key.source:source-origin-definition-span origin))
+               (uses (ivory-key.source:source-origin-use-spans origin)))
+           ;; A non-NIL typed origin lacking its definition is neither a
+           ;; parser-backed source nor programmatic NIL.  Refuse rather than
+           ;; manufacture a declaration line from a use site.
+           (unless definition
+             (error "Contract provenance origin lacks a definition span."))
+           (%object
+            (cons "definition" (%source-span-provenance-json contract definition))
+            ;; SOURCE:SOURCE-ORIGIN guarantees definition-nearest to outermost
+            ;; template-use order; do not sort this semantic trace.
+            (cons "template_uses"
+                  (%array
+                   (mapcar (lambda (span)
+                             (%source-span-provenance-json contract span))
+                           uses))))))))
+
+(defun %key-entry-sources (entry)
+  "Return explicit mapping sources, retaining legacy programmatic NIL once."
+  (let ((sources (ivory-key.backend:key-entry-sources entry)))
+    (cond ((null sources) (list nil))
+          ((every (lambda (source)
+                    (typep source 'ivory-key.backend:key-entry-source))
+                  sources)
+           sources)
+          (t (error "KEY-ENTRY ~S contains a malformed provenance source."
+                    (ivory-key.backend:key-entry-position entry))))))
+
+(defun %source-context-json (source)
+  (let ((context (and source (ivory-key.backend:key-entry-source-context source))))
+    (cond ((null context) nil)
+          ((typep context 'ivory-key.model:context-tuple)
+           (ivory-key.model:context-tuple-key context))
+          (t (error "KEY-ENTRY provenance context must be a MODEL:CONTEXT-TUPLE or NIL, got ~S."
+                    context)))))
+
+(defun %mapping-json (contract artifact entry source ordinal)
+  (%object
+   (cons "artifact" (ivory-key.backend:pipeline-artifact-relative-path artifact))
+   (cons "backend" (%canonical-name (ivory-key.backend:pipeline-artifact-kind artifact)))
+   (cons "binding" (%canonical-name (ivory-key.backend:key-entry-position entry)))
+   (cons "context" (%source-context-json source))
+   (cons "mapping_index" ordinal)
+   (cons "mechanism" "direct-key-entry")
+   (cons "origin" (%origin-json contract
+                                (and source
+                                     (ivory-key.backend:key-entry-source-origin source))))))
+
+(defun %pipeline-entries-for-artifact (pipeline artifact)
+  "Return only the key entries physically emitted in ARTIFACT's backend text."
+  (let ((entries (copy-list
+                  (ivory-key.backend:lowering-request-entries
+                   (ivory-key.backend:pipeline-result-request pipeline)))))
+    (when (eq (ivory-key.backend:pipeline-artifact-kind artifact) :xkb)
+      (setf entries
+            (append entries
+                    (copy-list
+                     (getf (ivory-key.backend:lowering-request-metadata
+                            (ivory-key.backend:pipeline-result-request pipeline))
+                           :xkb-carrier-entries)))))
+    (unless (every (lambda (entry) (typep entry 'ivory-key.backend:key-entry))
+                   entries)
+      (error "Pipeline source map contains a non-KEY-ENTRY emitted entry."))
+    (sort entries #'%entry<)))
+
 (defun %artifact-json (artifact directory)
   (let* ((path (ivory-key.backend:pipeline-artifact-relative-path artifact))
          (pathname (merge-pathnames path directory)))
@@ -444,10 +669,9 @@ confinement.  NIL validation evidence is the normal compile-time state.
            (cons "grade" (%canonical-name
                            (ivory-key.backend:realization-grade result)))))
 
-(defun %allocation-json (allocation)
-  ;; The current conservative direct pipeline performs no carrier allocation.
-  ;; Should a later pipeline forward target-neutral planner allocations here,
-  ;; serialize that concrete, already-proven value—or fail rather than omit it.
+(defun %allocation-json (contract allocation)
+  ;; A concrete allocation can discharge equal requirements from several
+  ;; normalized entries.  Preserve each source instead of choosing one.
   (unless (typep allocation 'ivory-key.backend:planner-allocation)
     (error "Cannot serialize an unrecognized pipeline allocation ~S." allocation))
   (let ((requirement
@@ -460,34 +684,29 @@ confinement.  NIL validation evidence is the normal compile-time state.
      (cons "pool" (%canonical-name
                     (ivory-key.backend:planner-allocation-pool-kind allocation)))
      (cons "value" (%canonical-name
-                     (ivory-key.backend:planner-allocation-value allocation))))))
+                     (ivory-key.backend:planner-allocation-value allocation)))
+     ;; NIL origins are deliberately rendered as a single explicit unknown
+     ;; record.  They arise only from programmatic IR; the compiler never
+     ;; tries to infer a path or line for them.
+     (cons "origins"
+           (%array
+            (mapcar (lambda (origin) (%origin-json contract origin))
+                    (or (ivory-key.backend:planner-allocation-origins allocation)
+                        (list nil))))))))
 
 (defun %validation-evidence-json (evidence)
-  "Encode only records supplied by an actual validator invocation.
-
-Each record is a plist with :TOOL and :STATUS strings and optional :ARGUMENTS
-and :OUTPUT strings.  No compiler path currently passes such records, so the
-normal generated manifest omits the validation key altogether.
-"
+  "Encode one closed record per actual pre-publication validation invocation."
   (%array
    (mapcar
     (lambda (record)
-      (unless (and (listp record)
-                   (stringp (getf record :tool))
-                   (stringp (getf record :status)))
-        (error "Validation evidence must supply string :TOOL and :STATUS fields."))
-      (let ((arguments (getf record :arguments))
-            (output (getf record :output)))
-        (unless (or (null arguments) (and (listp arguments) (every #'stringp arguments)))
-          (error "Validation evidence :ARGUMENTS must be a list of strings."))
-        (unless (or (null output) (stringp output))
-          (error "Validation evidence :OUTPUT must be a string when present."))
-        (apply #'%object
-               (append (list (cons "status" (getf record :status))
-                             (cons "tool" (getf record :tool)))
-                       (and arguments (list (cons "arguments" (%array arguments))))
-                       (and output (list (cons "output" output)))))))
-    (sort (copy-list evidence) #'string< :key (lambda (record) (getf record :tool))))))
+      (%object
+       (cons "artifact" (%validation-evidence-value record :artifact))
+       (cons "result_sha256" (%validation-evidence-value record :result-sha256))
+       (cons "status" (%validation-evidence-value record :status))
+       (cons "tool" (%validation-evidence-value record :tool))
+       (cons "version" (%validation-evidence-value record :version))
+       (cons "version_sha256" (%validation-evidence-value record :version-sha256))))
+    (%canonical-validation-evidence evidence))))
 
 (defun %manifest-json (contract directory)
   (let* ((pipeline (build-contract-pipeline-result contract))
@@ -533,32 +752,26 @@ normal generated manifest omits the validation key altogether.
   (let ((allocations
           (ivory-key.backend:pipeline-result-allocations
            (build-contract-pipeline-result contract))))
-    (%object (cons "allocations" (%array (mapcar #'%allocation-json allocations)))
+    (%object (cons "allocations" (%array (mapcar (lambda (allocation)
+                                                    (%allocation-json contract allocation))
+                                                  allocations)))
              (cons "schema_version" +build-contract-schema-version+))))
 
 (defun %source-map-json (contract)
   (let* ((pipeline (build-contract-pipeline-result contract))
          (artifacts (sort (copy-list (ivory-key.backend:pipeline-result-artifacts pipeline))
-                          #'%artifact<))
-         (entries (sort (copy-list
-                         (ivory-key.backend:lowering-request-entries
-                          (ivory-key.backend:pipeline-result-request pipeline)))
-                        #'%entry<)))
+                          #'%artifact<)))
     (%object
      (cons "mappings"
            (%array
             (mapcan
              (lambda (artifact)
-               (mapcar
+               (mapcan
                 (lambda (entry)
-                  (%object
-                   (cons "artifact" (ivory-key.backend:pipeline-artifact-relative-path artifact))
-                   (cons "backend" (%canonical-name
-                                    (ivory-key.backend:pipeline-artifact-kind artifact)))
-                   (cons "binding" (%canonical-name
-                                    (ivory-key.backend:key-entry-position entry)))
-                   (cons "mechanism" "direct-key-entry")))
-                entries))
+                  (loop for source in (%key-entry-sources entry)
+                        for ordinal from 1
+                        collect (%mapping-json contract artifact entry source ordinal)))
+                (%pipeline-entries-for-artifact pipeline artifact)))
              artifacts)))
      (cons "schema_version" +build-contract-schema-version+))))
 
@@ -577,6 +790,27 @@ normal generated manifest omits the validation key altogether.
         (format stream "- `~A`: ~A~%"
                 (getf record :position)
                 (string-downcase (symbol-name (getf record :disposition)))))))
+
+(defun %json-inline-value (value)
+  "Return VALUE in the exact restricted-JSON representation used by MANIFEST."
+  (with-output-to-string (stream)
+    (%write-json-value value stream)))
+
+(defun %format-validation-evidence (evidence stream)
+  (dolist (record (%canonical-validation-evidence evidence))
+    (format stream "- `~A` (`~A`): ~A~%"
+            (%validation-evidence-value record :tool)
+            (%validation-evidence-value record :artifact)
+            (%validation-evidence-value record :status))
+    ;; The raw tool streams are recorded only by digest: validators run against
+    ;; a randomized staging pathname, which must not appear in a published
+    ;; report as a side effect of otherwise successful compilation.
+    (format stream "  - Version JSON: ~A~%"
+            (%json-inline-value (%validation-evidence-value record :version)))
+    (format stream "  - Version SHA-256: `~A`~%"
+            (%validation-evidence-value record :version-sha256))
+    (format stream "  - Result SHA-256: `~A`~%"
+            (%validation-evidence-value record :result-sha256))))
 
 (defun build-contract-report-string (contract directory)
   "Render the deterministic human-readable report for an already-emitted build."
@@ -619,13 +853,13 @@ normal generated manifest omits the validation key altogether.
       (format stream "~%## Allocations~%~%")
       (if allocations
           (dolist (allocation allocations)
-            (let ((record (%allocation-json allocation)))
+            (let ((record (%allocation-json contract allocation)))
               (format stream "- `~A`~%" (%json-string record))))
           (format stream "No concrete resource allocations were made by the current direct pipeline.~%"))
       (format stream "~%## Validation~%~%")
       (if (build-contract-validation-evidence contract)
-          (dolist (record (build-contract-validation-evidence contract))
-            (format stream "- `~A`: ~A~%" (getf record :tool) (getf record :status)))
+          (%format-validation-evidence
+           (build-contract-validation-evidence contract) stream)
           (format stream "No external validation ran during compilation; no tool evidence is recorded.~%")))))
 
 (defun write-build-contract-files (contract directory)

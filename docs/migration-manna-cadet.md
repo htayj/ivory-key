@@ -65,7 +65,13 @@ and the canonical projected truth-table digest. Run
 `tools/manna-truth-table.lisp verify ROOT` (or the separately invoked
 `tests/migration/manna-truth-table.lisp ROOT`) against the read-only checkout
 before reviewing the transcription. This proves the static source snapshot;
-it does not prove generated or live behavior.
+it does not prove generated or live behavior. `tools/manna-truth-table.lisp
+diff ROOT` is the required companion review: it deterministically compares the
+two frozen primary devices with the checked-in 52-table static transcription,
+29-row function table/carrier vocabulary, and four direct selectors. Its
+`Unchecked differences: 0` result means all remaining differences are named
+as exact transcription, device variance, or refusal; it is not a migration or
+equivalence verdict.
 
 ## Work still required before a migration claim
 
@@ -83,9 +89,10 @@ it does not prove generated or live behavior.
 4. Plan resources and lower the complete selected profile. Refuse unsupported
    or unapproved lossy behavior; validate generated artifacts with the target
    installed tools.
-5. Review every difference from the frozen baseline. Only then consider a
-   separately authorized dotfiles integration and disposable-device/live-input
-   validation with a rollback path.
+5. Run and review the generated frozen `diff` report. Resolve every explicit
+   refusal through policy/evidence and re-run it with no unreviewed change;
+   only then consider a separately authorized dotfiles integration and
+   disposable-device/live-input validation with a rollback path.
 
 Until all of those steps are complete, Manna Cadet remains the active external
 configuration and Ivory Key remains a non-deploying implementation effort.

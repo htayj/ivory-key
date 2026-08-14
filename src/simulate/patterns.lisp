@@ -8,11 +8,11 @@
                  (&key kind children event-kind position at-least less-than
                        milliseconds after-position while-down forbidden
                        start-pattern end-pattern repeat-min repeat-max label
-                       capture-name)))
+                       capture-name context-axis context-state)))
   "A normalized finite pattern node.
 
-KIND is one of :EVENT, :CAPTURE, :SEQUENCE, :ALL, :EITHER, :AND, :DURATION,
-:DEADLINE, :WITHIN, :WITHOUT, or :REPEAT.  The small generic representation
+KIND is one of :EVENT, :CAPTURE, :CONTEXT-IS, :SEQUENCE, :ALL, :EITHER, :AND,
+:DURATION, :DEADLINE, :WITHIN, :WITHOUT, or :REPEAT.  The small representation
 keeps simulator input independent of surface syntax and backend vocabulary."
   kind
   (children nil :type list)
@@ -29,18 +29,25 @@ keeps simulator input independent of surface syntax and backend vocabulary."
   repeat-min
   repeat-max
   label
-  capture-name)
+  capture-name
+  context-axis
+  context-state)
 
 (defstruct (pattern-match-context
              (:constructor make-pattern-match-context
-                 (&key events start-index anchor-index captures)))
+                 (&key events start-index anchor-index captures context
+                       latch-snapshot)))
   "The finite prefix against which a candidate is evaluated."
   (events #() :type vector)
   (start-index 0 :type fixnum)
   (anchor-index 0 :type fixnum)
   ;; A candidate-owned hash table of immutable CAPTURE bindings.  Keys are
   ;; canonical strings; values are CAPTURE-BINDING records.
-  captures)
+  captures
+  ;; Candidate-owned anchor-time snapshots.  Latches shadow ordinary context,
+  ;; exactly as they do for runtime behavior selection and consumption.
+  (context nil :type list)
+  (latch-snapshot nil :type list))
 
 (defstruct (capture-binding
             (:constructor make-capture-binding (position down-index)))
@@ -71,6 +78,10 @@ The compiler and semantic validator constrain this to the first finite capture
 slice.  Keeping the binding as an explicit IR node prevents a later UP from
 silently matching a different foreign key."
   (%make-event-pattern :kind :capture :capture-name name :children (list pattern)))
+
+(defun context-is-pattern (axis state)
+  "Match one dependency-scoped axis value captured at candidate anchor-down."
+  (%make-event-pattern :kind :context-is :context-axis axis :context-state state))
 
 (defun sequence-pattern (&rest patterns)
   (%make-event-pattern :kind :sequence :children patterns))
@@ -370,6 +381,17 @@ deadline at the same timestamp as a later physical release."
     ;; three-event sequence.  Treating it as independently matched would
     ;; create a second, under-specified binding lifetime.
     (:capture :pending)
+    (:context-is
+     (let* ((axis (event-pattern-context-axis pattern))
+            (latch (assoc axis (pattern-match-context-latch-snapshot context)
+                          :test #'equal))
+            (actual (if latch
+                        (second latch)
+                        (cdr (assoc axis (pattern-match-context-context context)
+                                    :test #'equal)))))
+       (if (and actual (equal actual (event-pattern-context-state pattern)))
+           :matched
+           :failed)))
     (:sequence (if (sequence-matches-p (event-pattern-children pattern) context)
                    :matched :pending))
     (:all (let ((statuses (mapcar (lambda (child) (pattern-status child context))

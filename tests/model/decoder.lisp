@@ -1,6 +1,5 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
-;;;; Focused v1 surface-decoder contracts.  Loaded manually until the test
-;;;; system's component list is extended by the bootstrap owner.
+;;;; Focused v1 surface-decoder contracts registered in ivory-key/tests.
 
 (in-package #:ivory-key.tests)
 
@@ -90,6 +89,74 @@
     (is (null (find "greek" (ivory-key.model:layout-bindings layout)
                     :test #'ivory-key.model:identifier=
                     :key #'ivory-key.model:binding-position)))))
+
+(defun decoder-normalized-layout-dump-string (normalized)
+  (with-output-to-string (stream)
+    (ivory-key.cli:dump-normalized-layout normalized stream)))
+
+(deftest decoder-twenty-level-fixture-formats-normalizes-dumps-and-simulates
+  "The checked-in four-by-five fixture is an executable 20-context conformance case."
+  (let* ((pathname "layouts/twenty-level.ivory")
+         (parsed (ivory-key.syntax:parse-file pathname))
+         (formatted (ivory-key.syntax:format-parse-result parsed))
+         (reparsed (ivory-key.syntax:parse-string formatted :name pathname))
+         (layout (ivory-key.model:decode-layout-forms parsed))
+         (reparsed-layout (ivory-key.model:decode-layout-forms reparsed))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (reparsed-normalized (ivory-key.model:normalize-layout reparsed-layout))
+         (binding (first (ivory-key.model::normalized-layout-bindings normalized))))
+    (is (ivory-key.syntax:syntax-parse-result-complete-p parsed))
+    (is (ivory-key.syntax:syntax-parse-result-complete-p reparsed))
+    (is (every #'ivory-key.syntax:syntax-node-equal-p
+               (ivory-key.syntax:syntax-parse-result-forms parsed)
+               (ivory-key.syntax:syntax-parse-result-forms reparsed)))
+    (ivory-key.model:validate-layout layout)
+    (ivory-key.model:validate-layout reparsed-layout)
+    (is-equal 20 (length (ivory-key.model::normalized-binding-entries binding)))
+    (is-equal (decoder-normalized-layout-dump-string normalized)
+              (decoder-normalized-layout-dump-string reparsed-normalized))
+    ;; CASE is the first product axis and therefore varies fastest.  Every
+    ;; tuple must execute; the fixture's explicit FALLBACK supplies NONE away
+    ;; from the four BASE outputs rather than permitting a simulation refusal.
+    (let ((checked 0)
+          (base-outputs '( ("plain" . "a") ("shifted" . "A")
+                          ("alternate" . "á") ("titlecase" . "ǅ"))))
+      (dolist (plane '("base" "greek" "math" "navigation" "symbols"))
+        (dolist (case-output base-outputs)
+          (let* ((case-state (car case-output))
+                 (result
+                   (ivory-key.simulate:simulate-normalized-layout-events
+                    normalized
+                    (list (ivory-key.simulate::make-timed-event 0 :down "key")
+                          (ivory-key.simulate::make-timed-event 1 :up "key"))
+                    :axes (list (cons "case" case-state)
+                                (cons "plane" plane))))
+                 (expected (if (string= plane "base")
+                               (list (list :text (cdr case-output)))
+                               nil)))
+            (incf checked)
+            (is-equal expected (ivory-key.simulate:simulation-result-outputs result)))))
+      (is-equal 20 checked))))
+
+(deftest decoder-normalized-dump-is-independent-of-source-declaration-order
+  "Normalization sorts equivalent bindings and context rows before IR dumping."
+  (flet ((normalized-dump (source)
+           (decoder-normalized-layout-dump-string
+            (ivory-key.model:normalize-layout
+             (decoder-layout-from-string source)))))
+    (is-equal
+     (normalized-dump
+      "(ivory-key 1)
+(define-layout canonical
+  (axis case (:states plain shifted) (:resolution product))
+  (binding q (at (plain) (unicode \"q\")) (at (shifted) (unicode \"Q\")))
+  (binding w (at (plain) (unicode \"w\")) (at (shifted) (unicode \"W\"))))")
+     (normalized-dump
+      "(ivory-key 1)
+(define-layout canonical
+  (axis case (:states plain shifted) (:resolution product))
+  (binding w (at (shifted) (unicode \"W\")) (at (plain) (unicode \"w\")))
+  (binding q (at (shifted) (unicode \"Q\")) (at (plain) (unicode \"q\"))))"))))
 
 (deftest decoder-template-arguments-are-resolved-without-evaluation
   (let* ((layout

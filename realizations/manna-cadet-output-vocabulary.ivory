@@ -1,9 +1,12 @@
 ;; Frozen Manna Cadet Linux spellings.  This realization-owned registry is
 ;; generated mechanically from the frozen static XKB table plus the primary
 ;; layered carrier table.  No layout binding contains any of these spellings.
+;; Primary `fun` layer: the XKB keysym and Kanata action are paired frozen
+;; evidence.  The profile validator still owns safety checking of both.
 
 (ivory-key 1)
-(define-output-vocabulary manna-cadet-linux-output
+(define-output-vocabulary
+  manna-cadet-linux-output
   (backends xkb kanata)
   (map-output named-key backspace (:xkb "BackSpace"))
   (map-output named-key iso-left-tab (:xkb "ISO_Left_Tab"))
@@ -129,9 +132,6 @@
   (map-output named-symbol upshoe (:xkb "upshoe"))
   (map-output named-symbol upstile (:xkb "upstile"))
   (map-output named-symbol uptack (:xkb "uptack"))
-
-  ;; Primary `fun` layer: the XKB keysym and Kanata action are paired frozen
-  ;; evidence.  The profile validator still owns safety checking of both.
   (map-output named-symbol roman-one (:xkb "U2160") (:kanata "(arbitrary-code 218)"))
   (map-output named-symbol roman-two (:xkb "U2161") (:kanata "(arbitrary-code 219)"))
   (map-output named-symbol roman-three (:xkb "U2162") (:kanata "(arbitrary-code 220)"))

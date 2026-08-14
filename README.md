@@ -53,8 +53,9 @@ the event machine cannot represent.
 
 ## Quick start
 
-The checked-in `manifest.scm` provides SBCL, ECL, XKB validation, Kanata, QMK,
-and curl through Guix. With direnv installed, approve the checkout once with
+The checked-in `manifest.scm` provides SBCL, ECL, XKB validation and state-test
+development files, Kanata, QMK, a C toolchain, pkg-config, and curl through
+Guix. With direnv installed, approve the checkout once with
 `direnv allow`; `.envrc` then evaluates the manifest through direnv's built-in
 Guix integration. The equivalent one-shot environment is
 `guix shell -m manifest.scm`.
@@ -75,15 +76,16 @@ The CLI entry point supports:
 ./bin/ivory-key fmt [--check] FILE...
 ./bin/ivory-key inventory MANNA-CADET-CHECKOUT
 ./bin/ivory-key dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]
-./bin/ivory-key dump-ir --stage typed|normalized --project PROJECT --composition NAME
+./bin/ivory-key dump-ir --stage planned|backend --layout FILE --device FILE --realization FILE [--topology FILE]
+./bin/ivory-key dump-ir --stage typed|normalized|planned|backend --project PROJECT --composition NAME
 ./bin/ivory-key levels --layout FILE [--topology FILE]
 ./bin/ivory-key levels --project PROJECT --composition NAME
 ./bin/ivory-key simulate --layout FILE [--topology FILE] --events FILE
 ./bin/ivory-key simulate --project PROJECT --composition NAME --events FILE
 ./bin/ivory-key explain --layout FILE --topology FILE --device FILE --realization FILE
 ./bin/ivory-key explain --project PROJECT --composition NAME
-./bin/ivory-key compile --layout FILE --topology FILE --device FILE --realization FILE --output DIR
-./bin/ivory-key compile --project PROJECT --composition NAME --output DIR
+./bin/ivory-key compile [--validate-before-publish] --layout FILE --topology FILE --device FILE --realization FILE --output DIR
+./bin/ivory-key compile [--validate-before-publish] --project PROJECT --composition NAME --output DIR
 ./bin/ivory-key validate-build DIR
 ```
 
@@ -94,8 +96,12 @@ the checkout or install any keyboard configuration.
 Project-mode commands select one named `realize` composition. They do not
 accept a mixture of `--project`/`--composition` and independent layout/device/
 profile paths, because that would make the selected meaning and placement
-ambiguous. `dump-ir` project mode exposes only typed and normalized stages;
-raw parsed inspection remains a single-file mode.
+ambiguous. `dump-ir` project mode exposes typed, normalized, planned, and
+backend stages; raw parsed inspection remains a single-file mode. `planned`
+lists canonical requirements, allocation dispositions, and every fidelity
+grade without lowering. `backend` lowers only an all-exact direct request into
+in-memory XKB and Kanata plans; it neither emits artifact text/files nor runs
+validators, and refuses unsupported layouts before that later pipeline work.
 
 Project simulation selects the composition's already resolved layout and runs
 the same restricted, backend-neutral event adapter as direct layout mode. The
@@ -117,6 +123,7 @@ written. No spellings are inferred from the Manna transcription.
 ## Documentation
 
 - [PLAN.md completion audit](docs/plan-status.md)
+- [Development, formatting, and validation conventions](docs/development.md)
 - [Language syntax and decoder scope](docs/language.md)
 - [Implemented semantic model and timed interactions](docs/semantics.md)
 - [XKB/Kanata backend contract and fidelity rules](docs/backend-contract.md)
@@ -130,10 +137,25 @@ written. No spellings are inferred from the Manna transcription.
 refuses to overwrite one. Exact builds contain `manifest.json`,
 `allocations.json`, `source-map.json`, and `REPORT.md` alongside backend
 artifacts; source identities are relocatable and source/artifact hashes are
-SHA-256. Compilation records no external validation claim unless validation
-actually ran, and it never deploys. Because portable Common Lisp lacks
+SHA-256. Direct mappings and concrete allocations retain typed relocatable
+origins (or explicit programmatic unknown), never checkout paths. Compilation
+records no external validation claim unless validation actually ran, and it
+never deploys. Because portable Common Lisp lacks
 an atomic non-replacing directory rename, that parent must not be concurrently
 writable by an untrusted process. Generated artifacts and live keyboard
 deployment remain separate.
 A successful parse, normalization, in-process lowering, external tool check,
 and observed live input are different kinds of evidence.
+
+The separately tagged external XKB/Kanata probe is intentionally not part of
+the hermetic ASDF suite:
+
+```sh
+direnv exec . sbcl --script tests/external/xkb-kanata.lisp
+direnv exec . ecl -norc -shell tests/external/xkb-kanata.lisp
+```
+
+Besides parser acceptance, it compiles a focused XKB plan and checks its
+compiled groups, levels, symbols, actions, and consumed/unconsumed Shift state
+through libxkbcommon. It does not claim Kanata interaction simulation, live
+device behavior, or Manna equivalence.

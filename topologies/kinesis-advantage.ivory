@@ -1,11 +1,23 @@
 ;; Logical positions evidenced by the frozen Manna Cadet layered variants.
 ;; Coordinates are retained only where the prior fixture supplied them; the
 ;; migration has not inferred geometry from XKB key names or Kanata token order.
+;; Number row.
+;; Alphanumeric/static-symbol positions.
+;; <LSGT> has a static XKB table but no direct layered-Kanata source token.
+;; Both primary normal layers preserve these two defsrc tokens unchanged.
+;; They are immediate physical case holders; no home-row Shift tap-hold is
+;; implied by these distinct positions.
+;; The immediate Greek selector is evidenced on both primary layered
+;; variants.  Its carrier lowering is not embedded in the layout.
+;; The immediate Top selector is likewise direct in both primary variants.
+;; Enter's separate tap-hold Top path is intentionally not inferred here.
+;; This is one physical location with device-specific inactive output:
+;; Menu on Advantage 2 and Caps Lock on Advantage 360.  The primary function
+;; patch gives both variants the same active Alt Mode command.
 
 (ivory-key 1)
 (define-topology
   kinesis-advantage
-  ;; Number row.
   (position number-equals)
   (position number-1)
   (position number-2)
@@ -18,8 +30,6 @@
   (position number-9)
   (position number-0)
   (position number-minus)
-
-  ;; Alphanumeric/static-symbol positions.
   (position tab)
   (position q (:row 1) (:column 1) (:hand left) (:finger pinky))
   (position w)
@@ -59,23 +69,10 @@
   (position slash)
   (position backspace)
   (position space)
-  ;; <LSGT> has a static XKB table but no direct layered-Kanata source token.
   (position less-greater)
-
-  ;; Both primary normal layers preserve these two defsrc tokens unchanged.
-  ;; They are immediate physical case holders; no home-row Shift tap-hold is
-  ;; implied by these distinct positions.
   (position case-left-shift)
   (position case-right-shift)
-
-  ;; The immediate Greek selector is evidenced on both primary layered
-  ;; variants.  Its carrier lowering is not embedded in the layout.
   (position greek (:row 6) (:column 1) (:hand left) (:finger thumb))
-  ;; The immediate Top selector is likewise direct in both primary variants.
-  ;; Enter's separate tap-hold Top path is intentionally not inferred here.
   (position top (:row 6) (:column 4) (:hand right) (:finger thumb))
-  ;; This is one physical location with device-specific inactive output:
-  ;; Menu on Advantage 2 and Caps Lock on Advantage 360.  The primary function
-  ;; patch gives both variants the same active Alt Mode command.
   (position mode-key)
 )
