@@ -41,7 +41,7 @@ suite and the Guix-only core proof.
 
 ## Observed state-machine contract
 
-The five checked tests use both small synthetic configurations and the actual
+The six checked tests use both small synthetic configurations and the actual
 hash-frozen Advantage 2 configuration. They exercise its two equal timer
 shapes, 200/200 ms and 250/250 ms, with `concurrent-tap-hold yes`, and assert:
 
@@ -72,6 +72,43 @@ The last row is only an observed precedence result for this exact configuration
 and scheduler.  It does not define an arbitration rule for an abstract
 multi-owner buffered transaction.  Likewise, post-hold owner release is an
 observable release, not evidence for an unmodeled cancellation operation.
+
+## Advantage 2 native input-domain edge order
+
+The sixth test keeps the same hash-frozen Advantage 2 configuration and uses
+`f`/`@Sf` as the pending owner.  It converts Kanata's simulated output to its
+ASCII edge spelling and removes only `t:...ms` records.  The remaining strings
+below are therefore exact normalized output-edge order: key and carrier
+presses/releases are neither projected into abstract bindings nor interpreted
+through XKB.
+
+| Native input class | Input events | Normalized Kanata output edges |
+|---|---|---|
+| owner releases before context-table key | `d:f t:50 d:q t:10 u:f t:10 u:q t:10` | `dn:F dn:Q up:F up:Q` |
+| context-table key completes while owner remains down | `d:f t:50 d:q t:50 u:q t:50 u:f t:10` | `dn:LShift dn:Q up:Q up:LShift` |
+| another tap-hold owner plus foreign key | `d:f t:10 d:j t:50 d:b t:151 u:b t:50 u:f t:10 u:j t:10` | `dn:LShift dn:B up:B up:LShift` |
+| direct Greek-selector carrier | `d:f t:50 d:lctl t:50 u:lctl t:50 u:f t:10` | `dn:LShift out-code:85;Press out-code:85;Release up:LShift` |
+| direct held modifier | `d:f t:50 d:rmet t:50 u:rmet t:50 u:f t:10` | `dn:LShift dn:RGui up:RGui up:LShift` |
+| active function-layer target | `d:end t:200 d:f t:50 d:q t:50 u:q t:50 u:f t:10 u:end t:10` | `dn:LShift out-code:185;Press out-code:185;Release up:LShift` |
+| active function-layer transparent key | `d:end t:200 d:f t:50 d:left t:50 u:left t:50 u:f t:10 u:end t:10` | `dn:LShift dn:Left up:Left up:LShift` |
+| repeated foreign intervals | `d:f t:20 d:b t:20 u:b t:20 d:b t:20 u:b t:20 u:f t:10` | `dn:LShift dn:B up:B dn:B up:B up:LShift` |
+| two foreign downs, reverse release order | `d:f t:20 d:b t:20 d:c t:20 u:c t:20 u:b t:20 u:f t:10` | `dn:LShift dn:B dn:C up:C up:B up:LShift` |
+
+These rows establish that the native pending domain is broader than one direct
+ordinary named-key binding.  On this exact runtime/configuration it includes a
+selector carrier, a direct modifier, an active function-layer action, a
+transparent action, another pending owner, and more than one foreign interval.
+The multiple-down row preserves press order and the supplied reverse release
+order.  The active-function rows also show that the queued physical key is
+routed under the layer state active when Kanata releases it.
+
+This is not an exhaustive proof over all 68 Advantage 2 `defsrc` positions or
+over arbitrary queue depth.  In particular, `dn:Q` and `dn:F` are raw Linux
+key edges, `out-code:85` and `out-code:185` are literal carrier edges, and this
+oracle does not establish which XKB symbols, modifier visibility, or client
+events result.  The broader observations therefore create model/lowering test
+obligations; they do not authorize a generic replay source construct or make
+the current bounded reference transaction a whole-device implementation.
 
 The oracle also establishes an important incompatibility with the currently
 proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md): Kanata 1.12.0

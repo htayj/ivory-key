@@ -1,6 +1,6 @@
 --- a/src/tests/sim_tests/tap_hold_tests.rs
 +++ b/src/tests/sim_tests/tap_hold_tests.rs
-@@ -1279,3 +1279,112 @@
+@@ -1279,3 +1279,155 @@
          result
      );
  }
@@ -92,6 +92,49 @@
 +         "t:199ms dn:LShift t:11ms dn:B t:1ms up:B t:60ms up:LShift"),
 +    ] {
 +        assert_eq!(expected, simulate(cfg, events).to_ascii(), "{}", label);
++    }
++}
++
++#[test]
++fn ivory_key_actual_advantage2_native_input_domain_order() {
++    let cfg = include_str!("../../../cfg_samples/ivory-key-manna.kbd");
++    // Strip only elapsed-time records.  The remaining sequence is Kanata's
++    // exact normalized output-edge order for the hash-frozen A2 config.
++    for (label, events, expected_edges) in [
++        ("owner-tap-before-context-table-release",
++         "d:f t:50 d:q t:10 u:f t:10 u:q t:10",
++         "dn:F dn:Q up:F up:Q"),
++        ("context-table-key-commits-hold",
++         "d:f t:50 d:q t:50 u:q t:50 u:f t:10",
++         "dn:LShift dn:Q up:Q up:LShift"),
++        ("another-owner-plus-foreign-key",
++         "d:f t:10 d:j t:50 d:b t:151 u:b t:50 u:f t:10 u:j t:10",
++         "dn:LShift dn:B up:B up:LShift"),
++        ("direct-selector-carrier-commits-hold",
++         "d:f t:50 d:lctl t:50 u:lctl t:50 u:f t:10",
++         "dn:LShift out-code:85;Press out-code:85;Release up:LShift"),
++        ("direct-held-modifier-commits-hold",
++         "d:f t:50 d:rmet t:50 u:rmet t:50 u:f t:10",
++         "dn:LShift dn:RGui up:RGui up:LShift"),
++        ("active-function-layer-target-is-routed-at-release",
++         "d:end t:200 d:f t:50 d:q t:50 u:q t:50 u:f t:10 u:end t:10",
++         "dn:LShift out-code:185;Press out-code:185;Release up:LShift"),
++        ("active-function-layer-transparent-key-passes-through",
++         "d:end t:200 d:f t:50 d:left t:50 u:left t:50 u:f t:10 u:end t:10",
++         "dn:LShift dn:Left up:Left up:LShift"),
++        ("repeated-foreign-intervals-retain-order",
++         "d:f t:20 d:b t:20 u:b t:20 d:b t:20 u:b t:20 u:f t:10",
++         "dn:LShift dn:B up:B dn:B up:B up:LShift"),
++        ("multiple-foreign-downs-redispatch-fifo",
++         "d:f t:20 d:b t:20 d:c t:20 u:c t:20 u:b t:20 u:f t:10",
++         "dn:LShift dn:B dn:C up:C up:B up:LShift"),
++    ] {
++        assert_eq!(
++            expected_edges,
++            simulate(cfg, events).to_ascii().no_time(),
++            "{}",
++            label
++        );
 +    }
 +}
 +

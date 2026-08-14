@@ -119,6 +119,91 @@
                            :test #'string=))
                  +manna-release-trigger-v1-inventory+))
 
+(defun pending-input-buffered-allocation-policy ()
+  "Return a synthetic, realization-owned 14-row allocation table for tests.
+
+This helper proves the typed policy boundary only.  Its opaque tokens are not
+a checked-in Manna profile and do not make the compiler emission-capable.
+"
+  (flet ((hold-for-row (row)
+           (destructuring-bind (ignored-name ignored-alias ignored-position
+                                ignored-tap ignored-deadline kind identity
+                                &optional state)
+               row
+             (declare (ignore ignored-name ignored-alias ignored-position
+                              ignored-tap ignored-deadline))
+             (ecase kind
+               (:modifier
+                (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+                 :modifier identity (format nil "hold-~A" identity)))
+               (:axis
+                (if (string= identity "function")
+                    (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+                     :axis-layer identity "hold-function"
+                     :state state :layer "function")
+                    (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+                     :axis-modifier identity "hold-case" :state state)))))))
+    (ivory-key.model::make-realization-kanata-buffered-allocation-policy
+     (mapcar
+      (lambda (row)
+        (ivory-key.model::make-realization-kanata-buffered-action-allocation
+         (first row) (format nil "tap-~A" (first row))
+         (hold-for-row row) '("b")))
+     (pending-input-buffered-evidence-rows))
+     (list (ivory-key.model::make-realization-kanata-buffered-foreign-route
+            "b" "b")))))
+
+(deftest pending-input-buffered-allocation-policy-is-closed-and-profile-scoped
+  (let* ((compatibility
+           (pending-input-policy :names +pending-input-buffered-evidence-names+))
+         (allocation (pending-input-buffered-allocation-policy))
+         (profile
+           (ivory-key.model:make-realization-profile
+            "buffered-test" :pipeline '("kanata" "xkb")
+            :interaction-compatibility-policy compatibility
+            :kanata-buffered-allocation-policy allocation)))
+    (is (eq allocation
+            (ivory-key.model::realization-profile-kanata-buffered-allocation-policy
+             profile)))
+    (is-equal (sort (copy-list +pending-input-buffered-evidence-names+) #'string<)
+              (mapcar
+               (lambda (action)
+                 (ivory-key.model:identifier-name
+                  (ivory-key.model::realization-kanata-buffered-action-interaction action)))
+               (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+                allocation)))
+    (pending-input-signals-code
+     :kanata-buffered-allocation-without-buffered-policy
+     (lambda ()
+       (ivory-key.model:make-realization-profile
+        "wrong-mode" :pipeline '("kanata" "xkb")
+        :interaction-compatibility-policy
+        (pending-input-policy :mode :modern-no-delay
+                              :names +pending-input-buffered-evidence-names+)
+        :kanata-buffered-allocation-policy allocation)))
+    ;; Public CLOS constructors cannot smuggle a noncanonical token through
+    ;; profile validation; the compiler must never consume a reconstructed copy
+    ;; while retaining the forged object.
+    (pending-input-signals-code
+     :noncanonical-realization-kanata-buffered-hold
+     (lambda ()
+       (let* ((forged-hold
+                (make-instance
+                 'ivory-key.model::realization-kanata-buffered-hold-allocation
+                 :kind :modifier :identity (ivory-key.model:ensure-identifier "control")
+                 :state nil :layer nil :token "LCTL"))
+              (forged-action
+                (make-instance
+                 'ivory-key.model::realization-kanata-buffered-action-allocation
+                 :interaction (ivory-key.model:ensure-identifier "tap-hold-case-f")
+                 :tap-token "tap" :hold forged-hold
+                 :foreign-route-positions (list (ivory-key.model:ensure-identifier "b"))))
+              (route
+                (ivory-key.model::make-realization-kanata-buffered-foreign-route
+                 "b" "b")))
+         (ivory-key.model::make-realization-kanata-buffered-allocation-policy
+          (list forged-action) (list route)))))))
+
 (deftest pending-input-derives-evidenced-buffered-contracts
   "The buffered route accepts exactly its current 14-instance evidence scope."
   (let* ((layout (pending-input-normalized-layout))

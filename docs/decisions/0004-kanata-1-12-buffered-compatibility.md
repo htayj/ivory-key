@@ -180,13 +180,15 @@ atomic; source authors do not receive a generic press/release or replay macro.
 The old output list may remain a compatibility projection, but the ordered
 transitions are normative for this policy.
 
-The initial redispatch domain is intentionally small: one direct,
-context-free ordinary binding whose result is a single named key. Text,
-symbols, no-output, overlays, timed-interaction participants, selector or state
-changes, modifier operations, commands, arbitrary sequences, unknown
-positions, and unbound positions refuse. This is the only route exercised by
-the pinned Kanata differential. The boundary can grow only with separate
-semantic and differential evidence.
+The reference simulator's redispatch domain is intentionally small: one
+unpatched ordinary binding, evaluated at the resolution frontier, whose every
+normalized table entry is text, a named key, a named symbol, or no output.
+This is reference-only evidence: the pinned Kanata differential exercises the
+direct named-key route, not the wider table classes. Overlays,
+timed-interaction participants, selector or state changes, modifier operations,
+commands, arbitrary sequences, unknown positions, and unbound positions
+refuse. No backend lowering is exact on account of this simulator boundary;
+the boundary can grow only with separate semantic and differential evidence.
 
 ## Explicit refusal boundary
 

@@ -200,9 +200,28 @@ The former profile-wide `(interaction-compatibility MODE)` spelling is invalid.
 The two mode values are closed identifiers. `modern-no-delay` names the proposed ADR 0003
 foreign-event contract, while `kanata-1-12-buffered` names the versioned ADR
 0004 observation. Both currently remain backend refusals: the former differs
-from Kanata 1.12 event delivery, while the latter has only a strict derived
-normalized contract and reference-simulator transaction—not an exact Kanata
-action/lifecycle lowering.
+from Kanata 1.12 event delivery, while the latter has a strict derived
+normalized contract, bounded reference transaction, and a typed but
+non-emitting allocation IR.
+
+A realization selecting `kanata-1-12-buffered` may record explicit opaque
+backend allocations without embedding Kanata syntax:
+
+```lisp
+(kanata-buffered-allocations
+  (route b b)
+  (action tap-hold-case-f
+    (tap f)
+    (hold axis-modifier case shifted lshift)
+    (routes b)))
+```
+
+The supported hold rows are `modifier`, `axis-modifier`, and `axis-layer` as
+specified by the backend contract. Every action must correspond to exactly one
+selected instance, and every route reference must name a declared route.
+Omission is not inference: no token, modifier, or layer name is derived from a
+semantic identifier. The compiler currently uses this clause for inspection
+only and retains the native pending-lifecycle refusal before artifact creation.
 
 ## Simulation event documents
 

@@ -184,18 +184,50 @@ interactions”; update a future profile with an explicit `(instances ...)` set
 only after naming the reviewed concrete instances.
 
 The selection is carried as typed model metadata so `planned`, `backend`, and
-`explain` output can identify the intended contract. It does not authorize a
-Kanata action. The modern route is unsupported because Kanata 1.12 buffers and
-redispatches pending foreign input, contrary to its no-delay rule. The
-versioned buffered route now has a closed, derived normalized contract and a
-bounded reference dispatch transaction for one direct named-key foreign route.
-That reference route refuses text, symbols, no-output, overlays, and timed or
-state-changing foreign routes. It has no backend action/lifecycle IR or pinned
-generated-Kanata lowering differential.
-In either case named instances receive the mode-specific refusal, all other
-interactions retain the generic refusal, and the Kanata backend refuses before
-emission; no raw `tap-hold-release` text is inferred. Positive realization is
-still prohibited until an exact action/lifecycle IR and matching evidence exist.
+`explain` output can identify the intended contract. The modern route is
+unsupported because Kanata 1.12 buffers and redispatches pending foreign input,
+contrary to its no-delay rule. The versioned buffered route has a closed,
+derived normalized contract and a bounded reference dispatch transaction.
+That reference route can resolve an explicitly selected owner's ordinary tap
+binding and an unpatched foreign output table at the eventual dispatch
+frontier. Every possible table value must be text, a named key, a named symbol,
+or `none`; commands, state changes, overlays, and timed re-entry still refuse.
+
+A buffered realization may additionally describe the backend atoms needed by
+the existing non-emitting Kanata action IR:
+
+```lisp
+(kanata-buffered-allocations
+  (route b b)
+  (action tap-hold-case-f
+    (tap f)
+    (hold axis-modifier case shifted lshift)
+    (routes b)))
+```
+
+`route` associates one admitted logical position with one opaque Kanata token.
+An `action` names one selected interaction, its tap token, one typed hold, and
+a nonempty set of declared route positions. The closed hold forms are
+`(hold modifier MODIFIER TOKEN)`,
+`(hold axis-modifier AXIS STATE TOKEN)`, and
+`(hold axis-layer AXIS STATE LAYER TOKEN)`. The allocation action set must
+equal the compatibility instance set exactly. Tokens are validated as single
+atoms; this surface cannot contain an alias body, S-expression action, or
+configuration fragment.
+
+The current compiler handoff constructs a backend route only when that
+position is one context-free named-key binding. The broader output-table route
+above is reference semantics awaiting the Kanata-to-XKB pipeline differential;
+it cannot yet populate an action allocation or clear a backend refusal.
+
+These allocations authorize inspection only. The compiler may construct the
+typed action values, but it retains
+`unproved-kanata-buffered-pending-lifecycle`; Kanata grades the actions
+unsupported and emission refuses. Named instances receive the mode-specific
+refusal, all other interactions retain the generic refusal, and no raw
+`tap-hold-release` text is inferred. Positive realization remains prohibited
+until native queue/cancellation coverage and a generated Kanata-to-XKB
+differential prove the complete selected input domain.
 
 ## Current Kanata contract
 

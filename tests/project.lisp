@@ -449,3 +449,46 @@
         (lambda ()
           (load-realization
            (source "(interaction-compatibility \"modern-no-delay\" (instances one))"))))))))
+
+(deftest project-realization-buffered-allocation-is-typed-and-policy-scoped
+  (with-project-test-directory (directory)
+    (labels ((load-realization (source)
+               (let ((entry
+                       (write-complete-project
+                        directory '("topology.ivory" "layout.ivory" "device.ivory"
+                                    "realization.ivory" "composition.ivory"))))
+                 (project-test-write directory "realization.ivory" source)
+                 (ivory-key.project:project-realization
+                  (ivory-key.project:load-project entry :source-roots (list directory))
+                  "linux" :errorp t)))
+             (source (suffix)
+               (format nil
+                       "(ivory-key 1)~%(define-realization linux~%  (pipeline kanata xkb)~%  (allow-grades exact emulated)~%  (forbid-shell-actions yes)~%  ~A)"
+                       suffix)))
+      (let* ((profile
+               (load-realization
+                (source
+                 "(interaction-compatibility kanata-1-12-buffered (instances q-tap))
+  (kanata-buffered-allocations
+    (route q q)
+    (action q-tap (tap q) (hold modifier control lctl) (routes q)))")))
+             (allocation
+               (ivory-key.model::realization-profile-kanata-buffered-allocation-policy
+                profile)))
+        (is (typep allocation
+                   'ivory-key.model::realization-kanata-buffered-allocation-policy))
+        (is-equal '("q-tap")
+                  (mapcar #'ivory-key.model:identifier-name
+                          (mapcar
+                           #'ivory-key.model::realization-kanata-buffered-action-interaction
+                           (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+                            allocation)))))
+      (is-equal
+       :kanata-buffered-allocation-without-buffered-policy
+       (project-error-code-from
+        (lambda ()
+          (load-realization
+           (source
+            "(kanata-buffered-allocations
+  (route q q)
+  (action q-tap (tap q) (hold modifier control lctl) (routes q)))"))))))))

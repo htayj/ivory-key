@@ -1744,6 +1744,46 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                       mode (or instances '("q-tap")))
               "")))
 
+(deftest compiler-buffered-allocation-source-is-typed-and-stays-inert
+  (with-compiler-test-directory (directory)
+    (labels ((source (suffix)
+               (format nil
+                       "(ivory-key 1)~%(define-realization buffered~%  (pipeline kanata xkb)~%  (allow-grades exact)~%  (forbid-shell-actions yes)~%  (interaction-compatibility kanata-1-12-buffered (instances q-tap))~%  ~A)"
+                       suffix)))
+      (let* ((path
+               (compiler-test-write
+                directory "buffered.ivory"
+                (source
+                 "(kanata-buffered-allocations (route q q) (action q-tap (tap q) (hold modifier control lctl) (routes q)))")))
+             (realization (ivory-key.cli::decode-realization-source path))
+             (allocation
+               (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
+                realization)))
+        (is (typep allocation
+                   'ivory-key.model::realization-kanata-buffered-allocation-policy))
+        (is-equal '("q-tap")
+                  (mapcar #'ivory-key.model:identifier-name
+                          (mapcar
+                           #'ivory-key.model::realization-kanata-buffered-action-interaction
+                           (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+                            allocation))))
+        ;; Decoding records an allocation contract only; it does not call a
+        ;; backend emitter or create a build directory.
+        (is-equal "buffered" (ivory-key.cli::compiler-realization-name realization)))
+      (let ((without-policy
+              (compiler-test-write
+               directory "without-policy.ivory"
+               "(ivory-key 1)
+(define-realization without-policy
+  (pipeline kanata xkb)
+  (allow-grades exact)
+  (forbid-shell-actions yes)
+  (kanata-buffered-allocations (route q q) (action q-tap (tap q) (hold modifier control lctl) (routes q))))")))
+        (is-equal :kanata-buffered-allocation-without-buffered-policy
+                  (compiler-stage-code-from
+                   (lambda ()
+                     (ivory-key.cli::decode-realization-source without-policy))))))))
+
 (deftest compiler-interaction-compatibility-is-opt-in-and-refused-per-mode
   "The narrow Manna/Kanata choice never becomes a generic interaction default."
   (with-compiler-test-directory (directory)
@@ -1872,6 +1912,62 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
       (signals ivory-key.cli::compiler-stage-error
         (ivory-key.cli::make-lowering-request-from-normalized-layout
          normalized placement :interaction-compatibility-policy policy)))))
+
+(deftest compiler-buffered-realization-allocation-builds-only-an-inert-ast
+  (let* ((base (pending-input-normalized-layout))
+         (b (find "b" (ivory-key.model:normalized-layout-bindings base)
+                  :test #'ivory-key.model:identifier=
+                  :key #'ivory-key.model:normalized-binding-position))
+         (entry (first (ivory-key.model:normalized-binding-entries b)))
+         (named-b
+           (make-instance
+            'ivory-key.model:normalized-binding
+            :position (ivory-key.model:normalized-binding-position b)
+            :axes (ivory-key.model:normalized-binding-axes b)
+            :entries (list (ivory-key.model:make-normalized-binding-entry
+                            (ivory-key.model:normalized-entry-tuple entry)
+                            (ivory-key.model:make-named-key-output "b")))))
+         (normalized
+           (make-instance
+            'ivory-key.model:normalized-layout
+            :name (ivory-key.model:normalized-layout-name base)
+            :topology (ivory-key.model:normalized-layout-topology base)
+            :axes (ivory-key.model:normalized-layout-axes base)
+            :modifiers (ivory-key.model:normalized-layout-modifiers base)
+            :bindings (cons named-b
+                            (remove b (ivory-key.model:normalized-layout-bindings base)))
+            :patches (ivory-key.model:normalized-layout-patches base)
+            :interactions (ivory-key.model:normalized-layout-interactions base)
+            :origin (ivory-key.model:normalized-layout-origin base)))
+         (topology (ivory-key.model:normalized-layout-topology normalized))
+         (policy (pending-input-policy :names +pending-input-buffered-evidence-names+))
+         (allocation (pending-input-buffered-allocation-policy))
+         (placement
+           (ivory-key.cli::%make-compiler-placement
+            "pending-input-device"
+            (ivory-key.model:identifier-name (ivory-key.model:topology-name topology))
+            (mapcar (lambda (position)
+                      (let ((name (ivory-key.model:identifier-name
+                                   (ivory-key.model:position-name position))))
+                        (cons name (list :xkb "AD01" :kanata name))))
+                    (ivory-key.model:topology-positions topology)))))
+    (multiple-value-bind (request issues)
+        (ivory-key.cli::analyze-normalized-layout
+         normalized placement :interaction-compatibility-policy policy
+         :kanata-buffered-allocation-policy allocation)
+      (is-equal 14
+                (length (getf (ivory-key.backend::lowering-request-metadata request)
+                              :kanata-buffered-actions)))
+      (is (member :unproved-kanata-buffered-pending-lifecycle
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
+      (is (not (member :unimplemented-kanata-1-12-buffered-interaction-policy
+                       (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))))
+      ;; The common gate still prevents a lowering request and therefore any
+      ;; ordinary/project artifact publication.
+      (signals ivory-key.cli::compiler-stage-error
+        (ivory-key.cli::make-lowering-request-from-normalized-layout
+         normalized placement :interaction-compatibility-policy policy
+         :kanata-buffered-allocation-policy allocation)))))
 
 (deftest compiler-interaction-compatibility-source-is-closed-in-direct-and-project-modes
   (with-compiler-test-directory (directory)

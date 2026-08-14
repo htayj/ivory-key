@@ -310,6 +310,29 @@
    #:validate-realization-interaction-compatibility-policy
    #:realization-interaction-compatibility-policy-mode
    #:realization-interaction-compatibility-policy-interactions
+   #:realization-profile-kanata-buffered-allocation-policy
+   #:realization-kanata-buffered-hold-allocation
+   #:make-realization-kanata-buffered-hold-allocation
+   #:realization-kanata-buffered-hold-kind
+   #:realization-kanata-buffered-hold-identity
+   #:realization-kanata-buffered-hold-state
+   #:realization-kanata-buffered-hold-layer
+   #:realization-kanata-buffered-hold-token
+   #:realization-kanata-buffered-foreign-route
+   #:make-realization-kanata-buffered-foreign-route
+   #:realization-kanata-buffered-foreign-route-position
+   #:realization-kanata-buffered-foreign-route-token
+   #:realization-kanata-buffered-action-allocation
+   #:make-realization-kanata-buffered-action-allocation
+   #:realization-kanata-buffered-action-interaction
+   #:realization-kanata-buffered-action-tap-token
+   #:realization-kanata-buffered-action-hold
+   #:realization-kanata-buffered-action-foreign-route-positions
+   #:realization-kanata-buffered-allocation-policy
+   #:make-realization-kanata-buffered-allocation-policy
+   #:realization-kanata-buffered-allocation-policy-actions
+   #:realization-kanata-buffered-allocation-policy-foreign-routes
+   #:validate-realization-kanata-buffered-allocation-policy
    #:realization-selector-policy #:make-realization-selector-policy
    #:validate-realization-selector-policy
    #:realization-selector-policy-static-types

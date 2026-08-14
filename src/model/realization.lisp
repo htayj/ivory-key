@@ -28,6 +28,12 @@
    (interaction-compatibility-policy
     :initarg :interaction-compatibility-policy :initform nil
     :reader realization-profile-interaction-compatibility-policy)
+   ;; Kanata 1.12 buffered action spellings are realization-owned, not layout
+   ;; behavior.  NIL remains meaningful: selected compatibility evidence does
+   ;; not authorize the compiler to invent the token/layer allocation.
+   (kanata-buffered-allocation-policy
+    :initarg :kanata-buffered-allocation-policy :initform nil
+    :reader realization-profile-kanata-buffered-allocation-policy)
    (metadata :initarg :metadata :initform nil :reader realization-profile-metadata)))
 
 (defun %realization-error (code control &rest arguments)
@@ -112,6 +118,290 @@ prove a carrier/pass-through stage without inventing a backend token here.
    ;; identifiers only after top-level instance materialization/normalization.
    (interactions :initarg :interactions
                  :reader realization-interaction-compatibility-policy-interactions)))
+
+;;; Closed Kanata 1.12 buffered allocation ---------------------------------
+
+;; This is intentionally a realization value rather than a generic Kanata
+;; configuration language.  It can describe exactly the atoms consumed by the
+;; inert typed action handoff, but never aliases, arbitrary parenthesized
+;; actions, queue rules, or an emitted configuration.
+(defparameter +realization-kanata-buffered-hold-kinds+
+  '(:modifier :axis-modifier :axis-layer))
+
+(defclass realization-kanata-buffered-hold-allocation ()
+  ((kind :initarg :kind :reader realization-kanata-buffered-hold-kind)
+   (identity :initarg :identity
+             :reader realization-kanata-buffered-hold-identity)
+   (state :initarg :state :initform nil
+          :reader realization-kanata-buffered-hold-state)
+   (layer :initarg :layer :initform nil
+          :reader realization-kanata-buffered-hold-layer)
+   (token :initarg :token :reader realization-kanata-buffered-hold-token))
+  (:documentation
+   "One explicit modifier or axis-held Kanata atom/layer allocation."))
+
+(defclass realization-kanata-buffered-foreign-route ()
+  ((position :initarg :position
+             :reader realization-kanata-buffered-foreign-route-position)
+   ;; The semantic named-key identity is recovered from the normalized direct
+   ;; binding.  TOKEN is its realization-owned Kanata spelling.
+   (token :initarg :token
+          :reader realization-kanata-buffered-foreign-route-token))
+  (:documentation
+   "One explicitly admitted direct named-key foreign route allocation."))
+
+(defclass realization-kanata-buffered-action-allocation ()
+  ((interaction :initarg :interaction
+                :reader realization-kanata-buffered-action-interaction)
+   (tap-token :initarg :tap-token
+              :reader realization-kanata-buffered-action-tap-token)
+   (hold :initarg :hold :reader realization-kanata-buffered-action-hold)
+   ;; Canonical references into the parent policy's route table.  The action
+   ;; constructor requires at least one: a buffered policy without any
+   ;; admitted foreign route is not an actionable handoff.
+   (foreign-route-positions :initarg :foreign-route-positions
+                            :reader realization-kanata-buffered-action-foreign-route-positions))
+  (:documentation
+   "One selected interaction's typed, non-emitting Kanata allocation row."))
+
+(defclass realization-kanata-buffered-allocation-policy ()
+  ((actions :initarg :actions
+            :reader realization-kanata-buffered-allocation-policy-actions)
+   (foreign-routes :initarg :foreign-routes
+                   :reader realization-kanata-buffered-allocation-policy-foreign-routes))
+  (:documentation
+   "Closed allocation table for an explicitly selected buffered policy."))
+
+(defun %realization-kanata-buffered-safe-token-p (value)
+  "Recognize one opaque Kanata atom, never an action/configuration fragment."
+  (and (stringp value)
+       (plusp (length value))
+       (or (every (lambda (character)
+                    (let ((code (char-code character)))
+                      (or (<= (char-code #\A) code (char-code #\Z))
+                          (<= (char-code #\a) code (char-code #\z))
+                          (<= (char-code #\0) code (char-code #\9))
+                          (find character "_-"))))
+                  value)
+           (member value '("=" "[" "]" ";" "'" "\\" "," "." "/")
+                   :test #'string=))))
+
+(defun %realization-kanata-buffered-token (value role)
+  (unless (%realization-kanata-buffered-safe-token-p value)
+    (%realization-error :unsafe-realization-kanata-buffered-token
+                        "~A must be one closed Kanata atom." role))
+  (string-downcase value))
+
+(defun %realization-kanata-buffered-identifiers (values code role &key nonempty)
+  (unless (listp values)
+    (%realization-error code "~A must be a list, got ~S." role values))
+  (when (and nonempty (null values))
+    (%realization-error code "~A must not be empty." role))
+  (let ((identifiers
+          (mapcar (lambda (value)
+                    (handler-case
+                        (ensure-identifier value)
+                      (error ()
+                        (%realization-error code
+                                            "~A contains a non-identifier value ~S."
+                                            role value))))
+                  values)))
+    (unless (unique-identifiers-p identifiers)
+      (%realization-error code "~A repeats an identifier." role))
+    (sort identifiers #'identifier<)))
+
+(defun make-realization-kanata-buffered-hold-allocation
+    (kind identity token &key state layer)
+  "Create one closed semantic-held-effect to Kanata allocation.
+
+The three forms are :MODIFIER (identity/token), :AXIS-MODIFIER
+(axis/state/token), and :AXIS-LAYER (axis/state/layer/token).  Tokens remain
+opaque atoms in the realization policy; this constructor admits no raw action
+syntax.
+"
+  (%realization-closed-value kind +realization-kanata-buffered-hold-kinds+
+                             :unsupported-realization-kanata-buffered-hold-kind
+                             "Kanata buffered hold kind")
+  (let ((identifier (ensure-identifier identity))
+        (canonical-token (%realization-kanata-buffered-token token
+                                                               "Kanata buffered hold token"))
+        (canonical-state (and state (ensure-identifier state)))
+        (canonical-layer (and layer (ensure-identifier layer))))
+    (unless (ecase kind
+              (:modifier (and (null canonical-state) (null canonical-layer)))
+              (:axis-modifier (and canonical-state (null canonical-layer)))
+              (:axis-layer (and canonical-state canonical-layer)))
+      (%realization-error :invalid-realization-kanata-buffered-hold
+                          "Kanata buffered hold kind ~S has incompatible state/layer fields."
+                          kind))
+    (make-instance 'realization-kanata-buffered-hold-allocation
+                   :kind kind :identity identifier :state canonical-state
+                   :layer canonical-layer :token canonical-token)))
+
+(defun make-realization-kanata-buffered-foreign-route (position token)
+  "Allocate one physical direct-named-key foreign route without a raw action."
+  (make-instance 'realization-kanata-buffered-foreign-route
+                 :position (ensure-identifier position)
+                 :token (%realization-kanata-buffered-token
+                         token "Kanata buffered foreign route token")))
+
+(defun make-realization-kanata-buffered-action-allocation
+    (interaction tap-token hold foreign-route-positions)
+  "Allocate one selected buffered interaction's tap, hold, and route set."
+  (unless (typep hold 'realization-kanata-buffered-hold-allocation)
+    (%realization-error :invalid-realization-kanata-buffered-hold
+                        "Buffered action hold must be a typed hold allocation."))
+  ;; Reconstructing it closes programmatic MAKE-INSTANCE field bypasses; retain
+  ;; the canonical copy rather than the caller's mutable object.
+  (let ((canonical-hold
+          (make-realization-kanata-buffered-hold-allocation
+           (realization-kanata-buffered-hold-kind hold)
+           (realization-kanata-buffered-hold-identity hold)
+           (realization-kanata-buffered-hold-token hold)
+           :state (realization-kanata-buffered-hold-state hold)
+           :layer (realization-kanata-buffered-hold-layer hold))))
+    (make-instance 'realization-kanata-buffered-action-allocation
+                   :interaction (ensure-identifier interaction)
+                   :tap-token (%realization-kanata-buffered-token
+                               tap-token "Kanata buffered tap token")
+                   :hold canonical-hold
+                   :foreign-route-positions
+                   (%realization-kanata-buffered-identifiers
+                    foreign-route-positions
+                    :invalid-realization-kanata-buffered-action-routes
+                    "Kanata buffered action routes" :nonempty t))))
+
+(defun %validate-realization-kanata-buffered-hold-allocation (hold)
+  (unless (typep hold 'realization-kanata-buffered-hold-allocation)
+    (%realization-error :invalid-realization-kanata-buffered-hold
+                        "Buffered hold allocation is not typed."))
+  (let ((canonical
+          (make-realization-kanata-buffered-hold-allocation
+           (realization-kanata-buffered-hold-kind hold)
+           (realization-kanata-buffered-hold-identity hold)
+           (realization-kanata-buffered-hold-token hold)
+           :state (realization-kanata-buffered-hold-state hold)
+           :layer (realization-kanata-buffered-hold-layer hold))))
+    (unless (and (eq (realization-kanata-buffered-hold-kind hold)
+                     (realization-kanata-buffered-hold-kind canonical))
+                 (identifier= (realization-kanata-buffered-hold-identity hold)
+                              (realization-kanata-buffered-hold-identity canonical))
+                 (equal (realization-kanata-buffered-hold-state hold)
+                        (realization-kanata-buffered-hold-state canonical))
+                 (equal (realization-kanata-buffered-hold-layer hold)
+                        (realization-kanata-buffered-hold-layer canonical))
+                 (string= (realization-kanata-buffered-hold-token hold)
+                          (realization-kanata-buffered-hold-token canonical)))
+      (%realization-error :noncanonical-realization-kanata-buffered-hold
+                          "Buffered hold allocation fields must be canonical.")))
+  hold)
+
+(defun %validate-realization-kanata-buffered-route (route)
+  (unless (typep route 'realization-kanata-buffered-foreign-route)
+    (%realization-error :invalid-realization-kanata-buffered-route
+                        "Buffered foreign route allocation is not typed."))
+  (let ((canonical
+          (make-realization-kanata-buffered-foreign-route
+           (realization-kanata-buffered-foreign-route-position route)
+           (realization-kanata-buffered-foreign-route-token route))))
+    (unless (and (identifier=
+                  (realization-kanata-buffered-foreign-route-position route)
+                  (realization-kanata-buffered-foreign-route-position canonical))
+                 (string= (realization-kanata-buffered-foreign-route-token route)
+                          (realization-kanata-buffered-foreign-route-token canonical)))
+      (%realization-error :noncanonical-realization-kanata-buffered-route
+                          "Buffered foreign route fields must be canonical.")))
+  route)
+
+(defun %validate-realization-kanata-buffered-action-allocation (action)
+  (unless (typep action 'realization-kanata-buffered-action-allocation)
+    (%realization-error :invalid-realization-kanata-buffered-action
+                        "Buffered action allocation is not typed."))
+  (%validate-realization-kanata-buffered-hold-allocation
+   (realization-kanata-buffered-action-hold action))
+  (let ((canonical
+          (make-realization-kanata-buffered-action-allocation
+           (realization-kanata-buffered-action-interaction action)
+           (realization-kanata-buffered-action-tap-token action)
+           (realization-kanata-buffered-action-hold action)
+           (realization-kanata-buffered-action-foreign-route-positions action))))
+    (unless (and (identifier=
+                  (realization-kanata-buffered-action-interaction action)
+                  (realization-kanata-buffered-action-interaction canonical))
+                 (string= (realization-kanata-buffered-action-tap-token action)
+                          (realization-kanata-buffered-action-tap-token canonical))
+                 (every #'identifier=
+                        (realization-kanata-buffered-action-foreign-route-positions action)
+                        (realization-kanata-buffered-action-foreign-route-positions canonical))
+                 (= (length (realization-kanata-buffered-action-foreign-route-positions action))
+                    (length (realization-kanata-buffered-action-foreign-route-positions canonical))))
+      (%realization-error :noncanonical-realization-kanata-buffered-action
+                          "Buffered action allocation fields must be canonical.")))
+  action)
+
+(defun make-realization-kanata-buffered-allocation-policy (actions foreign-routes)
+  "Create a canonical finite allocation table for inert buffered Kanata ASTs."
+  (unless (and (listp actions) (listp foreign-routes))
+    (%realization-error :invalid-realization-kanata-buffered-allocation-policy
+                        "Buffered action and foreign-route allocations must be lists."))
+  (when (null actions)
+    (%realization-error :empty-realization-kanata-buffered-actions
+                        "Buffered allocation policy needs at least one action row."))
+  (mapc #'%validate-realization-kanata-buffered-action-allocation actions)
+  (mapc #'%validate-realization-kanata-buffered-route foreign-routes)
+  (%ensure-realization-policy-unique
+   actions (lambda (action)
+             (identifier-key (realization-kanata-buffered-action-interaction action)))
+   :duplicate-realization-kanata-buffered-action "Buffered action allocations")
+  (%ensure-realization-policy-unique
+   foreign-routes (lambda (route)
+                    (identifier-key
+                     (realization-kanata-buffered-foreign-route-position route)))
+   :duplicate-realization-kanata-buffered-route "Buffered foreign routes")
+  (let ((route-positions
+          (mapcar #'realization-kanata-buffered-foreign-route-position foreign-routes)))
+    (dolist (action actions)
+      (dolist (position
+               (realization-kanata-buffered-action-foreign-route-positions action))
+        (unless (identifier-member-p position route-positions)
+          (%realization-error :unknown-realization-kanata-buffered-route
+                              "Buffered action ~A refers to undeclared route ~A."
+                              (identifier-name
+                               (realization-kanata-buffered-action-interaction action))
+                              (identifier-name position))))))
+  (make-instance 'realization-kanata-buffered-allocation-policy
+                 :actions (sort (copy-list actions) #'identifier<
+                                :key #'realization-kanata-buffered-action-interaction)
+                 :foreign-routes
+                 (sort (copy-list foreign-routes) #'identifier<
+                       :key #'realization-kanata-buffered-foreign-route-position)))
+
+(defun validate-realization-kanata-buffered-allocation-policy (policy)
+  "Validate POLICY and reject noncanonical programmatic list order."
+  (unless (typep policy 'realization-kanata-buffered-allocation-policy)
+    (%realization-error :invalid-realization-kanata-buffered-allocation-policy
+                        "Expected a REALIZATION-KANATA-BUFFERED-ALLOCATION-POLICY."))
+  (let ((canonical
+          (make-realization-kanata-buffered-allocation-policy
+           (realization-kanata-buffered-allocation-policy-actions policy)
+           (realization-kanata-buffered-allocation-policy-foreign-routes policy))))
+    (unless (and (= (length (realization-kanata-buffered-allocation-policy-actions policy))
+                    (length (realization-kanata-buffered-allocation-policy-actions canonical)))
+                 (= (length (realization-kanata-buffered-allocation-policy-foreign-routes policy))
+                    (length (realization-kanata-buffered-allocation-policy-foreign-routes canonical)))
+                 (every #'identifier=
+                        (mapcar #'realization-kanata-buffered-action-interaction
+                                (realization-kanata-buffered-allocation-policy-actions policy))
+                        (mapcar #'realization-kanata-buffered-action-interaction
+                                (realization-kanata-buffered-allocation-policy-actions canonical)))
+                 (every #'identifier=
+                        (mapcar #'realization-kanata-buffered-foreign-route-position
+                                (realization-kanata-buffered-allocation-policy-foreign-routes policy))
+                        (mapcar #'realization-kanata-buffered-foreign-route-position
+                                (realization-kanata-buffered-allocation-policy-foreign-routes canonical))))
+      (%realization-error :noncanonical-realization-kanata-buffered-allocation-policy
+                          "Buffered allocation policy rows must be canonical.")))
+  policy)
 
 (defclass realization-static-type ()
   ((position :initarg :position :reader realization-static-type-position)
@@ -451,7 +741,8 @@ obligations.
 
 (defun make-realization-profile (name &key pipeline placement vocabulary
                                       permitted-losses selector-policy
-                                      interaction-compatibility-policy metadata)
+                                      interaction-compatibility-policy
+                                      kanata-buffered-allocation-policy metadata)
   "Create a profile describing permitted lowering policy, not keyboard meaning.
 
 When VOCABULARY is supplied, each of its backend identities must be selected
@@ -477,9 +768,39 @@ interpreting either as a backend grammar.
   (when interaction-compatibility-policy
     (validate-realization-interaction-compatibility-policy
      interaction-compatibility-policy))
+  (when (and kanata-buffered-allocation-policy
+             (not (typep kanata-buffered-allocation-policy
+                         'realization-kanata-buffered-allocation-policy)))
+    (%realization-error :invalid-realization-kanata-buffered-allocation-policy
+                        "A realization buffered allocation must be a typed policy."))
+  (when kanata-buffered-allocation-policy
+    (validate-realization-kanata-buffered-allocation-policy
+     kanata-buffered-allocation-policy)
+    (unless (and interaction-compatibility-policy
+                 (eq (realization-interaction-compatibility-policy-mode
+                      interaction-compatibility-policy)
+                     :kanata-1-12-buffered))
+      (%realization-error :kanata-buffered-allocation-without-buffered-policy
+                          "Kanata buffered allocation requires selected :KANATA-1-12-BUFFERED compatibility."))
+    (unless (and (= (length
+                     (realization-kanata-buffered-allocation-policy-actions
+                      kanata-buffered-allocation-policy))
+                    (length
+                     (realization-interaction-compatibility-policy-interactions
+                      interaction-compatibility-policy)))
+                 (every #'identifier=
+                        (mapcar #'realization-kanata-buffered-action-interaction
+                                (realization-kanata-buffered-allocation-policy-actions
+                                 kanata-buffered-allocation-policy))
+                        (realization-interaction-compatibility-policy-interactions
+                         interaction-compatibility-policy)))
+      (%realization-error :incomplete-realization-kanata-buffered-allocation
+                          "Buffered allocation rows must cover exactly the selected interaction instances.")))
   (make-instance 'realization-profile :name (ensure-identifier name)
                  :pipeline (copy-list pipeline) :placement placement
                  :vocabulary vocabulary :permitted-losses (copy-list permitted-losses)
                  :selector-policy selector-policy
                  :interaction-compatibility-policy interaction-compatibility-policy
+                 :kanata-buffered-allocation-policy
+                 kanata-buffered-allocation-policy
                  :metadata metadata))

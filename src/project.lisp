@@ -896,6 +896,103 @@ default compatibility route.
             (syntax-atom-value node))
           instance-nodes))))))
 
+(defun %decode-realization-kanata-buffered-hold (context form)
+  "Decode one closed held-effect allocation without accepting Kanata syntax."
+  (let* ((children (%form-children context form 4 6
+                                   "KANATA-BUFFERED-ALLOCATIONS HOLD clause"))
+         (kind-name (%identifier-node-name context (second children) "Buffered HOLD kind"))
+         (kind (cdr (assoc kind-name
+                           '(("modifier" . :modifier)
+                             ("axis-modifier" . :axis-modifier)
+                             ("axis-layer" . :axis-layer))
+                           :test #'string=))))
+    (unless kind
+      (%fail context :unknown-realization-kanata-buffered-hold-kind
+             "Buffered HOLD has unsupported kind ~A." kind-name))
+    (ecase kind
+      (:modifier
+       (unless (= (length children) 4)
+         (%fail context :invalid-realization-kanata-buffered-hold
+                "MODIFIER HOLD needs identity and token."))
+       (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+        kind (%identifier-node-name context (third children) "Buffered modifier identity")
+        (%text-node-value context (fourth children) "Buffered modifier token")))
+      (:axis-modifier
+       (unless (= (length children) 5)
+         (%fail context :invalid-realization-kanata-buffered-hold
+                "AXIS-MODIFIER HOLD needs axis, state, and token."))
+       (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+        kind (%identifier-node-name context (third children) "Buffered hold axis")
+        (%text-node-value context (fifth children) "Buffered axis-modifier token")
+        :state (%identifier-node-name context (fourth children) "Buffered hold state")))
+      (:axis-layer
+       (unless (= (length children) 6)
+         (%fail context :invalid-realization-kanata-buffered-hold
+                "AXIS-LAYER HOLD needs axis, state, layer, and token."))
+       (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+        kind (%identifier-node-name context (third children) "Buffered layer axis")
+        (%text-node-value context (sixth children) "Buffered axis-layer token")
+        :state (%identifier-node-name context (fourth children) "Buffered layer state")
+        :layer (%identifier-node-name context (fifth children) "Buffered layer identity"))))))
+
+(defun %decode-realization-kanata-buffered-allocations (context form)
+  "Decode typed inert action allocations from parser nodes only.
+
+The grammar deliberately contains atoms, semantic identities, and route
+references only.  It cannot carry a Kanata alias, parenthesized action, or
+arbitrary configuration fragment.
+"
+  (let ((actions nil) (routes nil))
+    (dolist (clause (cdr (%form-children context form 1 nil
+                                         "KANATA-BUFFERED-ALLOCATIONS declaration")))
+      (cond
+        ((%named-form-p clause "route")
+         (let ((children (%form-children context clause 3 3
+                                         "Buffered ROUTE clause")))
+           (push (ivory-key.model::make-realization-kanata-buffered-foreign-route
+                  (%identifier-node-name context (second children)
+                                         "Buffered route position")
+                  (%text-node-value context (third children) "Buffered route token"))
+                 routes)))
+        ((%named-form-p clause "action")
+         (let* ((children (%form-children context clause 5 5
+                                           "Buffered ACTION clause"))
+                (interaction (%identifier-node-name context (second children)
+                                                    "Buffered action interaction"))
+                (subclauses (cddr children))
+                (tap-forms (remove-if-not (lambda (node) (%named-form-p node "tap"))
+                                          subclauses))
+                (hold-forms (remove-if-not (lambda (node) (%named-form-p node "hold"))
+                                           subclauses))
+                (route-forms (remove-if-not (lambda (node) (%named-form-p node "routes"))
+                                            subclauses)))
+           (unless (and (= (length tap-forms) 1)
+                        (= (length hold-forms) 1)
+                        (= (length route-forms) 1)
+                        (= (length subclauses) 3))
+             (%fail context :invalid-realization-kanata-buffered-action
+                    "Buffered ACTION ~A requires exactly TAP, HOLD, and ROUTES."
+                    interaction))
+           (let* ((tap-children (%form-children context (first tap-forms) 2 2
+                                                 "Buffered TAP clause"))
+                  (route-children (%form-children context (first route-forms) 2 nil
+                                                   "Buffered ROUTES clause")))
+             (push
+              (ivory-key.model::make-realization-kanata-buffered-action-allocation
+               interaction
+               (%text-node-value context (second tap-children) "Buffered tap token")
+               (%decode-realization-kanata-buffered-hold context (first hold-forms))
+               (mapcar (lambda (node)
+                         (%identifier-node-name context node "Buffered route reference"))
+                       (cdr route-children)))
+              actions))))
+        (t
+         (%fail context :unknown-realization-kanata-buffered-allocation-clause
+                "KANATA-BUFFERED-ALLOCATIONS has unsupported clause ~S."
+                (%form-name clause)))))
+    (ivory-key.model::make-realization-kanata-buffered-allocation-policy
+     (nreverse actions) (nreverse routes))))
+
 (defun %decode-realization (definition output-vocabularies)
   (let* ((context (%make-project-context (project-definition-path definition)
                                          (source-span-import-stack
@@ -908,7 +1005,7 @@ default compatibility route.
       (unless (member (%form-name clause)
                       '("pipeline" "uses-output-vocabulary" "allow-grades"
                         "forbid-shell-actions" "validation" "selector-policy"
-                        "interaction-compatibility")
+                        "interaction-compatibility" "kanata-buffered-allocations")
                       :test #'string=)
         (%fail context :unknown-realization-clause
                "Realization ~A has unsupported clause ~S." name (%form-name clause))))
@@ -934,6 +1031,11 @@ default compatibility route.
               (lambda (clause)
                 (%named-form-p clause "interaction-compatibility"))
               clauses))
+           (kanata-buffered-allocation-matches
+             (remove-if-not
+              (lambda (clause)
+                (%named-form-p clause "kanata-buffered-allocations"))
+              clauses))
            (pipeline-form (first pipeline-matches))
            (vocabulary-form (first vocabulary-matches))
            (grades-form (first grade-matches))
@@ -941,6 +1043,8 @@ default compatibility route.
            (selector-policy-form (first selector-policy-matches))
            (interaction-compatibility-form
              (first interaction-compatibility-matches))
+           (kanata-buffered-allocation-form
+             (first kanata-buffered-allocation-matches))
            (validation-forms (remove-if-not (lambda (clause)
                                               (%named-form-p clause "validation"))
                                             clauses)))
@@ -950,7 +1054,8 @@ default compatibility route.
       (when (or (rest pipeline-matches) (rest vocabulary-matches)
                 (rest grade-matches) (rest shell-matches)
                 (rest selector-policy-matches)
-                (rest interaction-compatibility-matches))
+                (rest interaction-compatibility-matches)
+                (rest kanata-buffered-allocation-matches))
         ;; The exact identity tests above deliberately reject duplicate closed
         ;; policy forms without converting their source names into symbols.
         (%fail context :duplicate-realization-clause
@@ -991,6 +1096,15 @@ default compatibility route.
                      (semantic-error (condition)
                        (%fail context (semantic-error-code condition)
                               "Could not decode interaction compatibility for realization ~A: ~A"
+                              name (semantic-error-message condition))))))
+            (kanata-buffered-allocation-policy
+              (and kanata-buffered-allocation-form
+                   (handler-case
+                       (%decode-realization-kanata-buffered-allocations
+                        context kanata-buffered-allocation-form)
+                     (semantic-error (condition)
+                       (%fail context (semantic-error-code condition)
+                              "Could not decode buffered Kanata allocation for realization ~A: ~A"
                               name (semantic-error-message condition)))))))
         (when (null pipeline)
           (%fail context :empty-realization-pipeline
@@ -1010,6 +1124,8 @@ default compatibility route.
                name :pipeline pipeline :vocabulary vocabulary :permitted-losses grades
                :selector-policy selector-policy
                :interaction-compatibility-policy interaction-compatibility-policy
+               :kanata-buffered-allocation-policy
+               kanata-buffered-allocation-policy
                :metadata (list :forbid-shell-actions forbid-shell
                                :validation (mapcar #'%node->safe-value validation-forms)))
             (semantic-error (condition)

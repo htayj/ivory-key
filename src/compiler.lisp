@@ -56,7 +56,8 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
 (defstruct (compiler-realization
             (:constructor %make-compiler-realization
                 (name pipeline grades vocabulary selector-policy
-                 interaction-compatibility-policy)))
+                 interaction-compatibility-policy
+                 kanata-buffered-allocation-policy)))
   "The subset of a realization profile consumed by this bootstrap pipeline."
   name
   pipeline
@@ -71,7 +72,11 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
   ;; NIL means the V1 Manna/Kanata foreign-event route has not been selected.
   ;; It is not a default compatibility mode and must remain visible whenever
   ;; timed interactions are present.
-  interaction-compatibility-policy)
+  interaction-compatibility-policy
+  ;; Explicit typed Kanata atoms/layers for the inert buffered handoff.  This
+  ;; is separate from compatibility selection so the compiler never derives
+  ;; backend spellings from semantic identities.
+  kanata-buffered-allocation-policy)
 
 (defstruct (compiler-fidelity-issue
             (:constructor %make-compiler-fidelity-issue (feature code detail)))
@@ -337,6 +342,9 @@ list.
             (ivory-key.model::realization-profile-selector-policy realization))
           (interaction-compatibility-policy
             (ivory-key.model::realization-profile-interaction-compatibility-policy
+             realization))
+          (kanata-buffered-allocation-policy
+            (ivory-key.model::realization-profile-kanata-buffered-allocation-policy
              realization)))
       (unless (and (listp pipeline) (every #'stringp pipeline)
                    (listp grades) (every #'stringp grades))
@@ -383,11 +391,20 @@ list.
              :decode (ivory-key.model:semantic-error-code condition)
              "Could not validate interaction compatibility policy: ~A"
              (ivory-key.model:semantic-error-message condition)))))
+      (when kanata-buffered-allocation-policy
+        (handler-case
+            (ivory-key.model::validate-realization-kanata-buffered-allocation-policy
+             kanata-buffered-allocation-policy)
+          (ivory-key.model:semantic-error (condition)
+            (%stage-error
+             :decode (ivory-key.model:semantic-error-code condition)
+             "Could not validate buffered Kanata allocation policy: ~A"
+             (ivory-key.model:semantic-error-message condition)))))
       (%make-compiler-realization
        (ivory-key.model:identifier-name
         (ivory-key.model:realization-profile-name realization))
        (copy-list pipeline) (copy-list grades) vocabulary selector-policy
-       interaction-compatibility-policy))))
+       interaction-compatibility-policy kanata-buffered-allocation-policy))))
 
 (defun %project-layout-compiler-unit (project-path layout)
   "Normalize an already validated project layout without a second source load."
@@ -532,6 +549,15 @@ input and are not silently consumed here.
                (eq (ivory-key.syntax:syntax-atom-kind node) :identifier))
     (%stage-error :decode :invalid-realization-selector-policy
                   "~A must be an Ivory Key identifier." what))
+  (ivory-key.syntax:syntax-atom-value node))
+
+(defun %compiler-syntax-text (node what)
+  "Read one opaque source atom without invoking the host reader."
+  (unless (and (ivory-key.syntax:syntax-atom-p node)
+               (member (ivory-key.syntax:syntax-atom-kind node)
+                       '(:identifier :string)))
+    (%stage-error :decode :invalid-realization-kanata-buffered-token
+                  "~A must be an Ivory Key identifier or string." what))
   (ivory-key.syntax:syntax-atom-value node))
 
 (defun %compiler-syntax-integer (node what)
@@ -688,6 +714,111 @@ both paths construct the one public MODEL policy value.
                       "Could not decode interaction compatibility policy: ~A"
                       (ivory-key.model:semantic-error-message condition))))))
 
+(defun %decode-realization-kanata-buffered-hold-source (node)
+  "Decode one typed buffered held-effect allocation from parser nodes only."
+  (unless (ivory-key.syntax:syntax-list-p node)
+    (%stage-error :decode :invalid-realization-kanata-buffered-hold
+                  "Buffered HOLD must be a list."))
+  (let* ((children (ivory-key.syntax:syntax-list-children node))
+         (kind-name (and (second children)
+                         (%compiler-syntax-identifier (second children)
+                                                     "Buffered HOLD kind")))
+         (kind (cdr (assoc kind-name
+                           '(("modifier" . :modifier)
+                             ("axis-modifier" . :axis-modifier)
+                             ("axis-layer" . :axis-layer))
+                           :test #'string=))))
+    (unless kind
+      (%stage-error :decode :unknown-realization-kanata-buffered-hold-kind
+                    "Buffered HOLD has unsupported kind ~S." kind-name))
+    (labels ((arity (count)
+               (unless (= (length children) count)
+                 (%stage-error :decode :invalid-realization-kanata-buffered-hold
+                               "Malformed buffered HOLD allocation."))))
+      (ecase kind
+        (:modifier
+         (arity 4)
+         (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+          kind (%compiler-syntax-identifier (third children) "Buffered modifier identity")
+          (%compiler-syntax-text (fourth children) "Buffered modifier token")))
+        (:axis-modifier
+         (arity 5)
+         (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+          kind (%compiler-syntax-identifier (third children) "Buffered hold axis")
+          (%compiler-syntax-text (fifth children) "Buffered axis-modifier token")
+          :state (%compiler-syntax-identifier (fourth children) "Buffered hold state")))
+        (:axis-layer
+         (arity 6)
+         (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+          kind (%compiler-syntax-identifier (third children) "Buffered layer axis")
+          (%compiler-syntax-text (sixth children) "Buffered axis-layer token")
+          :state (%compiler-syntax-identifier (fourth children) "Buffered layer state")
+          :layer (%compiler-syntax-identifier (fifth children) "Buffered layer identity")))))))
+
+(defun %decode-realization-kanata-buffered-allocations-source (node)
+  "Decode the closed inert buffered allocation grammar for explicit-file mode."
+  (unless (ivory-key.syntax:syntax-list-p node)
+    (%stage-error :decode :invalid-realization-kanata-buffered-allocation-policy
+                  "KANATA-BUFFERED-ALLOCATIONS must be a list."))
+  (let ((actions nil) (routes nil))
+    (dolist (clause (rest (ivory-key.syntax:syntax-list-children node)))
+      (unless (ivory-key.syntax:syntax-list-p clause)
+        (%stage-error :decode :invalid-realization-kanata-buffered-allocation-policy
+                      "Buffered allocation clause must be a list."))
+      (let ((children (ivory-key.syntax:syntax-list-children clause))
+            (name (%compiler-syntax-form-name clause)))
+        (cond
+          ((string= (or name "") "route")
+           (unless (= (length children) 3)
+             (%stage-error :decode :invalid-realization-kanata-buffered-route
+                           "Malformed buffered ROUTE allocation."))
+           (push (ivory-key.model::make-realization-kanata-buffered-foreign-route
+                  (%compiler-syntax-identifier (second children) "Buffered route position")
+                  (%compiler-syntax-text (third children) "Buffered route token"))
+                 routes))
+          ((string= (or name "") "action")
+           (unless (= (length children) 5)
+             (%stage-error :decode :invalid-realization-kanata-buffered-action
+                           "Buffered ACTION requires identity, TAP, HOLD, and ROUTES."))
+           (let* ((interaction
+                    (%compiler-syntax-identifier (second children)
+                                                 "Buffered action interaction"))
+                  (tap (third children))
+                  (hold (fourth children))
+                  (route-list (fifth children)))
+             (unless (and (ivory-key.syntax:syntax-list-p tap)
+                          (string= (or (%compiler-syntax-form-name tap) "") "tap")
+                          (= (length (ivory-key.syntax:syntax-list-children tap)) 2))
+               (%stage-error :decode :invalid-realization-kanata-buffered-action
+                             "Buffered ACTION ~A has malformed TAP." interaction))
+             (unless (and (ivory-key.syntax:syntax-list-p route-list)
+                          (string= (or (%compiler-syntax-form-name route-list) "") "routes")
+                          (rest (ivory-key.syntax:syntax-list-children route-list)))
+               (%stage-error :decode :invalid-realization-kanata-buffered-action
+                             "Buffered ACTION ~A has malformed ROUTES." interaction))
+             (push
+              (ivory-key.model::make-realization-kanata-buffered-action-allocation
+               interaction
+               (%compiler-syntax-text
+                (second (ivory-key.syntax:syntax-list-children tap))
+                "Buffered tap token")
+               (%decode-realization-kanata-buffered-hold-source hold)
+               (mapcar (lambda (route)
+                         (%compiler-syntax-identifier route "Buffered route reference"))
+                       (rest (ivory-key.syntax:syntax-list-children route-list))))
+              actions)))
+          (t
+           (%stage-error :decode :unknown-realization-kanata-buffered-allocation-clause
+                         "KANATA-BUFFERED-ALLOCATIONS has unsupported clause ~S."
+                         name)))))
+    (handler-case
+        (ivory-key.model::make-realization-kanata-buffered-allocation-policy
+         (nreverse actions) (nreverse routes))
+      (ivory-key.model:semantic-error (condition)
+        (%stage-error :decode (ivory-key.model:semantic-error-code condition)
+                      "Could not decode buffered Kanata allocation policy: ~A"
+                      (ivory-key.model:semantic-error-message condition))))))
+
 (defun decode-realization-source (pathname)
   "Decode the policy subset needed to select the XKB + Kanata bootstrap path."
   (let* ((parsed (%parse-required-file pathname "realization"))
@@ -720,6 +851,12 @@ both paths construct the one public MODEL policy value.
               (string= (or (%compiler-syntax-form-name node) "")
                        "interaction-compatibility"))
             (cddr (ivory-key.syntax:syntax-list-children syntax-form))))
+         (kanata-buffered-allocation-nodes
+           (remove-if-not
+            (lambda (node)
+              (string= (or (%compiler-syntax-form-name node) "")
+                       "kanata-buffered-allocations"))
+            (cddr (ivory-key.syntax:syntax-list-children syntax-form))))
          (selector-policy
            (cond ((null policy-nodes) nil)
                  ((rest policy-nodes)
@@ -737,7 +874,14 @@ both paths construct the one public MODEL policy value.
                  (%stage-error :decode :duplicate-realization-clause
                                 "Realization ~A repeats INTERACTION-COMPATIBILITY." name))
                  (t (%decode-realization-interaction-compatibility-source
-                     (first interaction-compatibility-nodes))))))
+                     (first interaction-compatibility-nodes)))))
+         (kanata-buffered-allocation-policy
+           (cond ((null kanata-buffered-allocation-nodes) nil)
+                 ((rest kanata-buffered-allocation-nodes)
+                  (%stage-error :decode :duplicate-realization-clause
+                                "Realization ~A repeats KANATA-BUFFERED-ALLOCATIONS." name))
+                 (t (%decode-realization-kanata-buffered-allocations-source
+                     (first kanata-buffered-allocation-nodes))))))
     ;; Output vocabularies are project declarations and may be imported or
     ;; forward-referenced.  The one-file compiler intentionally has no
     ;; project graph to resolve them, so refusing is safer than discarding a
@@ -758,8 +902,23 @@ both paths construct the one public MODEL policy value.
       (unless (member grade '("exact" "emulated" "lossy") :test #'string=)
         (%stage-error :decode :unknown-realization-grade
                       "Realization ~A allows unknown fidelity grade ~S." name grade)))
-    (%make-compiler-realization name (copy-list pipeline) (copy-list grades) nil
-                                selector-policy interaction-compatibility-policy)))
+    ;; Reuse the MODEL profile boundary to prevent a direct-file allocation
+    ;; from being selected without its matching scoped buffered policy.
+    (handler-case
+        (ivory-key.model:make-realization-profile
+         name :pipeline pipeline :permitted-losses grades
+         :selector-policy selector-policy
+         :interaction-compatibility-policy interaction-compatibility-policy
+         :kanata-buffered-allocation-policy kanata-buffered-allocation-policy)
+      (ivory-key.model:semantic-error (condition)
+        (%stage-error :decode (ivory-key.model:semantic-error-code condition)
+                      "Could not validate realization allocation policy: ~A"
+                      (ivory-key.model:semantic-error-message condition)))
+      (:no-error (profile)
+        (declare (ignore profile))
+        (%make-compiler-realization name (copy-list pipeline) (copy-list grades) nil
+                                    selector-policy interaction-compatibility-policy
+                                    kanata-buffered-allocation-policy)))))
 
 (defun %layout-topology-name (layout)
   (ivory-key.model:identifier-name
@@ -1260,15 +1419,75 @@ member of POLICY.  This helper intentionally names no generic interaction.
            issues))))
     (nreverse issues)))
 
-(defun %kanata-buffered-action-handoff (normalized placement policy)
-  "Derive the inert Kanata buffered AST from MODEL contracts, never source text.
+(defun %kanata-buffered-direct-route-key (normalized position)
+  "Return POSITION's one admitted foreign named-key identity, or NIL/reason.
 
-The third value is a canonical refusal code/message pair when no selected
-realization allocation can construct direct route/hold actions.  It is
-inspection evidence only; the ordinary compiler refusal and no-artifact gate
-remain independently in force.
+This deliberately mirrors the reference simulator's narrow direct route
+shape.  A context table, overlay, non-key output, or absent binding cannot be
+silently transformed into a queued Kanata action.
 "
-  (declare (ignore placement))
+  (let ((binding
+          (find position (ivory-key.model:normalized-layout-bindings normalized)
+                :test #'ivory-key.model:identifier=
+                :key #'ivory-key.model:normalized-binding-position)))
+    (cond
+      ((null binding)
+       (values nil :unknown-kanata-buffered-foreign-route
+               "Buffered foreign route names no normalized ordinary binding."))
+      ((ivory-key.model:normalized-binding-axes binding)
+       (values nil :unsupported-kanata-buffered-foreign-route
+               "Buffered foreign route has context-dependent ordinary behavior."))
+      ((/= (length (ivory-key.model:normalized-binding-entries binding)) 1)
+       (values nil :unsupported-kanata-buffered-foreign-route
+               "Buffered foreign route must have exactly one ordinary entry."))
+      (t
+       (let ((entry (first (ivory-key.model:normalized-binding-entries binding))) )
+         (if (and (null (ivory-key.model:context-tuple-pairs
+                          (ivory-key.model:normalized-entry-tuple entry)))
+                  (typep (ivory-key.model:normalized-entry-behavior entry)
+                         'ivory-key.model::named-key-output))
+             (values (ivory-key.model:named-key-name
+                      (ivory-key.model:normalized-entry-behavior entry)) nil nil)
+             (values nil :unsupported-kanata-buffered-foreign-route
+                     "Buffered foreign route must be one direct named-key output.")))))))
+
+(defun %kanata-buffered-allocation-action-for-contract (allocation contract)
+  (find (ivory-key.model:normalized-interaction-name
+         (ivory-key.model::interaction-compatibility-contract-interaction contract))
+        (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+         allocation)
+        :test #'ivory-key.model:identifier=
+        :key #'ivory-key.model::realization-kanata-buffered-action-interaction))
+
+(defun %kanata-buffered-allocation-route-for-position (allocation position)
+  (find position
+        (ivory-key.model::realization-kanata-buffered-allocation-policy-foreign-routes
+         allocation)
+        :test #'ivory-key.model:identifier=
+        :key #'ivory-key.model::realization-kanata-buffered-foreign-route-position))
+
+(defun %kanata-buffered-allocation-matches-policy-p (allocation policy)
+  (and allocation policy
+       (= (length (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+                   allocation))
+          (length (ivory-key.model::realization-interaction-compatibility-policy-interactions
+                   policy)))
+       (every #'ivory-key.model:identifier=
+              (mapcar #'ivory-key.model::realization-kanata-buffered-action-interaction
+                      (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+                       allocation))
+              (ivory-key.model::realization-interaction-compatibility-policy-interactions
+               policy))))
+
+(defun %kanata-buffered-action-handoff
+    (normalized placement policy allocation)
+  "Derive inert Kanata ASTs only from MODEL contracts plus typed allocations.
+
+The third value is a canonical refusal code/message pair when a selected
+profile lacks an allocation, names an unsupported route, or fails any closed
+AST check.  Even successful action construction remains inspection-only: the
+ordinary compiler lifecycle refusal and backend emission gate are independent.
+"
   (if (not (and policy
                 (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
                      policy)
@@ -1278,13 +1497,130 @@ remain independently in force.
           (let ((contracts
                   (ivory-key.model:derive-interaction-compatibility-contracts
                    policy normalized)))
-            ;; Structural MODEL contracts are now available for inspection.
-            ;; They still do not contain realization-owned modifier/layer or
-            ;; named-key token allocations, so the compiler must not assemble
-            ;; an action AST by guessing those backend values.
-            (values contracts nil
-                    (list :missing-kanata-buffered-hold-allocation
-                          "Buffered action handoff requires explicit realization-owned modifier/layer and named-key token allocations.")))
+            (unless allocation
+              (return-from %kanata-buffered-action-handoff
+                (values contracts nil
+                        (list :missing-kanata-buffered-hold-allocation
+                              "Buffered action handoff requires explicit realization-owned modifier/layer and named-key token allocations."))))
+            (ivory-key.model::validate-realization-kanata-buffered-allocation-policy
+             allocation)
+            (unless (%kanata-buffered-allocation-matches-policy-p allocation policy)
+              (return-from %kanata-buffered-action-handoff
+                (values contracts nil
+                        (list :incomplete-realization-kanata-buffered-allocation
+                              "Buffered allocation rows must cover exactly the selected interaction instances."))))
+            (let ((actions nil))
+              (dolist (contract contracts)
+                (let* ((action-allocation
+                         (%kanata-buffered-allocation-action-for-contract allocation contract))
+                       (owner (ivory-key.model::interaction-compatibility-contract-owner contract))
+                       (owner-placement (%placement-for-position placement owner)))
+                  (unless action-allocation
+                    (return-from %kanata-buffered-action-handoff
+                      (values contracts nil
+                              (list :missing-realization-kanata-buffered-action
+                                    "Buffered contract has no matching typed action allocation."))))
+                  (unless (and owner-placement (getf owner-placement :kanata))
+                    (return-from %kanata-buffered-action-handoff
+                      (values contracts nil
+                              (list :missing-device-placement
+                                    "Buffered action owner has no physical Kanata placement."))))
+                  (let ((routes nil))
+                    (dolist (route-position
+                             (ivory-key.model::realization-kanata-buffered-action-foreign-route-positions
+                              action-allocation))
+                      (let ((route-allocation
+                              (%kanata-buffered-allocation-route-for-position
+                               allocation route-position))
+                            (route-placement
+                              (%placement-for-position placement route-position)))
+                        (unless (and route-allocation route-placement
+                                     (getf route-placement :kanata))
+                          (return-from %kanata-buffered-action-handoff
+                            (values contracts nil
+                                    (list :missing-device-placement
+                                          "Buffered foreign route has no physical Kanata placement."))))
+                        (multiple-value-bind (key code detail)
+                            (%kanata-buffered-direct-route-key normalized route-position)
+                          (when code
+                            (return-from %kanata-buffered-action-handoff
+                              (values contracts nil (list code detail))))
+                          (push
+                           (ivory-key.backend::make-kanata-direct-route-reference
+                            route-position (getf route-placement :kanata)
+                            (ivory-key.backend::make-kanata-key-action
+                             key
+                             (ivory-key.model::realization-kanata-buffered-foreign-route-token
+                              route-allocation))
+                            :origin
+                            (ivory-key.model::interaction-compatibility-contract-origin
+                             contract))
+                           routes))))
+                    (let* ((hold-allocation
+                             (ivory-key.model::realization-kanata-buffered-action-hold
+                              action-allocation))
+                           (hold
+                             (ecase (ivory-key.model::realization-kanata-buffered-hold-kind
+                                     hold-allocation)
+                               (:modifier
+                                (ivory-key.backend::make-kanata-modifier-hold-action
+                                 (ivory-key.model::realization-kanata-buffered-hold-identity
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-token
+                                  hold-allocation)))
+                               (:axis-modifier
+                                (ivory-key.backend::make-kanata-modifier-hold-action
+                                 (ivory-key.model::realization-kanata-buffered-hold-identity
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-token
+                                  hold-allocation)
+                                 :state
+                                 (ivory-key.model::realization-kanata-buffered-hold-state
+                                  hold-allocation)))
+                               (:axis-layer
+                                (ivory-key.backend::make-kanata-layer-while-held-action
+                                 (ivory-key.model::realization-kanata-buffered-hold-identity
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-state
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-layer
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-token
+                                  hold-allocation)))))
+                           (tap-key
+                             (ivory-key.model::release-trigger-interaction-compatibility-contract-tap-key
+                              contract))
+                           (deadline
+                             (ivory-key.model::release-trigger-interaction-compatibility-contract-deadline
+                              contract)))
+                      (push
+                       (ivory-key.backend::make-kanata-buffered-interaction-action
+                        contract
+                        (ivory-key.backend::make-kanata-owner-placement
+                         owner (getf owner-placement :kanata)
+                         :origin
+                         (ivory-key.model::interaction-compatibility-contract-origin contract))
+                        (ivory-key.backend::make-kanata-tap-hold-release-action
+                         deadline deadline
+                         (ivory-key.backend::make-kanata-key-action
+                          tap-key
+                          (ivory-key.model::realization-kanata-buffered-action-tap-token
+                           action-allocation))
+                         hold)
+                        (nreverse routes)
+                        (ivory-key.backend::make-kanata-defcfg-requirements
+                         :process-unmapped-keys t :concurrent-tap-hold :required)
+                        :provenance
+                        (ivory-key.model::interaction-compatibility-contract-origin contract))
+                       actions)))))
+              (setf actions
+                    (sort actions #'ivory-key.model:identifier<
+                          :key (lambda (action)
+                                 (ivory-key.model:normalized-interaction-name
+                                  (ivory-key.model::interaction-compatibility-contract-interaction
+                                   (ivory-key.backend::kanata-buffered-interaction-action-contract
+                                    action))))))
+              (values contracts actions nil)))
         (ivory-key.model:semantic-error (condition)
           (values nil nil
                   (list (ivory-key.model:semantic-error-code condition)
@@ -1296,7 +1632,8 @@ remain independently in force.
 
 (defun analyze-normalized-layout
     (normalized placement &key vocabulary selector-policy
-                           interaction-compatibility-policy)
+                           interaction-compatibility-policy
+                           kanata-buffered-allocation-policy)
   "Return an inspectable lowering proposal and every blocking fidelity issue.
 
 The proposal retains only individually evidenced direct tables/carriers; a
@@ -1328,6 +1665,15 @@ compile gate.
           (%stage-error
            :lower (ivory-key.model:semantic-error-code condition)
            "Invalid interaction compatibility policy: ~A"
+           (ivory-key.model:semantic-error-message condition)))))
+    (when kanata-buffered-allocation-policy
+      (handler-case
+          (ivory-key.model::validate-realization-kanata-buffered-allocation-policy
+           kanata-buffered-allocation-policy)
+        (ivory-key.model:semantic-error (condition)
+          (%stage-error
+           :lower (ivory-key.model:semantic-error-code condition)
+           "Invalid buffered Kanata allocation policy: ~A"
            (ivory-key.model:semantic-error-message condition)))))
     ;; The evidence-named three-control policy is proven only for the emitted
     ;; XKB map/state boundary.  It clears the generic XKB selector diagnostic,
@@ -1385,7 +1731,8 @@ compile gate.
     ;; artifact path.
     (multiple-value-setq (buffered-contracts buffered-actions buffered-action-refusal)
       (%kanata-buffered-action-handoff normalized placement
-                                       interaction-compatibility-policy))
+                                       interaction-compatibility-policy
+                                       kanata-buffered-allocation-policy))
     (when (and interaction-compatibility-policy
                (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
                     interaction-compatibility-policy)
@@ -1395,7 +1742,7 @@ compile gate.
              :unproved-kanata-buffered-pending-lifecycle
              "Kanata 1.12 single-owner deadline custody is proven, but cancellation, multi-owner/foreign arbitration, and bounded native queue closure remain unproved; the typed buffered action handoff is inert.")
             issues))
-    (when buffered-contracts
+    (when (and buffered-contracts (null buffered-actions))
       ;; MODEL has proved the finite interaction shape, but profile-owned
       ;; Kanata spellings/allocation are intentionally absent.  Keep each
       ;; missing obligation separate and stable for inspection and tests.
@@ -1422,8 +1769,21 @@ compile gate.
       (multiple-value-bind (code detail)
           (if (%interaction-compatibility-policy-target-p
                interaction-compatibility-policy interaction)
-              (%interaction-compatibility-policy-refusal
-               interaction-compatibility-policy)
+              ;; A validated allocation may construct an inspectable typed
+              ;; action, but it does not prove the outstanding lifecycle
+              ;; obligations.  Do not also claim the action IR is missing.
+              (if (find (ivory-key.model:normalized-interaction-name interaction)
+                        buffered-actions
+                        :test #'ivory-key.model:identifier=
+                        :key (lambda (action)
+                               (ivory-key.model:normalized-interaction-name
+                                (ivory-key.model::interaction-compatibility-contract-interaction
+                                 (ivory-key.backend::kanata-buffered-interaction-action-contract
+                                  action)))))
+                  (values :unproved-kanata-buffered-pending-lifecycle
+                          "Typed buffered Kanata action handoff remains inert until cancellation, arbitration, and bounded queue behavior are proven.")
+                  (%interaction-compatibility-policy-refusal
+                   interaction-compatibility-policy))
               (values :unsupported-timed-interaction
                       "Generic timed interactions require an explicit Kanata template lowering."))
         (push (%make-compiler-fidelity-issue
@@ -1540,6 +1900,8 @@ compile gate.
                                    :selector-policy selector-policy
                                    :interaction-compatibility-policy
                                    interaction-compatibility-policy
+                                   :kanata-buffered-allocation-policy
+                                   kanata-buffered-allocation-policy
                                    :kanata-buffered-actions buffered-actions
                                    :kanata-buffered-action-refusal
                                    buffered-action-refusal
@@ -1555,13 +1917,16 @@ compile gate.
 
 (defun make-lowering-request-from-normalized-layout
     (normalized placement &key vocabulary selector-policy
-                           interaction-compatibility-policy)
+                           interaction-compatibility-policy
+                           kanata-buffered-allocation-policy)
   "Return a complete bootstrap lowering request or signal its first failure."
   (multiple-value-bind (request issues)
       (analyze-normalized-layout normalized placement :vocabulary vocabulary
                                  :selector-policy selector-policy
                                  :interaction-compatibility-policy
-                                 interaction-compatibility-policy)
+                                 interaction-compatibility-policy
+                                 :kanata-buffered-allocation-policy
+                                 kanata-buffered-allocation-policy)
     (if (and request (null issues))
         request
         (let ((issue (first issues)))
@@ -1590,6 +1955,9 @@ compile gate.
                   (compiler-realization-selector-policy realization)
                   :interaction-compatibility-policy
                   (compiler-realization-interaction-compatibility-policy
+                   realization)
+                  :kanata-buffered-allocation-policy
+                  (compiler-realization-kanata-buffered-allocation-policy
                    realization))))
     (handler-case
         (ivory-key.backend:compile-xkb-kanata-request request :allow-lossy nil)
@@ -2050,7 +2418,9 @@ plans, artifact text, contract data, or output paths.
        :vocabulary (compiler-realization-vocabulary realization)
        :selector-policy (compiler-realization-selector-policy realization)
        :interaction-compatibility-policy
-       (compiler-realization-interaction-compatibility-policy realization))
+       (compiler-realization-interaction-compatibility-policy realization)
+       :kanata-buffered-allocation-policy
+       (compiler-realization-kanata-buffered-allocation-policy realization))
     (unless request
       (%stage-error :backend :missing-lowering-request
                     "No inspectable backend request was produced."))
@@ -2965,7 +3335,9 @@ timed interaction it cannot lower exactly.
          :selector-policy
          (compiler-realization-selector-policy realization)
          :interaction-compatibility-policy
-         (compiler-realization-interaction-compatibility-policy realization))
+         (compiler-realization-interaction-compatibility-policy realization)
+         :kanata-buffered-allocation-policy
+         (compiler-realization-kanata-buffered-allocation-policy realization))
       (format stream "Ivory Key capability explanation~%")
       (format stream "Layout: ~A~%Device: ~A~%Realization: ~A~%"
               (ivory-key.model:identifier-name

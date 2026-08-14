@@ -136,12 +136,10 @@ axis and latch snapshot, exactly as compiled interaction entries do.
           (%apply-compiled-actions machine candidate (cdr selected))))))))
 
 (defun %direct-buffered-route-entry (binding)
-  "Return BINDING's sole direct named-key entry, or NIL.
+  "Return BINDING's sole context-free named-key entry, or NIL.
 
-This is the complete route shape that can be placed in a selected buffered
-foreign transaction.  Keeping the predicate shared by whole-layout validation
-and lowering prevents a contextful table from being accepted as a route then
-silently lowered through the ordinary context callback.
+This remains a small lowering fast path.  Buffered routing itself may use a
+validated output-only context table through the ordinary binding callback.
 "
   (let ((entries (ivory-key.model::normalized-binding-entries binding)))
     (when (and (null (ivory-key.model::normalized-binding-axes binding))
@@ -152,6 +150,24 @@ silently lowered through the ordinary context callback.
                    (typep (ivory-key.model::normalized-entry-behavior entry)
                           'ivory-key.model::named-key-output))
           entry)))))
+
+(defun %buffered-output-route-binding-p (binding)
+  "Whether BINDING is safe for the finite buffered dispatch boundary.
+
+The route may consult its normalized context table at the eventual dispatch
+frontier, but every possible selected behavior must be a closed output or
+NONE.  Effects, state operations, commands, and arbitrary callbacks remain
+outside this reference-only route contract.
+"
+  (let ((entries (ivory-key.model::normalized-binding-entries binding)))
+    (and entries
+         (every (lambda (entry)
+                  (typep (ivory-key.model::normalized-entry-behavior entry)
+                         '(or ivory-key.model::text-output
+                           ivory-key.model::named-key-output
+                           ivory-key.model::named-symbol-output
+                           ivory-key.model::no-output-behavior)))
+                entries))))
 
 (defun %compile-normalized-ordinary-binding
     (binding routed-binding dispatch-plan-token)
@@ -196,9 +212,9 @@ fallback timing.
        :name name
        :pattern (down-pattern position)
        :commit :when-matched
-       ;; A direct, context-free named key is the only ordinary route eligible
-       ;; for selected buffered foreign custody.  Richer bindings retain the
-       ;; callback dispatch and are deliberately refused at that boundary.
+       ;; Direct named keys use a compact emit action.  Other validated
+       ;; output-only context tables retain the callback needed to select from
+       ;; the axes at a later buffered dispatch frontier.
        :actions
        (let ((entry (%direct-buffered-route-entry binding)))
          (if entry
@@ -272,19 +288,31 @@ still refuse at event execution rather than silently produce no output.
     :test #'ivory-key.model::identifier=)
    #'ivory-key.model::identifier<))
 
-(defun %assert-disjoint-normalized-binding-positions (positions interactions)
-  "Refuse ordinary/interaction overlap until fallback ownership is specified."
+(defun %assert-disjoint-normalized-binding-positions
+    (positions interactions buffered-contracts)
+  "Refuse ordinary/timed overlap except a selected buffered owner's tap route."
   (dolist (position-identifier positions)
     (let ((position (model-identifier->simulation-value position-identifier)))
       (dolist (interaction interactions)
         (when (member position (%interaction-participant-names interaction)
                       :test #'string=)
-          (%normalized-layout-simulation-error
-           :ordinary-binding-interaction-overlap position-identifier
-           "Binding position ~A also participates in interaction ~A; its fallback timing is unsupported."
-           position
-           (model-identifier->simulation-value
-            (ivory-key.model::normalized-interaction-name interaction))))))))
+          (unless
+              (some (lambda (contract)
+                      (and (eq interaction
+                               (ivory-key.model:interaction-compatibility-contract-interaction
+                                contract))
+                           (string=
+                            position
+                            (model-identifier->simulation-value
+                             (ivory-key.model:interaction-compatibility-contract-owner
+                              contract)))))
+                    buffered-contracts)
+            (%normalized-layout-simulation-error
+             :ordinary-binding-interaction-overlap position-identifier
+             "Binding position ~A also participates in interaction ~A; its fallback timing is unsupported."
+             position
+             (model-identifier->simulation-value
+              (ivory-key.model::normalized-interaction-name interaction)))))))))
 
 (defun %normalized-binding-axis-names (binding)
   (unless (typep binding 'ivory-key.model::normalized-binding)
@@ -555,13 +583,13 @@ the simulator's string-valued candidate context without backend lowering.
    (%normalized-layout-ordinary-positions layout)))
 
 (defun %assert-buffered-route-bindings-safe (layout)
-  "Prove every possible foreign route has the direct named-key shape."
+  "Prove every possible route is an unpatched closed output context table."
   (dolist (position (%normalized-layout-ordinary-positions layout))
     (when (some (lambda (patch) (%normalized-patch-binding-at patch position))
                 (ivory-key.model::normalized-layout-patches layout))
       (%normalized-layout-simulation-error
        :unsupported-buffered-foreign-overlay position
-       "Buffered dispatch refuses patched position ~A; foreign custody requires one direct base named-key binding."
+       "Buffered dispatch refuses patched position ~A; the reference route has no overlay semantics."
        (model-identifier->simulation-value position)))
     (let ((base (%normalized-layout-binding-at layout position)))
       (unless base
@@ -569,11 +597,34 @@ the simulator's string-valued candidate context without backend lowering.
          :unsupported-buffered-overlay-without-fallback position
          "Buffered dispatch position ~A has no unconditional base binding."
          (model-identifier->simulation-value position)))
-      (unless (%direct-buffered-route-entry base)
+      (unless (%buffered-output-route-binding-p base)
         (%normalized-layout-simulation-error
          :unsupported-buffered-foreign-route base
-         "Buffered dispatch requires position ~A to have no axes, exactly one empty-context entry, and one named-key output."
+         "Buffered dispatch requires every behavior at position ~A to be text, named-key, named-symbol, or none."
          (model-identifier->simulation-value position))))))
+
+(defun %assert-buffered-owner-routes-safe (layout contracts)
+  "Require every selected owner to retain one explicit safe ordinary tap route."
+  (dolist (contract (%buffered-contracts contracts))
+    (let* ((owner (ivory-key.model:interaction-compatibility-contract-owner contract))
+           (position (model-identifier->simulation-value owner))
+           (binding (%normalized-layout-binding-at layout owner)))
+      (unless binding
+        (%normalized-layout-simulation-error
+         :missing-buffered-owner-tap-route owner
+         "Selected buffered owner ~A has no ordinary binding for its tap route."
+         position))
+      (when (some (lambda (patch) (%normalized-patch-binding-at patch owner))
+                  (ivory-key.model::normalized-layout-patches layout))
+        (%normalized-layout-simulation-error
+         :unsupported-buffered-owner-overlay owner
+         "Selected buffered owner ~A has an overlay patch; tap routing has no overlay semantics."
+         position))
+      (unless (%buffered-output-route-binding-p binding)
+        (%normalized-layout-simulation-error
+         :unsupported-buffered-owner-tap-route binding
+         "Selected buffered owner ~A must have only text, named-key, named-symbol, or none tap outputs."
+         position)))))
 
 (defun %buffered-route-axis-names (layout)
   (remove-duplicates
@@ -649,10 +700,11 @@ fallback ownership is not specified.
     (%assert-overlay-latch-transitions-safe layout)
     (when buffered-contracts
       (%assert-buffered-route-bindings-safe layout)
+      (%assert-buffered-owner-routes-safe layout contracts)
       (%assert-buffered-route-latch-transitions-safe layout)
       (%assert-buffered-contract-owner-disjoint contracts interactions))
     (%assert-disjoint-normalized-binding-positions
-     (%normalized-layout-ordinary-positions layout) interactions)
+     (%normalized-layout-ordinary-positions layout) interactions buffered-contracts)
     (values (append (if buffered-contracts
                        (%compile-normalized-ordinary-bindings-with-routes
                         bindings bindings dispatch-plan-token)

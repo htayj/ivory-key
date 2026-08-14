@@ -543,6 +543,13 @@ is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
   (and (consp value) (eq (first value) :named-key) (stringp (second value))
        (null (cddr value))))
 
+(defun buffered-route-output-value-p (value)
+  "Whether VALUE is one closed non-stateful buffered-route output."
+  (and (consp value)
+       (member (first value) '(:text :named-key :named-symbol) :test #'eq)
+       (stringp (second value))
+       (null (cddr value))))
+
 (defun record-named-key-output (machine value &key transaction origin original-index)
   "Preserve legacy VALUE while adding normative press/release edges.
 
@@ -1101,8 +1108,12 @@ closed before the second snapshot becomes viable.
             (candidate-provenance candidate :committed
                                   :responsible-effect :candidate-do)))
       (consume-candidate-latches machine candidate)
-      (dolist (action (sim-case-actions (simulation-candidate-case candidate)))
-        (apply-sim-action machine candidate action)))
+      ;; A selected buffered owner's TAP result is the ordinary binding at the
+      ;; owner position, resolved later at the transaction frontier.  Do not
+      ;; emit the interaction candidate's baked-in tap behavior as well.
+      (unless (selected-buffered-owner-tap-candidate-p machine candidate)
+        (dolist (action (sim-case-actions (simulation-candidate-case candidate)))
+          (apply-sim-action machine candidate action))))
     (let ((*simulation-execution-provenance*
             (candidate-provenance candidate :committed
                                   :responsible-effect :candidate-commit-effect)))
@@ -1249,7 +1260,7 @@ notice after the timeout candidate has committed its held result.
            :origin (buffered-dispatch-transaction-origin transaction)))
     ;; The timeout candidate's held effect was acquired by
     ;; UPDATE-CANDIDATES-FOR-CURRENT-PREFIX before this call.  Only then may
-    ;; the one direct named-key B route receive its logical DOWN notice.
+    ;; the validated ordinary B route receive its logical DOWN notice.
     (routed-dispatch-down machine transaction)))
 
 (defun complete-armed-buffered-transactions (machine event)
@@ -1259,22 +1270,52 @@ notice after the timeout candidate has committed its held result.
         (let ((role (buffered-contract-role-for-candidate transaction candidate)))
           (unless role
             (buffered-dispatch-refuse :unproved-committed-role transaction event))
-          (setf (buffered-dispatch-transaction-state transaction) :complete
+          (let ((role-name
+                  (ivory-key.model:interaction-compatibility-role-reference-role role)))
+            (when (eq role-name :tap)
+              (unless (and (eq (timed-event-kind event) :up)
+                           (equal (timed-event-position event)
+                                  (buffered-dispatch-transaction-owner-position transaction)))
+                (buffered-dispatch-refuse :unproved-tap-resolution transaction event))
+              (let ((releases (routed-dispatch-owner-tap machine transaction event)))
+                (dolist (release releases)
+                  (destructuring-bind (key ignored-transaction origin original-index) release
+                    (declare (ignore ignored-transaction))
+                    (record-semantic-key-transition
+                     machine :release key :transaction transaction
+                     :origin origin :original-index original-index)))))
+            (setf (buffered-dispatch-transaction-state transaction) :complete
                 (buffered-dispatch-transaction-committed-candidate transaction) candidate
                 (buffered-dispatch-transaction-committed-role transaction)
-                (ivory-key.model:interaction-compatibility-role-reference-role role))
+                role-name
+                (buffered-dispatch-transaction-disposition transaction)
+                (if (eq role-name :tap) :tap :no-foreign-custody))
           (trace-entry machine :dispatch-resolved :event event
                        :interaction (buffered-dispatch-transaction-interaction transaction)
                        :case (simulation-candidate-case candidate) :candidate candidate
                        :details (list :transaction
                                       (buffered-dispatch-transaction-id transaction)
-                                      :disposition :no-foreign-custody
+                                      :disposition
+                                      (buffered-dispatch-transaction-disposition transaction)
                                       :role (buffered-dispatch-transaction-committed-role transaction)
                                       :origin :selected-timed-owner)
                        :provenance (list :route-kind :timed
                                          :transaction
                                          (buffered-dispatch-transaction-id transaction)
-                                         :origin :selected-timed-owner)))))))
+                                         :origin :selected-timed-owner))))))))
+
+(defun selected-buffered-owner-tap-candidate-p (machine candidate)
+  "Whether CANDIDATE's tap output is delegated to its owner ordinary route."
+  (find-if
+   (lambda (transaction)
+     (and (member (buffered-dispatch-transaction-state transaction)
+                  '(:armed :withheld-down) :test #'eq)
+          (eq candidate (buffered-transaction-committed-candidate machine transaction))
+          (let ((role (buffered-contract-role-for-candidate transaction candidate)))
+            (and role
+                 (eq (ivory-key.model:interaction-compatibility-role-reference-role role)
+                     :tap)))))
+   (simulator-transactions-reversed machine)))
 
 (defun selected-buffered-interactions-at (machine position)
   (remove-if-not
@@ -1344,7 +1385,7 @@ ambiguous event, and accepted events are appended exactly once by the caller."
               ((> (length routes) 1)
                (buffered-dispatch-refuse :multiple-routed-bindings
                                          (first armed) event))
-              ((not (direct-named-key-routed-case (first routes) position (first armed)))
+              ((not (buffered-output-routed-case (first routes) position (first armed)))
                (buffered-dispatch-refuse :unsupported-buffered-foreign-route
                                          (first armed) event))
               ((> (length armed) 1)
@@ -1396,7 +1437,7 @@ ambiguous event, and accepted events are appended exactly once by the caller."
            (buffered-dispatch-refuse :unroutable-foreign (first armed) event))
           ((> (length routes) 1)
            (buffered-dispatch-refuse :multiple-routed-bindings (first armed) event))
-          ((not (direct-named-key-routed-case (first routes) position (first armed)))
+          ((not (buffered-output-routed-case (first routes) position (first armed)))
            (buffered-dispatch-refuse :unsupported-buffered-foreign-route
                                      (first armed) event))
           ((> (length armed) 1)
@@ -1425,11 +1466,11 @@ ambiguous event, and accepted events are appended exactly once by the caller."
           (member position (sim-interaction-participants interaction) :test #'equal)))
    (simulator-interactions machine)))
 
-(defun direct-named-key-routed-case (interaction position transaction)
-  "Return the one direct named-key ordinary route case, or NIL.
+(defun buffered-output-routed-case (interaction position transaction)
+  "Return one token-authorized output-only ordinary route case, or NIL.
 
-This checkpoint deliberately excludes callback/context dispatch, text,
-symbols, no-output actions, and overlays from foreign custody.
+The whole-layout compiler proves that a callback route selects only closed
+output behaviors.  Raw and cross-layout IR cannot acquire its per-plan token.
 "
   (let ((cases (sim-interaction-cases interaction)))
     (and (eq (sim-interaction-route-kind interaction) :ordinary-binding)
@@ -1441,54 +1482,75 @@ symbols, no-output actions, and overlays from foreign custody.
            (and (eq (sim-case-commit case) :when-matched)
                 (null (sim-case-effects case))
                 (null (sim-case-commit-actions case))
-                (= (length (sim-case-actions case)) 1)
-                (let ((action (first (sim-case-actions case))))
-                  (and (eq (sim-action-kind action) :emit)
-                       (null (sim-action-resolver action))
-                       (named-key-output-p (sim-action-value action))))
+                (or (null (sim-case-actions case))
+                    (and (= (length (sim-case-actions case)) 1)
+                         (let ((action (first (sim-case-actions case))))
+                           (or (and (eq (sim-action-kind action) :emit)
+                                    (null (sim-action-resolver action))
+                                    (buffered-route-output-value-p
+                                     (sim-action-value action)))
+                               (and (eq (sim-action-kind action) :callback)
+                                    (functionp (sim-action-value action)))))))
                 (let ((pattern (sim-case-pattern case)))
                   (and (eq (event-pattern-kind pattern) :event)
                        (eq (event-pattern-event-kind pattern) :down)
                        (equal (event-pattern-position pattern) position)))
                 case)))))
 
-(defun routed-dispatch-down (machine transaction)
-  "Execute one delayed route notice without cloning/re-feeding a physical event."
-  (let* ((event (buffered-dispatch-transaction-withheld-event transaction))
-         (index (buffered-dispatch-transaction-withheld-index transaction))
-         (position (timed-event-position event))
-         (routes (routed-interactions-at machine position)))
+(defun routed-dispatch-output
+    (machine transaction event index position kind origin)
+  "Execute one token-authorized logical ordinary route at its current frontier.
+
+EVENT remains physical evidence; this function never appends or re-feeds it.
+The candidate snapshots effective axes when the route is resolved, which is
+deliberately later than a withheld DOWN for this bounded contract.
+"
+  (let ((routes (routed-interactions-at machine position)))
     (when (> (length routes) 1)
       (buffered-dispatch-refuse :multiple-routed-bindings transaction event))
     (when routes
       (let* ((interaction (first routes))
-             (case (or (direct-named-key-routed-case interaction position transaction)
+             (case (or (buffered-output-routed-case interaction position transaction)
                        (buffered-dispatch-refuse :unsupported-buffered-foreign-route
                                                  transaction event)))
              (candidate
                (%make-simulation-candidate
                 :id 0 :interaction interaction :case case :anchor-index index
                 :context (simulator-axes-alist machine)
-                ;; The selected route contract explicitly excludes latches.
                 :latch-snapshot nil :captures (make-hash-table :test #'equal))))
         (trace-entry machine :redispatch :event event :interaction interaction :case case
-                     :details (list :kind :down
+                     :details (list :kind kind
                                     :transaction (buffered-dispatch-transaction-id transaction)
                                     :original-index index :original-time (timed-event-time event)
                                     :dispatch-frontier (1- (length (simulator-events machine)))
-                                    :origin (buffered-dispatch-transaction-origin transaction))
+                                    :origin origin)
                      :provenance (list :route-kind (sim-interaction-route-kind interaction)
                                        :transaction (buffered-dispatch-transaction-id transaction)
-                                       :origin (buffered-dispatch-transaction-origin transaction)))
+                                       :origin origin))
         (let ((*semantic-key-transition-transaction* transaction)
-              (*semantic-key-transition-origin* :routed-down)
+              (*semantic-key-transition-origin* origin)
               (*semantic-key-transition-original-index* index)
               (*deferred-semantic-key-releases* nil))
           (%apply-compiled-actions machine candidate (sim-case-actions case))
-          (setf (buffered-dispatch-transaction-deferred-key transaction)
-                (nreverse *deferred-semantic-key-releases*)))))
+          (nreverse *deferred-semantic-key-releases*))))))
+
+(defun routed-dispatch-down (machine transaction)
+  "Execute the bounded foreign logical DOWN without cloning physical input."
+  (let* ((event (buffered-dispatch-transaction-withheld-event transaction))
+         (index (buffered-dispatch-transaction-withheld-index transaction))
+         (position (timed-event-position event)))
+    (setf (buffered-dispatch-transaction-deferred-key transaction)
+          (routed-dispatch-output machine transaction event index position :down :routed-down))
     (setf (buffered-dispatch-transaction-state transaction)
           :down-redispatched-awaiting-up)))
+
+(defun routed-dispatch-owner-tap (machine transaction event)
+  "Resolve a selected owner's tap through its ordinary binding at this frontier."
+  (routed-dispatch-output
+   machine transaction event
+   (buffered-dispatch-transaction-owner-index transaction)
+   (buffered-dispatch-transaction-owner-position transaction)
+   :tap :routed-owner-tap))
 
 (defun routed-dispatch-up (machine transaction event)
   (let ((withheld (buffered-dispatch-transaction-withheld-event transaction)))
@@ -1561,15 +1623,26 @@ symbols, no-output actions, and overlays from foreign custody.
             (list :route-kind :timed
                   :transaction (buffered-dispatch-transaction-id transaction)
                   :origin (buffered-dispatch-transaction-origin transaction)))
-           (routed-dispatch-down machine transaction)
-           ;; The selected tap press must precede routed B-DOWN, but its release
-           ;; is intentionally after that notice and before B's later UP.
-           (unless (eq deferred-releases :inactive)
-             (dolist (release (nreverse deferred-releases))
+           (let ((owner-tap-releases
+                   (and (eq disposition :tap)
+                        (routed-dispatch-owner-tap machine transaction event))))
+             ;; The selected tap press precedes the routed foreign DOWN; its
+             ;; release follows that notice while the foreign release remains
+             ;; deferred to its own physical UP.
+             (routed-dispatch-down machine transaction)
+             (dolist (release owner-tap-releases)
                (destructuring-bind (key ignored-transaction origin original-index) release
                  (declare (ignore ignored-transaction))
                  (record-semantic-key-transition machine :release key :transaction transaction
-                                                 :origin origin :original-index original-index))))
+                                                 :origin origin :original-index original-index)))
+             ;; Kept as a defensive compatibility path for a future selected
+             ;; candidate that itself intentionally deferred a semantic edge.
+             (unless (eq deferred-releases :inactive)
+               (dolist (release (nreverse deferred-releases))
+                 (destructuring-bind (key ignored-transaction origin original-index) release
+                   (declare (ignore ignored-transaction))
+                   (record-semantic-key-transition machine :release key :transaction transaction
+                                                   :origin origin :original-index original-index)))))
            (when (and (eq (timed-event-kind event) :up)
                       (equal (timed-event-position event)
                              (timed-event-position
@@ -1616,7 +1689,11 @@ symbols, no-output actions, and overlays from foreign custody.
         ;; Outside selected custody, ordinary and overlay interactions retain
         ;; the historical candidate path, including latch snapshots and
         ;; context commitment.  Custody suppresses only this one routed DOWN.
-        (unless withheld
+        (unless (or withheld
+                    ;; A selected buffered owner's ordinary binding is its tap
+                    ;; route and resolves only when the tap disposition wins.
+                    (selected-buffered-interactions-at
+                     machine (timed-event-position event)))
           (dolist (interaction (simulator-interactions machine))
             (when (and (member (sim-interaction-route-kind interaction)
                                '(:ordinary-binding :overlay-binding) :test #'eq)

@@ -23,7 +23,7 @@
            (ivory-key.simulate:simulation-result-trace result))))
 
 (defun dispatch-layout-with-named-b ()
-  "Make B the one direct named-key binding eligible for buffered custody."
+  "Make B and the selected semicolon owner named-key ordinary routes."
   (let* ((layout (pending-input-normalized-layout))
          (b (find "b" (ivory-key.model:normalized-layout-bindings layout)
                   :test #'ivory-key.model:identifier=
@@ -36,37 +36,74 @@
                    :entries
                    (list (ivory-key.model:make-normalized-binding-entry
                           (ivory-key.model:normalized-entry-tuple entry)
-                          (ivory-key.model:make-named-key-output "b"))))))
+                          (ivory-key.model:make-named-key-output "b")))))
+         ;; The selected timed owner may overlap an ordinary binding only in
+         ;; the validated buffered slice.  Its raw DOWN is suppressed; its tap
+         ;; resolves through this binding at the later transaction frontier.
+         (named-semicolon
+           (make-instance
+            'ivory-key.model:normalized-binding
+            :position (ivory-key.model:ensure-identifier "semicolon")
+            :axes nil
+            :entries
+            (list (ivory-key.model:make-normalized-binding-entry
+                   (ivory-key.model:make-context-tuple nil)
+                   (ivory-key.model:make-named-key-output "semicolon"))))))
     (make-instance
      'ivory-key.model:normalized-layout
      :name (ivory-key.model:normalized-layout-name layout)
      :topology (ivory-key.model:normalized-layout-topology layout)
      :axes (ivory-key.model:normalized-layout-axes layout)
      :modifiers (ivory-key.model:normalized-layout-modifiers layout)
-     :bindings (cons named-b (remove b (ivory-key.model:normalized-layout-bindings layout)))
+     :bindings (list* named-semicolon named-b
+                      (remove b (ivory-key.model:normalized-layout-bindings layout)))
      :patches (ivory-key.model:normalized-layout-patches layout)
      :interactions (ivory-key.model:normalized-layout-interactions layout)
      :origin (ivory-key.model:normalized-layout-origin layout))))
 
-(defun dispatch-layout-with-contextful-named-b ()
-  "Make B a two-row named-key table: invalid for buffered foreign custody."
+(defun dispatch-layout-with-named-owner (layout position)
+  "Add the explicit ordinary tap route required for selected POSITION."
+  (let ((binding
+          (make-instance
+           'ivory-key.model:normalized-binding
+           :position (ivory-key.model:ensure-identifier position) :axes nil
+           :entries
+           (list (ivory-key.model:make-normalized-binding-entry
+                  (ivory-key.model:make-context-tuple nil)
+                  (ivory-key.model:make-named-key-output position))))))
+    (make-instance
+     'ivory-key.model:normalized-layout
+     :name (ivory-key.model:normalized-layout-name layout)
+     :topology (ivory-key.model:normalized-layout-topology layout)
+     :axes (ivory-key.model:normalized-layout-axes layout)
+     :modifiers (ivory-key.model:normalized-layout-modifiers layout)
+     :bindings (cons binding (ivory-key.model:normalized-layout-bindings layout))
+     :patches (ivory-key.model:normalized-layout-patches layout)
+     :interactions (ivory-key.model:normalized-layout-interactions layout)
+     :origin (ivory-key.model:normalized-layout-origin layout))))
+
+(defun dispatch-layout-with-contextful-named-b
+    (&optional (plain-behavior (ivory-key.model:make-text-output "plain-b")))
+  "Make B a two-row output-only context table for buffered routing."
   (let* ((layout (dispatch-layout-with-named-b))
          (b (find "b" (ivory-key.model:normalized-layout-bindings layout)
                   :test #'ivory-key.model:identifier=
                   :key #'ivory-key.model:normalized-binding-position))
          (context-entry
-           (lambda (state key)
+           (lambda (state behavior)
              (ivory-key.model:make-normalized-binding-entry
               (ivory-key.model:make-context-tuple
                (list (cons "case" state)))
-              (ivory-key.model:make-named-key-output key))))
+              behavior)))
          (contextful-b
            (make-instance
             'ivory-key.model:normalized-binding
             :position (ivory-key.model:normalized-binding-position b)
             :axes (list (ivory-key.model:ensure-identifier "case"))
-            :entries (list (funcall context-entry "plain" "b")
-                           (funcall context-entry "shifted" "B")))))
+            :entries
+            (list (funcall context-entry "plain" plain-behavior)
+                  (funcall context-entry "shifted"
+                           (ivory-key.model:make-named-symbol-output "shifted-b"))))))
     (make-instance
      'ivory-key.model:normalized-layout
      :name (ivory-key.model:normalized-layout-name layout)
@@ -105,16 +142,101 @@
               (ivory-key.simulate:simulation-result-outputs result))
     (is-equal nil (dispatch-semantic-edges result))))
 
-(deftest simulation-dispatch-refuses-contextful-named-key-foreign-route-at-compile-time
-  "A context table is not a direct route merely because every row names a key."
-  (signals ivory-key.simulate:model-simulation-compilation-error
-    (ivory-key.simulate::compile-normalized-layout-simulation
-     (dispatch-layout-with-contextful-named-b)
-     :interaction-compatibility-policy
-     (pending-input-policy :names '("tap-hold-super-semicolon")))))
+(deftest simulation-dispatch-routes-contextful-output-foreign-at-resolution-frontier
+  "A safe output-only table resolves from current axes after the owner commits."
+  (let* ((layout (dispatch-layout-with-contextful-named-b))
+         (text-result
+           (ivory-key.simulate:simulate-normalized-layout-events
+            layout
+            (list (dispatch-event 0 :down "semicolon")
+                  (dispatch-event 1 :down "b")
+                  (dispatch-event 2 :up "b"))
+            :interaction-compatibility-policy
+            (pending-input-policy :names '("tap-hold-super-semicolon")))))
+    (is-equal '((:modifier :press "super") (:text "plain-b"))
+              (ivory-key.simulate:simulation-result-outputs text-result))
+    (is-equal nil (dispatch-semantic-edges text-result))
+    ;; A separately typed table proves named-symbol selection uses the same
+    ;; route callback rather than the old direct named-key-only fast path.
+    (let ((symbol-result
+            (ivory-key.simulate:simulate-normalized-layout-events
+             (dispatch-layout-with-contextful-named-b
+              (ivory-key.model:make-named-symbol-output "plain-symbol-b"))
+             (list (dispatch-event 0 :down "semicolon")
+                   (dispatch-event 1 :down "b")
+                   (dispatch-event 2 :up "b"))
+             :interaction-compatibility-policy
+             (pending-input-policy :names '("tap-hold-super-semicolon")))))
+      (is-equal '((:modifier :press "super") (:named-symbol "plain-symbol-b"))
+                (ivory-key.simulate:simulation-result-outputs symbol-result))
+      (is-equal nil (dispatch-semantic-edges symbol-result)))))
+
+(deftest simulation-dispatch-routes-none-foreign-table-without-output
+  (let* ((layout (dispatch-layout-with-named-b))
+         (b (find "b" (ivory-key.model:normalized-layout-bindings layout)
+                  :test #'ivory-key.model:identifier=
+                  :key #'ivory-key.model:normalized-binding-position))
+         (none-b (make-instance
+                  'ivory-key.model:normalized-binding
+                  :position (ivory-key.model:normalized-binding-position b) :axes nil
+                  :entries
+                  (list (ivory-key.model:make-normalized-binding-entry
+                         (ivory-key.model:make-context-tuple nil)
+                         (ivory-key.model:make-no-output-behavior)))))
+         (layout (make-instance
+                  'ivory-key.model:normalized-layout
+                  :name (ivory-key.model:normalized-layout-name layout)
+                  :topology (ivory-key.model:normalized-layout-topology layout)
+                  :axes (ivory-key.model:normalized-layout-axes layout)
+                  :modifiers (ivory-key.model:normalized-layout-modifiers layout)
+                  :bindings (cons none-b (remove b (ivory-key.model:normalized-layout-bindings layout)))
+                  :patches (ivory-key.model:normalized-layout-patches layout)
+                  :interactions (ivory-key.model:normalized-layout-interactions layout)
+                  :origin (ivory-key.model:normalized-layout-origin layout)))
+         (result
+           (ivory-key.simulate:simulate-normalized-layout-events
+            layout
+            (list (dispatch-event 0 :down "semicolon")
+                  (dispatch-event 1 :down "b")
+                  (dispatch-event 2 :up "b"))
+            :interaction-compatibility-policy
+            (pending-input-policy :names '("tap-hold-super-semicolon")))))
+    (is-equal '((:modifier :press "super"))
+              (ivory-key.simulate:simulation-result-outputs result))
+    (is-equal nil (dispatch-semantic-edges result))))
+
+(deftest simulation-dispatch-routes-selected-owner-tap-on-resolution
+  "The owner ordinary binding is suppressed at DOWN and routed exactly once."
+  (let* ((result
+           (ivory-key.simulate:simulate-normalized-layout-events
+            (dispatch-layout-with-named-b)
+            (list (dispatch-event 0 :down "semicolon")
+                  (dispatch-event 199 :up "semicolon"))
+            :interaction-compatibility-policy
+            (pending-input-policy :names '("tap-hold-super-semicolon"))))
+         (tap-notice
+           (find-if
+            (lambda (entry)
+              (and (eq :redispatch
+                       (ivory-key.simulate::simulation-trace-entry-kind entry))
+                   (eq :tap
+                       (getf (ivory-key.simulate::simulation-trace-entry-details entry)
+                             :kind))))
+            (ivory-key.simulate:simulation-result-trace result))))
+    (is-equal '((:named-key "semicolon"))
+              (ivory-key.simulate:simulation-result-outputs result))
+    (is-equal '((:press "semicolon") (:release "semicolon"))
+              (dispatch-semantic-edges result))
+    (is tap-notice)
+    (is-equal 0
+              (getf (ivory-key.simulate::simulation-trace-entry-details tap-notice)
+                    :original-index))
+    (is-equal :routed-owner-tap
+              (getf (ivory-key.simulate::simulation-trace-entry-provenance tap-notice)
+                    :origin))))
 
 (deftest simulation-dispatch-whole-layout-tap-brackets-named-key-route
-  (let* ((layout (pending-input-normalized-layout))
+  (let* ((layout (dispatch-layout-with-named-b))
          ;; Replace the fixture's text B binding with one pressable named key
          ;; so the normative edge ordering is observable end to end.
          (b (find "b" (ivory-key.model:normalized-layout-bindings layout)
@@ -362,7 +484,8 @@
   "Selected owners are excluded from one another's foreign capture frontier."
   (flet ((run (first-up second-up)
            (ivory-key.simulate:simulate-normalized-layout-events
-            (dispatch-layout-with-named-b)
+            (dispatch-layout-with-named-owner
+             (dispatch-layout-with-named-b) "a")
             (list (dispatch-event 0 :down "a")
                   (dispatch-event 1 :down "semicolon")
                   (dispatch-event 252 :up first-up)
@@ -380,7 +503,7 @@
                         (ivory-key.simulate:simulation-result-dispatch-transactions result)))
       (dolist (transaction (ivory-key.simulate:simulation-result-dispatch-transactions result))
         (is-equal nil (getf transaction :foreign-position))
-        (is-equal nil (getf transaction :disposition))))))
+        (is-equal :no-foreign-custody (getf transaction :disposition))))))
 
 (deftest simulation-dispatch-whole-layout-tap-and-equal-deadline-boundaries
   (flet ((run (up-time)
