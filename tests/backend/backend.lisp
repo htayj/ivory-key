@@ -187,7 +187,7 @@
                       :key #'ivory-key.backend:realization-feature))))
     (dolist (case
              '((:modern-no-delay . "modern no-delay")
-               (:kanata-1-12-buffered . "inspection-only actions")))
+               (:kanata-1-12-buffered . "requires typed actions")))
       (let* ((policy
                (ivory-key.model::make-realization-interaction-compatibility-policy
                 (car case) '("manna-tap-hold")))
@@ -413,8 +413,8 @@ three normalized candidates MODEL originally proved.
   (with-output-to-string (stream)
     (ivory-key.cli::%write-kanata-plan-inspection stream plan)))
 
-(deftest backend-kanata-buffered-action-handoff-is-typed-canonical-and-inert
-  "A real evidence contract may be inspected but cannot make a Kanata artifact."
+(deftest backend-kanata-buffered-action-handoff-is-typed-canonical-and-domain-gated
+  "A real action is exact, but an open native-domain config cannot emit."
   (multiple-value-bind (contract policy)
       (backend-test-buffered-contract-and-policy)
     (let* ((action (backend-test-buffered-action contract))
@@ -439,17 +439,16 @@ three normalized candidates MODEL originally proved.
                  action))
       (is-equal "tap-hold-case-f" (getf data :interaction))
       (is-equal :known (getf data :provenance))
-      (is (search "bounded deadline"
+      (is (search "Validated typed"
                   (ivory-key.backend:realization-detail
                    (first (remove-if-not
                            (lambda (result)
-                             (search "bounded deadline"
+                             (search "Validated typed"
                                      (ivory-key.backend:realization-detail result)))
                            (ivory-key.backend::kanata-plan-realizations plan))))))
       (is-equal (list action)
                 (ivory-key.backend::kanata-plan-buffered-actions plan))
-      ;; The direct row remains individually exact, but the handoff adds an
-      ;; unsupported interaction result, so the shared emitter gate refuses.
+      ;; This synthetic request does not select a closed allocation policy.
       (signals error
         (ivory-key.backend:emit-plan-to-string backend plan)))))
 

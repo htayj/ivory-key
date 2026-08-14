@@ -1387,7 +1387,7 @@ complete carrier table from an invented Manna behavior.
       ;; selected device coverage, leaving 51 selector overrides plus the
       ;; three directly routable named-key bindings.  Frozen END remains the
       ;; command route; its overlapping buffered interaction is still refused.
-      (is-equal 60 (length (ivory-key.backend::lowering-request-entries request)))
+      (is-equal 61 (length (ivory-key.backend::lowering-request-entries request)))
       (let* ((metadata (ivory-key.backend::lowering-request-metadata request))
              (carriers (getf metadata :xkb-carrier-entries))
              (allocations (getf metadata :carrier-allocations))
@@ -1508,7 +1508,6 @@ complete carrier table from an invented Manna behavior.
                backend (request-with-coverage replacement)))))))
       (is-equal
        '(:unsupported-kanata-selector-action-plan :unsupported-semantic-modifiers
-         :unsupported-command-output
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unreachable-device-position :unreachable-device-position
@@ -1535,8 +1534,8 @@ complete carrier table from an invented Manna behavior.
                     :selector-policy
                     (ivory-key.cli::compiler-realization-selector-policy realization))))))))
 
-(deftest compiler-manna-native-coverage-retains-only-source-transcribed-bindings
-  "Typed coverage plus literal rows is not permission to invent C7 or game behavior."
+(deftest compiler-manna-selected-pipeline-is-exact-and-source-backed
+  "Selected Manna artifacts are exact without inventing C7 or game behavior."
   (dolist (specification
            '(("manna-cadet-linux"
               68
@@ -1660,33 +1659,56 @@ complete carrier table from an invented Manna behavior.
                     (is (search "k21 142" proposal))
                     (is (search " f18 " proposal)))
                   (is (null (search "(deflocalkeys-linux" proposal))))
-              (signals ivory-key.backend:kanata-action-validation-error
-                (ivory-key.backend:emit-plan-to-string
-                 (ivory-key.backend:make-kanata-backend) plan)))
-            (is issues)
+              (is-equal proposal
+                        (ivory-key.backend:emit-plan-to-string
+                         (ivory-key.backend:make-kanata-backend) plan)))
+            (is (null issues))
             (is-equal 16
                       (length
                        (getf (ivory-key.backend::lowering-request-metadata request)
                              :kanata-buffered-actions)))
-            ;; Neither variant can turn typed profile evidence into an artifact:
-            ;; the independent native-domain/equivalence gates retain refusal.
-            (is-equal
-             :unproved-kanata-buffered-pending-lifecycle
-             (compiler-stage-code-from
-              (lambda ()
-                (ivory-key.cli::make-lowering-request-from-normalized-layout
-                 (ivory-key.cli::compiler-unit-normalized unit) placement
-                 :vocabulary
-                 (ivory-key.cli::compiler-realization-vocabulary realization)
-                 :selector-policy
-                 (ivory-key.cli::compiler-realization-selector-policy
-                  realization)
-                 :interaction-compatibility-policy
-                 (ivory-key.cli::compiler-realization-interaction-compatibility-policy
-                  realization)
-                 :kanata-buffered-allocation-policy
-                 (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
-                  realization)))))))))))
+            (let ((allocations
+                    (getf (ivory-key.backend::lowering-request-metadata request)
+                          :allocations)))
+              (is-equal 29 (length allocations))
+              (is (every
+                   (lambda (allocation)
+                     (and (typep allocation 'ivory-key.backend:planner-allocation)
+                          (ivory-key.backend:planner-allocation-origins allocation)))
+                   allocations)))
+            (dolist (entry
+                     (append
+                      (ivory-key.backend::lowering-request-entries request)
+                      (getf (ivory-key.backend::lowering-request-metadata request)
+                            :xkb-carrier-entries)))
+              (is (every #'ivory-key.backend:key-entry-source-origin
+                         (ivory-key.backend:key-entry-sources entry))))
+            (is
+             (ivory-key.cli::make-lowering-request-from-normalized-layout
+              (ivory-key.cli::compiler-unit-normalized unit) placement
+              :vocabulary
+              (ivory-key.cli::compiler-realization-vocabulary realization)
+              :selector-policy
+              (ivory-key.cli::compiler-realization-selector-policy realization)
+              :interaction-compatibility-policy
+              (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+               realization)
+              :kanata-buffered-allocation-policy
+              (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
+               realization)))
+            (let ((pipeline
+                    (ivory-key.backend:compile-xkb-kanata-request
+                     request :allow-lossy nil)))
+              (is-equal 2
+                        (length
+                         (ivory-key.backend:pipeline-result-artifacts pipeline)))
+              (is-equal 29
+                        (length
+                         (ivory-key.backend:pipeline-result-allocations pipeline)))
+              (is (every
+                   (lambda (result)
+                     (eq (ivory-key.backend:realization-grade result) :exact))
+                   (ivory-key.backend:pipeline-result-realizations pipeline))))))))))
 
 (deftest compiler-project-explain-refuses-unsafe-output-vocabulary-spelling
   ;; Opaque spelling safety remains an adapter concern.  Explain follows the

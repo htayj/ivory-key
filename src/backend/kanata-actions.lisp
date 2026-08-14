@@ -755,12 +755,11 @@ which a later exact emitter would need to prove again.
           :provenance (%kanata-action-origin-data
                        (kanata-buffered-interaction-action-provenance action)))))
 
-;;; Closed buffered configuration proposal ---------------------------------
+;;; Closed buffered configuration ------------------------------------------
 
-;; This is deliberately a typed proposal AST, not a text configuration.  The
-;; emitter below remains behind the normal unsupported-realization gate; these
-;; values exist so a complete synthetic allocation can be reviewed without
-;; giving a native Kanata domain any authority it has not proved.
+;; This is deliberately a typed AST, not text. The emitter remains behind
+;; exact-realization and native-domain gates, so incomplete synthetic
+;; allocations gain no artifact authority.
 (defclass kanata-buffered-layer-cell ()
   ((position :initarg :position :reader kanata-buffered-layer-cell-position)
    (input-token :initarg :input-token :reader kanata-buffered-layer-cell-input-token)
@@ -841,11 +840,11 @@ which a later exact emitter would need to prove again.
 (defun make-kanata-buffered-config
     (actions source-rows &key mapped-positions pass-through-positions
                               direct-carriers local-keys close-unmapped-input-p)
-  "Build a complete typed alias/defcfg/layer-cell proposal from ACTIONS.
+  "Build a complete typed alias/defcfg/layer-cell configuration from ACTIONS.
 
 Every alias is explicit in its realization allocation; every owner and direct
 foreign route must be present exactly once in compiler-owned SOURCE-ROWS.  The
-result is non-emitting until the independent native-domain proof gate clears.
+result becomes emittable only after the independent native-domain gate clears.
 "
   (unless (and (listp actions) (consp actions))
     (%kanata-action-error :empty-kanata-buffered-config
@@ -994,7 +993,7 @@ result is non-emitting until the independent native-domain proof gate clears.
         config))))
 
 (defun validate-kanata-buffered-config (config)
-  "Validate an inspection-only buffered configuration proposal."
+  "Validate a closed buffered configuration."
   (unless (and (typep config 'kanata-buffered-config)
                (%kanata-buffered-config-validated-p config))
     (%kanata-action-error :unvalidated-kanata-buffered-config

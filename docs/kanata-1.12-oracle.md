@@ -215,26 +215,26 @@ This evidence narrows, but does not eliminate, the owner decision:
 2. The selected Kanata-1.12 compatibility profile models a bounded pending
    foreign-event barrier and ordered release. Ivory Key now has derived
    normalized contracts, equal- and unequal-deadline reference behavior, and
-   an inert typed compiler handoff. The frozen native-route partition is
-   structurally closed, but per-class queue/redispatch closure, cancellation,
-   complete A2/A360 backend differential proof, and downstream client behavior
-   remain mandatory before emission.
+   a typed compiler handoff and exact selected backend plan. The frozen
+   native-route partition, class-level barrier behavior, and A2/A360 generated
+   artifacts are closed for Phase 7; downstream compositor/live-device behavior
+   remains a Phase 8 gate.
 
 The active Manna realization selects the buffered route for all sixteen source
-instances, but the compiler still refuses all of them before artifact
-publication. Selection records the intended semantics; it is not an exact
-backend grade.
+instances. The compiler grants an exact backend grade only when the full typed
+allocation and closed native-domain ledger are present; partial or generic
+requests still refuse before artifact publication.
 
-The separate generated-proposal probe can run the same hash-pinned state-machine
-suite against Ivory Key's deterministic A2 and Advantage360 proposal texts:
+The separate generated-artifact probe can run the same hash-pinned state-machine
+suite against Ivory Key's deterministic A2 and Advantage360 artifact texts:
 
 ```sh
 sbcl --script tests/external/manna-kanata-generated.lisp \
   --runtime-oracle PATH-TO-kanata-1.12.0.tar.gz PATH-TO-FROZEN-MANNA-ROOT
 ```
 
-Both generated proposals pass the eight checked runtime cases as well as the
+Both generated artifacts pass the eight checked runtime cases as well as the
 installed parser. This proves that the typed alias/layer proposal preserves
 the selected tested scheduler behavior on both device source orders. It does
 not by itself prove every ledger class, downstream XKB/client behavior, or
-authorize normal emission.
+constitute live-device deployment proof.

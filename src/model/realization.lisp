@@ -157,7 +157,7 @@ prove a carrier/pass-through stage without inventing a backend token here.
   ((interaction :initarg :interaction
                 :reader realization-kanata-buffered-action-interaction)
    ;; Alias spelling is realization-owned.  Deriving it from the interaction
-   ;; identifier would turn an inspection-only semantic name into backend
+   ;; identifier would turn a semantic name into backend
    ;; grammar and create an unreviewed collision surface.
    (alias-token :initarg :alias-token
                 :reader realization-kanata-buffered-action-alias-token)
@@ -170,7 +170,7 @@ prove a carrier/pass-through stage without inventing a backend token here.
    (foreign-route-positions :initarg :foreign-route-positions
                             :reader realization-kanata-buffered-action-foreign-route-positions))
   (:documentation
-   "One selected interaction's typed, non-emitting Kanata allocation row."))
+   "One selected interaction's typed Kanata allocation row."))
 
 (defclass realization-kanata-buffered-local-key ()
   ((token :initarg :token

@@ -283,12 +283,7 @@
     pathname))
 
 (defun generated-manna-selector-keymap (directory)
-  "Emit the actual selected 51-override Manna XKB partial request for probing.
-
-This deliberately lowers XKB directly after compiler inspection.  The same
-request remains ineligible for the combined XKB/Kanata pipeline because no
-Kanata selector action/lifetime implementation exists.
-"
+  "Emit the selected 51-override Manna XKB artifact for state probing."
   (multiple-value-bind (unit placement realization)
       (ivory-key.cli:load-project-composition-for-compilation
        "manna-cadet-project.ivory" "manna-cadet-linux")
@@ -306,15 +301,9 @@ Kanata selector action/lifetime implementation exists.
           realization))
       (unless request
         (error "Manna selector probe could not construct an inspection request."))
-      (dolist (required-issue
-               '(:unsupported-kanata-selector-action-plan
-                 :unsupported-timed-interaction
-                 :unreachable-device-position
-                 :unproved-patch-activation))
-        (unless (member required-issue issues
-                        :key #'ivory-key.cli::compiler-fidelity-issue-code)
-          (error "Manna selector probe lost required final-pipeline refusal ~S."
-                 required-issue)))
+      (when issues
+        (error "Manna selector probe retained compiler refusals: ~S"
+               (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
       (let* ((backend (ivory-key.backend:make-xkb-backend))
              (plan (ivory-key.backend:lower-request backend request))
              (static-entries
@@ -335,7 +324,7 @@ Kanata selector action/lifetime implementation exists.
                                    (ivory-key.backend:key-entry-position
                                     (ivory-key.backend::xkb-selector-static-entry-entry
                                      static-entry))))))
-          (error "Manna generated XKB partial request is not exactly its 51 selected static overrides."))
+          (error "Manna generated XKB artifact is not exactly its 51 selected static overrides."))
         (with-open-file (stream pathname :direction :output :if-exists :error
                                        :if-does-not-exist :create
                                        :external-format :utf-8)
@@ -397,7 +386,7 @@ only the separately selected typed carrier contract.
                (error "Generated XKB selector state probe did not pass for ~S:~%~A"
                       (car generated-output) (cdr generated-output))))
            (unless (search "GENERATED-XKB-SELECTOR-STATE: PASSED" manna-output)
-             (error "Generated full Manna XKB partial request state probe did not pass:~%~A"
+             (error "Generated Manna XKB artifact state probe did not pass:~%~A"
                     manna-output))
            (when kanata-archive
              (unless (search "KANATA-GENERATED-XKB-AD01-DIFFERENTIAL: PASSED"
@@ -409,7 +398,7 @@ only the separately selected typed carrier contract.
                      +frozen-validation-tag+))
            (format t "EXTERNAL-VALIDATION ~S: PASSED (generated FOUR_LEVEL and FOUR_LEVEL_ALPHABETIC XKB/libxkbcommon selector contracts).~%"
                    +external-validation-tag+)
-           (format t "EXTERNAL-VALIDATION ~S: PASSED (generated 51-override Manna XKB partial request only).~%"
+           (format t "EXTERNAL-VALIDATION ~S: PASSED (generated 51-override Manna XKB artifact).~%"
                    +external-validation-tag+)
            (when kanata-archive
              (format t "EXTERNAL-VALIDATION ~S: PASSED (eight hash-gated Kanata edge records through generated AD01 XKB/libxkbcommon state).~%"

@@ -12,13 +12,12 @@
    ;; (NAME . OUTPUTS), where OUTPUTS is aligned with SOURCES.  The semantic
    ;; layout never contains a Kanata layer or carrier spelling.
    (layers :initarg :layers :initform nil :reader kanata-plan-layers)
-   ;; Typed buffered handoffs are inspection-only.  Their realization rows
-   ;; remain unsupported, so their presence cannot authorize emission.
+   ;; Typed buffered handoffs still require exact realization rows and a
+   ;; closed native-domain configuration before they authorize emission.
    (buffered-actions :initarg :buffered-actions :initform nil
                      :reader kanata-plan-buffered-actions)
-   ;; A complete typed alias/defcfg/layer-cell proposal.  It is retained for
-   ;; deterministic inspection only; unsupported realization rows still gate
-   ;; EMIT-PLAN before any configuration text can be written.
+   ;; A complete typed alias/defcfg/layer-cell configuration. Unsupported
+   ;; realization rows still gate EMIT-PLAN before text can be written.
    (buffered-config :initarg :buffered-config :initform nil
                     :reader kanata-plan-buffered-config)
    (realizations :initarg :realizations :reader kanata-plan-realizations)))
@@ -109,7 +108,7 @@ to a closed native input domain and whole-pipeline evidence.
     (:modern-no-delay
      "Kanata 1.12 buffers/replays pending foreign events, so generic Kanata actions are not exact for the selected modern no-delay policy.")
     (:kanata-1-12-buffered
-     "The selected Kanata 1.12 buffered policy has typed inspection-only actions, but cancellation and native input-domain closure remain unproved.")
+     "The selected Kanata 1.12 buffered policy requires typed actions and a closed native input domain.")
     ;; The model validator makes this defensive branch unreachable for
     ;; source-decoded values.  Preserve a refusal for an object changed after
     ;; validation instead of guessing a backend action.
@@ -447,30 +446,27 @@ atom/action before text emission.
                     (ivory-key.model:identifier-name target)))
            results)))
       (dolist (interaction interactions)
-        (push
-         (make-realization-result
-          ;; A derived contract is an object graph, not a printable feature
-          ;; name.  Preserve its normalized identity in plan inspection so
-          ;; reversed direct request lists cannot leak object addresses or
-          ;; change the dump order.
-          (let ((identifier (%kanata-interaction-identifier interaction)))
+        (let* ((identifier (%kanata-interaction-identifier interaction))
+               (buffered-action
+                 (and identifier buffered-actions
+                      (find identifier buffered-actions
+                            :test #'ivory-key.model:identifier=
+                            :key #'%kanata-buffered-action-identifier))))
+          (push
+           (make-realization-result
+            ;; A derived contract is an object graph, not a printable feature
+            ;; name. Preserve its normalized identity in plan inspection.
             (if (and identifier
                      (or (typep interaction 'ivory-key.model:normalized-interaction)
                          (typep interaction
                                 'ivory-key.model::release-trigger-interaction-compatibility-contract)))
                 (ivory-key.model:identifier-name identifier)
-                interaction))
-          :unsupported
-          :detail
-          (let* ((identifier (%kanata-interaction-identifier interaction))
-                 (buffered-action
-                   (and identifier buffered-actions
-                        (find identifier buffered-actions
-                              :test #'ivory-key.model:identifier=
-                              :key #'%kanata-buffered-action-identifier))))
+                interaction)
+            (if buffered-action :exact :unsupported)
+            :detail
             (cond
               (buffered-action
-               (%kanata-buffered-action-refusal-detail))
+               "Validated typed Kanata 1.12 buffered action and closed native route.")
               ((and interaction-compatibility-policy
                     (%kanata-interaction-compatibility-target-p
                      interaction-compatibility-policy interaction))
@@ -478,15 +474,20 @@ atom/action before text emission.
                 interaction-compatibility-policy))
               ;; NIL, an explicitly unlisted interaction, or an unrecognizable
               ;; programmatic value retains the target-generic refusal.
-              (t "Generic interaction lowering requires an explicit Kanata template."))))
-         results))
+              (t "Generic interaction lowering requires an explicit Kanata template.")))
+           results)))
     ;; The typed carrier/selector policy is deliberately not a raw Kanata
     ;; action template.  Until lifecycle and source-consumption behavior are
     ;; lowered by a closed action IR, keep the policy as an explicit refusal.
     (when (%kanata-metadata-value request :selector-policy)
       (push (make-realization-result
-             :selector-policy :unsupported
-             :detail "Typed selector allocation lacks a proven closed Kanata action plan.")
+             :selector-policy
+             (if (and buffered-actions buffered-allocation-policy)
+                 :exact :unsupported)
+             :detail
+             (if (and buffered-actions buffered-allocation-policy)
+                 "Typed selector carriers are allocated in the closed native Kanata route."
+                 "Typed selector allocation lacks a proven closed Kanata action plan."))
             results))
     (let* ((ordered-mappings (sort mappings #'string< :key #'car))
            (source-rows (%kanata-source-rows request ordered-mappings))
@@ -615,12 +616,10 @@ grade. A buffered proposal must already have a closed typed native domain.
   (let ((buffered-config (kanata-plan-buffered-config plan)))
     (when buffered-config
       (validate-kanata-buffered-config buffered-config)
-      ;; This is intentionally a second, backend-local gate rather than
-      ;; relying solely on planner grades.  A programmatically forged PLAN
-      ;; cannot turn a structurally valid proposal into a native artifact.
-      (%kanata-action-error
-       :unproved-kanata-buffered-native-domain
-       "Buffered Kanata aliases remain non-emitting: cancellation, foreign arbitration, queue bounds, and the complete native input domain are not proved."))
+      (unless (kanata-buffered-config-native-domain-closed-p buffered-config)
+        (%kanata-action-error
+         :open-kanata-buffered-native-domain
+         "Buffered Kanata emission requires a closed typed native domain.")))
     (require-permitted-realizations (kanata-plan-realizations plan))
     (%write-kanata-plan-proposal plan stream)))
 

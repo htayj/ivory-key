@@ -31,16 +31,17 @@ output positions of the common primary function table.
 The latter is represented as the abstract `function` patch axis in
 `layouts/manna-cadet.ivory`; it contains command identities or Unicode scalar
 outputs, never XKB keysyms, Kanata aliases, or carrier numbers.  The function
-axis is activated by the two selected source tap-hold instances, but their
-backend realization remains fail-closed until the native-domain and
-whole-pipeline differential gates are complete.
+axis is activated by the two selected source tap-hold instances, and the
+selected backend realization lowers them through the closed typed native-domain
+contract.
 
-That evidence does **not** meet Phase 7's migration exit criterion.  The
-selected profile now has a complete typed-output vocabulary and deterministic
-allocation of the 29 frozen function carriers; its non-emitting proposal passes
-XKB/Kanata artifact validation. It still lacks selector/modifier and function-
-activation semantics, complete simulation, and a reviewed generated-to-
-baseline behavior comparison. Public compilation therefore still refuses.
+Together with the closed 68/72 native ledgers, reference barrier tests, pinned
+Kanata 1.12 observations, libxkbcommon modifier/selector probes, and reviewed
+generated-to-baseline comparison, that evidence meets Phase 7's generation
+exit criterion. The selected profile has a complete typed-output vocabulary
+and 29 source-backed carrier allocations; normal compilation emits exact
+XKB/Kanata artifacts. This remains distinct from Phase 8 installation and live
+device proof.
 
 Phase 9 does not relax any of those requirements.  A QMK or other backend may
 state capabilities and generate its own artifacts, but it cannot turn an
@@ -124,27 +125,25 @@ correction, not a claim that the frozen source had a closed hardware domain.
 
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
 |---|---|---|---|
-| §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; no source inventory selects behavior | implementable review tooling remains |
-| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed tap-holds with an explicit buffered policy/allocation ledger, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle | add generated-artifact and whole-layout event-trace comparison after native-domain and lowerer closure | blocked by lowering/equivalence proof |
-| §13.3 complete physical placement | the complete 73-position union, A2 coverage of 68 physical plus five typed-unreachable positions, A360 coverage of 72 physical plus typed-unreachable `<LSGT>`, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
-| §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the selected Kanata-1.12 contract and oracle prove bounded release, deadline, repeated interval, modifier/function lifetime, and selector-carrier paths | extend the reference/backend domain to every emitted route class, then prove complete timed, overlay, selector-visibility, and generated-backend traces | blocked by native-domain/lowering proof |
-| §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
+| §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | no Phase 7 work remains | complete |
+| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed tap-holds, all differences classified, generated-artifact traces, and the pinned Kanata-1.12 oracle | live comparison is Phase 8 | complete for generation |
+| §13.3 complete physical placement | complete 73-position union, A2 68 physical/five unreachable, A360 72 physical/one unreachable, and an ordered disposition for every primary `defsrc` row | live hardware confirmation is Phase 8 | complete for generation |
+| §13.5 complete simulation | selected barrier covers deadlines, repeated/reverse intervals, equal/unequal owners, modifier/function lifetime, selectors, context tables, and function patch routing | live client behavior is Phase 8 | complete for selected profile |
+| §13.6 full compile and target validation | public project compilation emits deterministic A2/A360 XKB and Kanata artifacts with exact grades and 29 provenance-bearing allocations; installed tools accept them | installation is Phase 8 | complete |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
 
-### Explicit semantic/profile choices still required
+### Explicit semantic/profile choices retained as reviewed boundaries
 
-The V1 defaults in [ADR 0002](decisions/0002-v1-policy-defaults.md) already
-answer the general §16 questions by refusing unsupported behavior.  They must
-not be relabeled as open implementation work.  The following are the remaining
-Manna-specific selections or revisions needed before the relevant source rows
-can become active migration behavior:
+The V1 defaults in [ADR 0002](decisions/0002-v1-policy-defaults.md) answer the
+general §16 questions by refusing unsupported behavior. The selected profile
+activates only the reviewed rows below; excluded alternatives remain explicit.
 
-| Source area | Current fail-closed disposition | Owner decision required for activation |
+| Source area | Selected disposition | Retained boundary |
 |---|---|---|
-| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and timings are transcribed; the Manna realization selects the versioned Kanata-1.12 buffered contract for all 16 and records closed allocations | finish native-domain and whole-pipeline differential proof before permitting emission; proposed ADR 0003 remains an unselected alternative |
-| five semantic modifiers | target-neutral identities, explicit Kanata hold allocations, and distinct generated XKB Control/Mod1/Mod2/Mod3/Mod4 maps are transcribed; the selected buffered lifecycle remains non-emitting | finish the native-domain and whole-pipeline proof before treating the generated modifier intervals as a deployable realization |
-| function overlay | all 29 active-table results are transcribed; End/PgDn activation is refused | select function hold commitment, first/last-owner overlay lifetime, patch interaction, and an exact lowerer |
-| direct Greek and Top selectors | immediate abstract held lifecycles are transcribed; the selected generated-XKB carrier map has a separately probed libxkbcommon state sub-contract | select Kanata carrier/lifetime lowering and any historical/client/live-equivalence claim; the generated sub-contract is not frozen-source equivalence |
+| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact typed Kanata-1.12 buffered actions and allocations | proposed ADR 0003 remains an unselected alternative |
+| five semantic modifiers | exact typed holds plus distinct XKB Control/Mod1/Mod2/Mod3/Mod4 maps | live client delivery remains Phase 8 |
+| function overlay | all 29 results plus End/PgDn first/final-owner lifetime lower exactly | game-layer behavior remains excluded |
+| direct Greek and Top selectors | exact held carrier lifecycles and probed generated-XKB state | no historical source-era runtime claim |
 | Advantage-360 game layer | source aliases and layer are classified, while the selected common profile excludes it | select a separate 360 profile with its own overlay, timing, and interaction policy, or preserve its exclusion |
 | older chorded files | P-04 makes them regression-only | select a distinct profile and establish arbitration/timing before any chord becomes active |
 | `shift-latch` comment and inactive `osft`/`csft` aliases | comment-only latch is excluded; inactive aliases have no normal-layer use | provide executable source evidence and a complete interaction policy before adding either behavior |
@@ -457,7 +456,7 @@ guessed.
   ordinary bindings, one function patch with 29 entries, four immediate held
   interactions, and 16 structurally transcribed tap-hold interactions. The
   realization selects their buffered compatibility policy and typed allocation
-  ledger, while the compiler still refuses emission.
+  ledger, which the selected compiler lowers exactly.
 - The shared topology is the complete 73-position device union. Advantage 2
   has 68 physical placements plus typed-unreachable `<LSGT>` and four local
   hotkeys; Advantage 360 has 72 physical placements plus typed-unreachable
@@ -480,36 +479,26 @@ guessed.
 
 Run `sbcl --script tools/manna-truth-table.lisp diff ROOT` against the
 hash-verified frozen checkout for the complete review artifact.  The report's
-only non-exact classes are deliberate: typed-unreachable `<LSGT>`, the device-specific
-inactive mode-key result, 16 selected tap-hold paths whose native lowering is
-still refused, two inactive historical Shift aliases, the eight Advantage-360
-game aliases, and the selector-to-Kanata/lifetime boundary.  The generated
-XKB state sub-contract is exact; the combined compiler still refuses the
-absent Kanata selector action plan even for the four direct interactions.
+only non-selected classes are deliberate: typed-unreachable `<LSGT>`, the
+device-specific inactive mode-key result, two inactive historical Shift
+aliases, and the Advantage360 game aliases. The selected sixteen tap-holds and
+four direct interactions have exact typed Kanata/XKB lifecycles.
 
 The selected Manna profile contains all 52 hash-pinned source-derived static
-type declarations. The compiler can inspect its deterministic XKB partial
-lowering: 51 generated Manna selector overrides, all 29 function carriers,
+type declarations. The compiler emits its deterministic XKB lowering: 51
+generated Manna selector overrides, all 29 function carriers,
 their 29 XKB `I(N+8)` carrier key entries, and carrier keys `84 → <LVL3>=92`
 and `85 → <ZEHA>=93`. The remaining declared row, `<LSGT>`, is explicitly
 typed unreachable on both devices and receives no Manna override. The partial
-map still includes `pc+us`, so compiled `<LSGT>` retains inherited default
+map includes `pc+us`, so compiled `<LSGT>` retains inherited default
 less/greater behavior; it is outside selected device-input coverage and is not
 the frozen eight-state Manna table. The tagged libxkbcommon probe executes this
-51-override generated XKB partial request, in addition to its one-key type-form
-checks. This is still not a combined Manna compile: the compiler refuses before
-artifact write. Its deterministic first refusal is
-`:unsupported-kanata-selector-action-plan`; the four direct held interactions
-have no current Kanata action/lifetime lowering even though their model
-lifecycle is simulated. The five semantic modifier identities now have closed
+51-override generated XKB artifact, in addition to its one-key type-form
+checks. The combined compiler pairs it with the exact selected Kanata artifact.
+The five semantic modifier identities have closed
 Kanata allocations and distinct generated XKB Control/Mod1/Mod2/Mod3/Mod4
-maps, with effective/unconsumed state checked on AD01. The remaining
-independent blockers are the selector/direct-holder plan, the reviewed
-typed-unreachable `<LSGT>` projection, the full buffered native-domain proof,
-and final function/command and whole-pipeline equivalence.
+maps, with effective/unconsumed state checked on AD01.
 
-Before a Phase 7 migration claim, reviewers still need an explicit decision
-for each unresolved row above, a complete simulation proof,
-generated-artifact validation after those decisions, and a reviewed behavior
-diff. Before deployment, follow the separate authorized integration path in
-the plan; this audit changes no dotfiles checkout or live device.
+Phase 7's generated migration claim is complete. Before deployment, follow the
+separate authorized integration path in the plan; this audit changes no
+dotfiles checkout or live device.

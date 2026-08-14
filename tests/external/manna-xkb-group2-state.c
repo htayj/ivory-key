@@ -382,7 +382,7 @@ require_lsgt_inherited_boundary(struct xkb_keymap *keymap)
     int count;
 
     /*
-     * The generated partial request includes pc+us, so LSGT remains the
+     * The generated selected artifact includes pc+us, so LSGT remains the
      * inherited base-map key (code 94).  It is deliberately outside the
      * selected device-input domain: no Manna two-group selector table is
      * emitted for it, and the inherited symbols are not a claim about the

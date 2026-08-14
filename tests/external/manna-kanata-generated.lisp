@@ -1,5 +1,5 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
-;;;; Separately tagged installed-Kanata validation for closed Manna proposals.
+;;;; Separately tagged installed-Kanata validation for emitted Manna artifacts.
 
 (require :asdf)
 (asdf:load-asd (truename "ivory-key.asd"))
@@ -22,18 +22,19 @@
          :kanata-buffered-allocation-policy
          (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
           realization))
-      (unless issues
-        (error "Manna proposal unexpectedly has no compiler refusal gates."))
+      (when issues
+        (error "Manna compilation retained refusal gates: ~S"
+               (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
       request)))
 
-(defun validate-external-manna-kanata-proposal
+(defun validate-external-manna-kanata-artifact
     (composition expected-sources &key runtime-archive manna-root)
   (let* ((backend (ivory-key.backend:make-kanata-backend))
          (request (external-manna-kanata-request composition))
          (plan (ivory-key.backend:lower-request backend request))
          (config (ivory-key.backend:kanata-plan-buffered-config plan))
-         (first (ivory-key.backend:kanata-plan-proposal-string plan))
-         (second (ivory-key.backend:kanata-plan-proposal-string plan)))
+         (first (ivory-key.backend:emit-plan-to-string backend plan))
+         (second (ivory-key.backend:emit-plan-to-string backend plan)))
     (unless (and config
                  (ivory-key.backend:kanata-buffered-config-native-domain-closed-p
                   config)
@@ -41,7 +42,7 @@
                     (length (ivory-key.backend::kanata-plan-sources plan)))
                  (string= first second)
                  (search "process-unmapped-keys no" first))
-      (error "~A did not produce one deterministic closed native proposal."
+      (error "~A did not produce one deterministic closed native artifact."
              composition))
     (uiop:with-temporary-file (:pathname pathname :stream stream
                                :prefix "ivory-key-manna-" :suffix ".kbd"
@@ -82,19 +83,19 @@
 (let ((arguments (uiop:command-line-arguments)))
   (cond
     ((null arguments)
-     (validate-external-manna-kanata-proposal "manna-cadet-linux" 68)
-     (validate-external-manna-kanata-proposal
+     (validate-external-manna-kanata-artifact "manna-cadet-linux" 68)
+     (validate-external-manna-kanata-artifact
       "manna-cadet-advantage360-linux" 72))
     ((and (= (length arguments) 3)
           (string= (first arguments) "--runtime-oracle"))
-     (validate-external-manna-kanata-proposal
+     (validate-external-manna-kanata-artifact
       "manna-cadet-linux" 68
       :runtime-archive (second arguments)
       :manna-root (third arguments))
-     (validate-external-manna-kanata-proposal
+     (validate-external-manna-kanata-artifact
       "manna-cadet-advantage360-linux" 72
       :runtime-archive (second arguments)
       :manna-root (third arguments)))
     (t
      (error "usage: manna-kanata-generated.lisp [--runtime-oracle ARCHIVE MANNA-ROOT]"))))
-(format t "Manna generated Kanata proposals passed installed validation.~%")
+(format t "Manna generated Kanata artifacts passed installed validation.~%")

@@ -1,12 +1,11 @@
 # Manna Cadet migration status
 
-## Status: not migrated; no deployment performed
+## Status: generated migration complete; no deployment performed
 
-Ivory Key does not yet replace, generate a complete equivalent of, install, or
-activate the existing Manna Cadet configuration. No current `.ivory` fixture
-is a migration-complete claim. The repository contains a frozen 52-key static
-symbol transcription, separate topology/device/profile evidence, a
-twenty-level conformance fixture, and a read-only baseline-inventory facility.
+Ivory Key now generates the reviewed A2 and Advantage360 XKB/Kanata replacement
+artifacts, but it has not installed or activated them. Phase 7 is complete at
+the source, allocation, emission, validation, and differential-proof boundary;
+Phase 8 live integration remains a separate authorized operation.
 
 This distinction is deliberate: parsing a fixture, constructing a partial
 model, emitting a small backend plan, validating syntax with an external tool,
@@ -20,13 +19,14 @@ and proving live keyboard behavior are different evidence levels.
   repeating its observed Top value in the Greek+Top cells where that is the
   frozen evidence. It also transcribes the 29 output positions of the common
   primary layered function table as an abstract patch. A realization-owned
-  vocabulary and deterministic partial proposal now resolve its 29 evidenced
+  vocabulary and deterministic exact plan resolve its 29 evidenced
   XKB/Kanata carriers. It also has four exact direct immediate held
   interactions: `lshift` and `rshift` each hold case, `lctl` holds Greek, and
   `rctl` holds Top. The selected Linux realization chooses the versioned
   Kanata-1.12 buffered policy for all sixteen source tap-holds and records
-  closed modifier/layer/carrier allocations. Backend emission remains refused
-  until native-domain and whole-pipeline equivalence are proven.
+  closed modifier/layer/carrier allocations. Normal compilation emits the
+  selected artifacts only after the closed native-domain and typed-allocation
+  gates pass.
 - `layouts/twenty-level.ivory` demonstrates that the source model is not
   conceptually limited to eight product states. The planner retains all twenty
   states and explicitly refuses the conventional eight-level XKB realization
@@ -43,14 +43,12 @@ and proving live keyboard behavior are different evidence levels.
   `realizations/manna-cadet-linux.ivory` express intended pipeline policy.
 
 The Manna transcription and twenty-level fixture decode, validate, and
-normalize. A confined project loader can resolve relative imports and a named
-`realize` composition deterministically, so topology, device, and profile
-definitions can now be selected as one project input to inspection,
-explanation, or compilation. This is not a complete cross-file realization:
-inspection can construct and externally validate the static-table/carrier
-proposal, but the public compile gate still refuses unresolved semantic
-modifiers, direct-held backend lifecycle policy, `<LSGT>` placement, function
-activation, and remaining timed-interaction requirements.
+normalize. A confined project loader resolves each named composition
+deterministically. The selected Manna profile closes semantic modifiers,
+direct-held lifecycles, the typed-unreachable `<LSGT>` disposition, function
+activation, and all sixteen timed interactions without embedding backend text
+in the abstract layout. Public compilation produces two exact artifacts and a
+contract containing 29 source-backed carrier allocations.
 
 ## Existing baseline evidence
 
@@ -85,26 +83,14 @@ It also inventories the two older chorded files structurally (47 aliases and
 profile, and the 360 file's `menu`/`caps` source-token mismatch is not silently
 rewritten or treated as runtime evidence.
 
-## Work still required before a migration claim
+## Work still required before live replacement
 
-1. Resolve the remaining classified layered and older chorded variants,
-   especially timed activation, game policy, and whether a chorded profile is
-   ever selected.
-2. Complete the operational transcription for every modifier, interaction,
-   timing policy, function activator, and application-visible selector
-   decision. The frozen primary 14-row `tap-hold-release` table is now checked
-   as source evidence, but still needs an owner-selected, version-pinned
-   commitment/interruption/concurrency policy; typed command spellings, frozen
-   carriers, and literal static `NoSymbol` cells are already explicit.
-3. Simulate the complete abstract layout and compare the results with the
-   reviewed truth table.
-4. Plan resources and lower the complete selected profile. Refuse unsupported
-   or unapproved lossy behavior; validate generated artifacts with the target
-   installed tools.
-5. Run and review the generated frozen `diff` report. Resolve every explicit
-   refusal through policy/evidence and re-run it with no unreviewed change;
-   only then consider a separately authorized dotfiles integration and
-   disposable-device/live-input validation with a rollback path.
+1. In a separately authorized session, regenerate and preflight a fresh build
+   under the declared Guix environment.
+2. Integrate it through the documented reversible transaction, preserving the
+   existing configuration and rollback path.
+3. Prove the live virtual/device event path and record the result. Repository
+   generation and installed-tool validation are not deployment proof.
 
 The planned Sway migration document that names Kanata 1.12.0 is supplemental
 context only: its `wev` steps are proposed checks, not captured Manna event

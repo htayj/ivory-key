@@ -329,12 +329,12 @@ slot masks.
 
 ## Consequences
 
-The current static Manna transcription remains valid evidence: literal table
-outputs, explicit `none`, the common function output table, placements, and
-reserved carriers retain their documented status.  It remains **not migrated**:
-the selected output vocabulary and carrier proposal exist, but there is no
-complete interaction set, selector/modifier/activation proof, complete
-simulation, generated behavior comparison, or deployment.
+The Manna transcription remains valid evidence: literal table outputs,
+explicit `none`, the common function output table, placements, and reserved
+carriers retain their documented status. The selected Phase 7 profile now has
+the complete interaction, selector/modifier/activation, simulation, and
+generated-comparison proof. It remains **not deployed**; live integration is a
+separate authorization gate.
 
 These policies are architectural defaults, not a permission to fabricate
 historical content.  A future change must add evidence, an explicit source

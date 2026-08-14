@@ -141,13 +141,13 @@ libxkbcommon. It proves for the **generated artifact** that Group2 is
 depressed/serialized, Group1 Level3 is effective then consumed, Group2 Level3
 is effective and remains client-visible/unconsumed, and Group2 Shift is
 effective then consumed. It covers ZEHA down/up and ZEHA+LVL3 in both press
-orders. This is not historical Manna equivalence, Kanata event proof, client
-protocol proof, compositor proof, or live-device proof. The compiler retains
-an explicit `unsupported-kanata-selector-action-plan` refusal, and the Kanata
-backend independently refuses selector metadata; semantic tap-holds and
-generic interactions remain independent refusals.
+orders. This is not historical source-era Manna equivalence, client protocol
+proof, compositor proof, or live-device proof. In the selected Manna
+realization the same allocation is paired with the closed Kanata action and
+native-domain contract; generic or incomplete selector policies continue to
+refuse independently.
 
-The same tagged probe also emits the selected Manna Cadet XKB partial request
+The same tagged probe also emits the selected Manna Cadet XKB artifact
 from project analysis and runs it through the state checks. That request has
 52 hash-pinned source type declarations, 51 generated Manna selector
 overrides, the two carrier keys, and closed mappings for the five semantic
@@ -159,9 +159,9 @@ because neither reviewed primary `defsrc` contains a direct source token.
 Because the partial map includes `pc+us`, compiled `<LSGT>` still has the
 inherited default keycode and less/greater behavior. It is outside the selected
 device-input domain and is not the frozen Manna eight-state table. This
-validates the generated XKB sub-contract only. The combined compiler still
-refuses its Kanata selector action/lifetime and the other unresolved Manna
-features before any artifact write.
+validates the generated XKB sub-contract. The combined selected compiler
+requires the independently validated Kanata contract before either artifact is
+published.
 
 ## Typed interaction-compatibility selection
 
@@ -196,8 +196,8 @@ sparse output-only overlays, including the selected function command patch.
 State changes, latch-sensitive routes, and foreign timed re-entry still refuse
 in the reference path.
 
-A buffered realization may additionally describe the backend atoms needed by
-the existing non-emitting Kanata action IR:
+A buffered realization describes the backend atoms needed by the closed Kanata
+action IR:
 
 ```lisp
 (kanata-buffered-allocations
@@ -230,7 +230,7 @@ equal the compatibility instance set exactly. Tokens are validated as single
 atoms; this surface cannot contain an alias body, S-expression action, or
 configuration fragment.
 
-The compiler now constructs a complete, inspection-only native layer proposal
+The compiler constructs a complete typed native layer plan
 for either checked-in device: ordinary/static mappings, all 16 owner aliases,
 the two direct selector carriers, five explicit pass-through rows, and the
 function layer are aligned against all 68/72 `defsrc` positions. Construction
@@ -238,29 +238,29 @@ fails if any physical row is unclassified or an explicit pass-through is
 absent. This structural closure does not itself prove temporal or downstream
 XKB equivalence.
 
-`kanata-plan-proposal-string` renders that closed typed proposal without
-calling the artifact emitter or changing any grade. The separately tagged
+`kanata-plan-proposal-string` remains an inspection renderer for the same
+closed typed plan. The normal emitter accepts it only when native-domain
+closure and all exact grades are present. The separately tagged
 `tests/external/manna-kanata-generated.lisp` check proves that the installed
-Kanata parser accepts deterministic A2 and Advantage360 proposal text,
+Kanata parser accepts deterministic A2 and Advantage360 artifact text,
 including `process-unmapped-keys no`, the typed function layer, selector
 carriers, and the 360 local-key declarations. It is syntax/configuration
-acceptance only: the normal emitter still refuses, and this check does not
-prove timing, queue behavior, XKB delivery, or live-device equivalence.
+acceptance only; timing, queue behavior, and XKB delivery are covered by the
+separately tagged runtime/differential probes, while live-device equivalence
+remains outside Phase 7.
 
 Its opt-in `--runtime-oracle` mode additionally substitutes each generated
-proposal into the hash-pinned Kanata 1.12 state-machine suite. Both A2 and
-Advantage360 proposals pass the eight checked scheduler cases. That is a
+artifact into the hash-pinned Kanata 1.12 state-machine suite. Both A2 and
+Advantage360 artifacts pass the eight checked scheduler cases. That is a
 versioned runtime proof for those cases, not complete native-domain or
 downstream XKB equivalence.
 
-These allocations authorize inspection only. The compiler may construct the
-typed action values, but it retains
-`unproved-kanata-buffered-pending-lifecycle`; Kanata grades the actions
-unsupported and emission refuses. Named instances receive the mode-specific
-refusal, all other interactions retain the generic refusal, and no raw
-`tap-hold-release` text is inferred. Positive realization remains prohibited
-until native queue/cancellation coverage and a generated Kanata-to-XKB
-differential prove the complete selected input domain.
+For the selected Manna compositions these allocations authorize exact emission:
+the compiler derives all sixteen validated action contracts, closes every
+68/72 native row, and the backend grades them exact. Missing, extra, forged, or
+open-domain actions retain stable refusals, and no raw `tap-hold-release` text
+is inferred. Generic interactions remain unsupported unless a similarly closed
+typed realization and differential proof are supplied.
 
 ## Current Kanata contract
 
@@ -427,11 +427,11 @@ and tokens rejected by an existing backend validator stop before build output.
 Tool validation is optional environmental evidence. A passing `xkbcli` or
 `kanata` invocation alone proves only artifact acceptance. The focused
 libxkbcommon probe proves only the direct XKB level/modifier slice it inspects;
-neither result proves Manna semantic equivalence, live device behavior, or
-deployment. The Manna inspection path can construct a deterministic partial
-static/function-carrier proposal, but public compilation refuses before writing
-it because selector, modifier, interaction, placement, and activation proof is
-incomplete. An empty allocation contract in the supported direct-static path
+neither result alone proves Manna semantic equivalence, live device behavior,
+or deployment. The selected Manna path combines the closed static/function,
+selector, modifier, interaction, placement, and activation contracts before
+public compilation writes either exact artifact. An empty allocation contract
+in the supported direct-static path
 does not imply that those Manna obligations disappeared. Validation run after
 publication is reported by the post-build validator but does not retroactively
 rewrite an immutable build manifest.

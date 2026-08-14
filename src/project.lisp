@@ -496,18 +496,26 @@ reliably distinguishable on every supported host.
 (defun %definition-value (registry name)
   (gethash (identifier-name (ensure-identifier name)) registry))
 
+(defun %definition-parse-result (definition)
+  "Wrap one retained concrete definition without discarding nested spans."
+  (ivory-key.syntax::make-syntax-parse-result
+   :source (uiop:native-namestring (project-definition-path definition))
+   :forms (list (project-definition-form definition))
+   :diagnostics nil
+   :comments nil
+   :language-version 1))
+
 (defun %decode-layout (definition topologies)
   (let* ((context (%make-project-context (project-definition-path definition)
                                          (source-span-import-stack
-                                          (project-definition-span definition))))
-         (form (project-definition-form definition)))
+                                          (project-definition-span definition)))))
     ;; The model decoder is intentionally still the authority for layout
     ;; clauses, templates, and behaviors.  The small filtered parse result
     ;; keeps imports out of its closed top-level vocabulary.
     (handler-case
         (let ((layout
                 (decode-layout-forms
-                 (list form)
+                 (%definition-parse-result definition)
                  :topology-resolver
                  (lambda (topology-name)
                    (or (%definition-value topologies topology-name)

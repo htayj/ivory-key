@@ -1250,7 +1250,8 @@ physical event.  This does not prove any selector activation.
                (typep behavior 'ivory-key.model:named-symbol-output)
                (typep behavior 'ivory-key.model:command-output)))
       (%profile-output-lowering behavior feature vocabulary
-                               :allow-kanata-forwarding t)
+                               :allow-kanata-forwarding t
+                               :allow-command-carrier t)
       (%output-lowering behavior feature vocabulary)))
 
 (defun %kanata-table-output (lowerings physical-code feature)
@@ -1292,7 +1293,43 @@ layout data, and is used only after the profile has supplied the exact
                  :sources (list (ivory-key.backend:make-key-entry-source
                                  nil :origin origin))))
 
-(defun %patch-lowering (normalized placement vocabulary issues)
+(defun %carrier-planner-allocations (allocations)
+  "Turn concrete patch-carrier rows into typed generated-contract allocations."
+  (mapcar
+   (lambda (row)
+     (let* ((origin (getf row :origin))
+            (origins (and origin (list origin)))
+            (requirement
+              (ivory-key.backend:make-planner-resource-requirement
+               :carrier-code (getf row :feature)
+               :detail "Realization-owned Linux input carrier for one patch output."
+               :origins origins)))
+       (ivory-key.backend:make-planner-allocation
+        requirement :linux-input-code (format nil "~D" (getf row :carrier))
+        :origins origins)))
+   allocations))
+
+(defun %buffered-actions-prove-patch-activation-p (patch actions)
+  "Whether ACTIONS contain an exact owner-scoped hold for PATCH's axis/state."
+  (let ((axis (ivory-key.model:normalized-patch-axis patch))
+        (state (ivory-key.model:normalized-patch-state patch)))
+    (and actions
+         (some
+          (lambda (action)
+            (let ((hold
+                    (ivory-key.backend::kanata-tap-hold-release-action-hold-action
+                     (ivory-key.backend::kanata-buffered-interaction-action-tap-hold
+                      action))))
+              (and (typep hold 'ivory-key.backend::kanata-layer-while-held-action)
+                   (ivory-key.model:identifier=
+                    axis
+                    (ivory-key.backend::kanata-layer-while-held-action-axis hold))
+                   (ivory-key.model:identifier=
+                    state
+                    (ivory-key.backend::kanata-layer-while-held-action-state hold)))))
+          actions))))
+
+(defun %patch-lowering (normalized placement vocabulary actions issues)
   "Return function-layer metadata, XKB carrier entries, and updated ISSUES.
 
 Sparse patch output is emitted only as an exact, profile-owned carrier pair:
@@ -1360,9 +1397,6 @@ refusal; this function never synthesizes a tap-hold, layer switch, or timing.
                                                      :keysym (getf lowering :xkb)
                                                      :origin origin)
                                                allocations)))))))))))))
-        ;; An inactive layer declaration is safe to inspect and validate, but
-        ;; never makes this an exact realization.  The Manna evidence names
-        ;; source tap-holds, not an Ivory Key candidate/arbitration contract.
         (push (list :name (ivory-key.model:identifier-name patch-name)
                     :axis (ivory-key.model:identifier-name
                            (ivory-key.model:normalized-patch-axis patch))
@@ -1370,11 +1404,12 @@ refusal; this function never synthesizes a tap-hold, layer switch, or timing.
                             (ivory-key.model:normalized-patch-state patch))
                     :outputs (sort outputs #'string< :key #'car))
               layers)
-        (push (%make-compiler-fidelity-issue
-               (ivory-key.model:identifier-name patch-name)
-               :unproved-patch-activation
-               "Patch carrier outputs are allocated, but no semantic activation/timing/arbitration lowering is selected.")
-              issues)))
+        (unless (%buffered-actions-prove-patch-activation-p patch actions)
+          (push (%make-compiler-fidelity-issue
+                 (ivory-key.model:identifier-name patch-name)
+                 :unproved-patch-activation
+                 "Patch carrier outputs require a matching typed owner-scoped layer hold.")
+                issues))))
     (values (nreverse layers)
             (sort carrier-entries #'string<
                   :key (lambda (entry)
@@ -1538,12 +1573,12 @@ silently transformed into a queued Kanata action.
 
 (defun %kanata-buffered-action-handoff
     (normalized placement policy allocation)
-  "Derive inert Kanata ASTs only from MODEL contracts plus typed allocations.
+  "Derive Kanata ASTs only from MODEL contracts plus typed allocations.
 
 The third value is a canonical refusal code/message pair when a selected
 profile lacks an allocation, names an unsupported route, or fails any closed
-AST check.  Even successful action construction remains inspection-only: the
-ordinary compiler lifecycle refusal and backend emission gate are independent.
+AST check. Successful construction supplies typed input to the independent
+compiler fidelity and backend native-domain gates.
 "
   (if (not (and policy
                 (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
@@ -1746,6 +1781,139 @@ ordinary compiler lifecycle refusal and backend emission gate are independent.
               (return-from %manna-xkb-semantic-modifier-allocations nil)))))
       expected)))
 
+(defparameter +manna-direct-held-interaction-specifications+
+  '(("hold-case-left-shift" "case-left-shift" "case" "shifted" "plain"
+     :pass-through "lshift" "LFSH" nil)
+    ("hold-case-right-shift" "case-right-shift" "case" "shifted" "plain"
+     :pass-through "rshift" "RTSH" nil)
+    ("hold-greek-selector" "greek" "script" "greek" "roman"
+     :carrier "lctl" nil 85)
+    ("hold-top-selector" "top" "plane" "top" "base"
+     :carrier "rctl" nil 84))
+  "The four immediate held routes separately proved for the Manna profile.")
+
+(defun %compiler-identifier-name= (identifier name)
+  (and (typep identifier 'ivory-key.model:identifier)
+       (string= (ivory-key.model:identifier-name identifier) name)))
+
+(defun %direct-held-event-pattern-p (pattern owner)
+  (and (typep pattern 'ivory-key.model:temporal-pattern)
+       (eq (ivory-key.model:temporal-pattern-kind pattern) :down)
+       (= (length (ivory-key.model:temporal-pattern-arguments pattern)) 1)
+       (let ((selector (first (ivory-key.model:temporal-pattern-arguments pattern))))
+         (and (typep selector 'ivory-key.model:position-selector)
+              (eq (ivory-key.model:position-selector-kind selector) :position)
+              (= (length (ivory-key.model:position-selector-positions selector)) 1)
+              (%compiler-identifier-name=
+               (first (ivory-key.model:position-selector-positions selector))
+               owner)))))
+
+(defun %direct-held-axis-variant-p (variant operation axis state)
+  (and (consp variant)
+       (typep (car variant) 'ivory-key.model:context-tuple)
+       (null (ivory-key.model:context-tuple-pairs (car variant)))
+       (typep (cdr variant) 'ivory-key.model:axis-operation-behavior)
+       (eq (ivory-key.model:axis-operation (cdr variant)) operation)
+       (%compiler-identifier-name=
+        (ivory-key.model:axis-operation-axis (cdr variant)) axis)
+       (%compiler-identifier-name=
+        (ivory-key.model:axis-operation-state (cdr variant)) state)))
+
+(defun %direct-held-interaction-shape-p
+    (interaction name owner axis state default-state)
+  "Recognize the one closed immediate owner-held axis lifecycle."
+  (and (%compiler-identifier-name=
+        (ivory-key.model:normalized-interaction-name interaction) name)
+       (= (length (ivory-key.model:normalized-interaction-participants interaction)) 1)
+       (%compiler-identifier-name=
+        (first (ivory-key.model:normalized-interaction-participants interaction)) owner)
+       (eq (ivory-key.model:normalized-interaction-observe interaction) :participants)
+       (null (ivory-key.model:normalized-interaction-anchor interaction))
+       (null (ivory-key.model:normalized-interaction-arbitration interaction))
+       (= (length (ivory-key.model:normalized-interaction-candidates interaction)) 1)
+       (let* ((candidate
+                (first (ivory-key.model:normalized-interaction-candidates interaction)))
+              (entries (ivory-key.model:normalized-candidate-entries candidate))
+              (effects (ivory-key.model:normalized-candidate-effects candidate)))
+         (and (%compiler-identifier-name=
+               (ivory-key.model:normalized-candidate-name candidate) "held")
+              (%direct-held-event-pattern-p
+               (ivory-key.model:normalized-candidate-match candidate) owner)
+              (eq (ivory-key.model:normalized-candidate-commit candidate) :when-matched)
+              (eq (ivory-key.model:normalized-candidate-effect-start candidate) :on-match)
+              (null (ivory-key.model:normalized-candidate-context-axes candidate))
+              (eq (ivory-key.model:normalized-candidate-context-policy candidate)
+                  :anchor-down)
+              (= (length entries) 1)
+              (null (ivory-key.model:context-tuple-pairs
+                     (ivory-key.model:normalized-entry-tuple (first entries))))
+              (typep (ivory-key.model:normalized-entry-behavior (first entries))
+                     'ivory-key.model:no-output-behavior)
+              (null (getf effects :entry))
+              (null (getf effects :commit))
+              (= (length (getf effects :while)) 1)
+              (%direct-held-axis-variant-p
+               (first (getf effects :while)) :hold axis state)
+              (eq (getf effects :while-release) :owner-terminal)
+              (= (length (getf effects :exit)) 1)
+              (%direct-held-axis-variant-p
+               (first (getf effects :exit)) :set axis default-state)
+              (null (getf effects :cancel))))))
+
+(defun %manna-direct-held-routes-exact-p
+    (normalized placement selector-policy allocation actions)
+  "Prove the four immediate routes from normalized shape plus typed allocation."
+  (and actions allocation (%observed-xkb-selector-policy-p selector-policy)
+       (every
+        (lambda (specification)
+          (destructuring-bind
+              (name owner axis state default-state kind token xkb-code carrier)
+              specification
+            (let ((interaction
+                    (find name
+                          (ivory-key.model:normalized-layout-interactions normalized)
+                          :test #'string=
+                          :key (lambda (value)
+                                 (ivory-key.model:identifier-name
+                                  (ivory-key.model:normalized-interaction-name value)))))
+                  (placement-entry
+                    (%placement-for-position placement
+                                             (ivory-key.model:make-identifier owner))))
+              (and interaction placement-entry
+                   (%direct-held-interaction-shape-p
+                    interaction name owner axis state default-state)
+                   (string= token (getf placement-entry :kanata))
+                   (case kind
+                     (:pass-through
+                      (and (string= xkb-code (getf placement-entry :xkb))
+                           (ivory-key.model:identifier-member-p
+                            (ivory-key.model:make-identifier owner)
+                            (ivory-key.model::realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                             allocation))))
+                     (:carrier
+                      (let ((record
+                              (find (ivory-key.model:make-identifier owner)
+                                    (ivory-key.model:realization-selector-policy-carriers
+                                     selector-policy)
+                                    :test #'ivory-key.model:identifier=
+                                    :key #'ivory-key.model:realization-carrier-position)))
+                        (and record
+                             (= carrier
+                                (ivory-key.model:realization-carrier-linux-code
+                                 record))))))))))
+        +manna-direct-held-interaction-specifications+)))
+
+(defun %manna-reviewed-unreachable-binding-p (placement feature exact-p)
+  "Whether FEATURE is one explicitly reviewed device-variant omission."
+  (and exact-p
+       (member feature
+               (if (string= (compiler-placement-name placement)
+                            "kinesis-advantage2")
+                   '("less-greater" "hotkey-18" "hotkey-19"
+                     "hotkey-20" "hotkey-21")
+                   '("less-greater"))
+               :test #'string=)))
+
 (defun analyze-normalized-layout
     (normalized placement &key vocabulary selector-policy
                            interaction-compatibility-policy
@@ -1765,6 +1933,7 @@ compile gate.
         (buffered-actions nil)
         (buffered-action-refusal nil)
         (xkb-semantic-modifier-allocations nil)
+        (manna-direct-held-routes-exact-p nil)
         (interactions
           (ivory-key.model:normalized-layout-interactions normalized)))
     (when selector-policy
@@ -1792,20 +1961,6 @@ compile gate.
            :lower (ivory-key.model:semantic-error-code condition)
            "Invalid buffered Kanata allocation policy: ~A"
            (ivory-key.model:semantic-error-message condition)))))
-    ;; The evidence-named three-control policy is proven only for the emitted
-    ;; XKB map/state boundary.  It clears the generic XKB selector diagnostic,
-    ;; but never selects the still-absent Kanata action/lifetime lowering.
-    ;; All other policy values remain inspection-only refusals.
-    (when selector-policy
-      (if (%observed-xkb-selector-policy-p selector-policy)
-          (push (%make-compiler-fidelity-issue
-                 :selector-policy :unsupported-kanata-selector-action-plan
-                 "The observed XKB selector state has no proved Kanata carrier/lifetime lowering.")
-                issues)
-          (push (%make-compiler-fidelity-issue
-                 :selector-policy :unproved-native-selector-client-semantics
-                 "The typed selector policy is available for inspection, but native XKB group/modifier client semantics are not yet proven for exact emission.")
-                issues)))
     (unless (string= (%layout-topology-name normalized)
                      (compiler-placement-topology placement))
       (push (%make-compiler-fidelity-issue
@@ -1846,6 +2001,18 @@ compile gate.
                                        kanata-buffered-allocation-policy))
     (setf xkb-semantic-modifier-allocations
           (%manna-xkb-semantic-modifier-allocations normalized buffered-actions))
+    (setf manna-direct-held-routes-exact-p
+          (%manna-direct-held-routes-exact-p
+           normalized placement selector-policy
+           kanata-buffered-allocation-policy buffered-actions))
+    (when (and selector-policy (not manna-direct-held-routes-exact-p))
+      (push (%make-compiler-fidelity-issue
+             :selector-policy
+             (if (%observed-xkb-selector-policy-p selector-policy)
+                 :unsupported-kanata-selector-action-plan
+                 :unproved-native-selector-client-semantics)
+             "The typed selector policy lacks the complete proved Kanata carrier/lifetime route.")
+            issues))
     (when (and (ivory-key.model:modifier-set-members
                 (ivory-key.model:normalized-layout-modifiers normalized))
                (null xkb-semantic-modifier-allocations))
@@ -1856,11 +2023,13 @@ compile gate.
     (when (and interaction-compatibility-policy
                (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
                     interaction-compatibility-policy)
-                   :kanata-1-12-buffered))
+                   :kanata-1-12-buffered)
+               (or (null buffered-actions)
+                   (not manna-direct-held-routes-exact-p)))
       (push (%make-compiler-fidelity-issue
              :kanata-buffered-runtime
              :unproved-kanata-buffered-pending-lifecycle
-             "Kanata 1.12 bounded deadline and multi-owner edge order is proven, but cancellation and emitted native input-domain closure remain unproved; the typed buffered action handoff is inert.")
+             "The selected buffered profile lacks the complete bounded deadline and typed native-domain proof envelope.")
             issues))
     (when (and buffered-contracts (null buffered-actions))
       ;; MODEL has proved the finite interaction shape, but profile-owned
@@ -1886,31 +2055,30 @@ compile gate.
               (%push-fidelity-issue-once
                (%coverage-fidelity-issue placement participant :require-mapping t)
                issues)))
-      (multiple-value-bind (code detail)
-          (if (%interaction-compatibility-policy-target-p
-               interaction-compatibility-policy interaction)
-              ;; A validated allocation may construct an inspectable typed
-              ;; action, but it does not prove the outstanding lifecycle
-              ;; obligations.  Do not also claim the action IR is missing.
-              (if (find (ivory-key.model:normalized-interaction-name interaction)
-                        buffered-actions
-                        :test #'ivory-key.model:identifier=
-                        :key (lambda (action)
-                               (ivory-key.model:normalized-interaction-name
-                                (ivory-key.model::interaction-compatibility-contract-interaction
-                                 (ivory-key.backend::kanata-buffered-interaction-action-contract
-                                  action)))))
-                  (values :unproved-kanata-buffered-pending-lifecycle
-                          "Typed buffered Kanata action handoff remains inert until cancellation, arbitration, and bounded queue behavior are proven.")
+      (let* ((name (ivory-key.model:identifier-name
+                    (ivory-key.model:normalized-interaction-name interaction)))
+             (buffered-action
+               (find (ivory-key.model:normalized-interaction-name interaction)
+                     buffered-actions
+                     :test #'ivory-key.model:identifier=
+                     :key (lambda (action)
+                            (ivory-key.model:normalized-interaction-name
+                             (ivory-key.model::interaction-compatibility-contract-interaction
+                              (ivory-key.backend::kanata-buffered-interaction-action-contract
+                               action))))))
+             (direct-p
+               (and manna-direct-held-routes-exact-p
+                    (assoc name +manna-direct-held-interaction-specifications+
+                           :test #'string=))))
+        (unless (or buffered-action direct-p)
+          (multiple-value-bind (code detail)
+              (if (%interaction-compatibility-policy-target-p
+                   interaction-compatibility-policy interaction)
                   (%interaction-compatibility-policy-refusal
-                   interaction-compatibility-policy))
-              (values :unsupported-timed-interaction
-                      "Generic timed interactions require an explicit Kanata template lowering."))
-        (push (%make-compiler-fidelity-issue
-               (ivory-key.model:identifier-name
-                (ivory-key.model:normalized-interaction-name interaction))
-               code detail)
-              issues)))
+                   interaction-compatibility-policy)
+                  (values :unsupported-timed-interaction
+                          "Generic timed interactions require an explicit Kanata template lowering."))
+            (push (%make-compiler-fidelity-issue name code detail) issues)))))
     ;; Product selectors describe meaning, not a default XKB modifier/group
     ;; arrangement.  The one observed XKB policy recognizes exactly its three
     ;; named binary axes; other axes and all final XKB+Kanata emission remain
@@ -1950,7 +2118,11 @@ compile gate.
              (entries-for-binding (ivory-key.model:normalized-binding-entries binding)))
         (cond
           (coverage-issue
-           (setf issues (%push-fidelity-issue-once coverage-issue issues)))
+           (unless (and (eq (compiler-fidelity-issue-code coverage-issue)
+                            :unreachable-device-position)
+                        (%manna-reviewed-unreachable-binding-p
+                         placement feature manna-direct-held-routes-exact-p))
+             (setf issues (%push-fidelity-issue-once coverage-issue issues))))
           ((null placement-entry)
            (push (%make-compiler-fidelity-issue
                   feature :missing-device-placement
@@ -1994,7 +2166,7 @@ compile gate.
                                                entries-for-binding))
                                entries))))))))))
     (multiple-value-bind (kanata-layers xkb-carrier-entries carrier-allocations updated-issues)
-        (%patch-lowering normalized placement vocabulary issues)
+        (%patch-lowering normalized placement vocabulary buffered-actions issues)
       (setf issues updated-issues)
     (setf issues
           (sort issues #'string<
@@ -2002,9 +2174,9 @@ compile gate.
                        (format nil "~A/~A"
                                (compiler-fidelity-issue-feature issue)
                                (compiler-fidelity-issue-code issue)))))
-      ;; Keep the evidence-backed partial request available to inspection
-      ;; callers together with its blockers.  MAKE-LOWERING-REQUEST below
-      ;; remains the compile gate and rejects any non-empty issue list.
+      ;; Keep the evidence-backed request available to inspection callers
+      ;; together with any blockers. MAKE-LOWERING-REQUEST below remains the
+      ;; compile gate and rejects every non-empty issue list.
       (values (make-instance 'ivory-key.backend:lowering-request
                              :name (ivory-key.model:identifier-name
                                     (ivory-key.model:normalized-layout-name normalized))
@@ -2034,7 +2206,10 @@ compile gate.
                                              (cons (car mapping) (getf (cdr mapping) :kanata)))
                                            (compiler-placement-mappings placement))
                                    :kanata-layers kanata-layers
-                                   :carrier-allocations carrier-allocations))
+                                   :carrier-allocations carrier-allocations
+                                   :allocations
+                                   (%carrier-planner-allocations
+                                    carrier-allocations)))
               issues))))
 
 (defun make-lowering-request-from-normalized-layout
@@ -2323,7 +2498,7 @@ modifiers, named symbols, commands, or interactions.
   (format stream "Interaction compatibility selection~%")
   (if policy
       (progn
-        (format stream "  ~A (selected; typed action IR remains inspection-only)~%"
+        (format stream "  ~A (selected; exactness remains realization-specific)~%"
                 (string-downcase
                  (symbol-name
                   (ivory-key.model::realization-interaction-compatibility-policy-mode
@@ -2471,7 +2646,7 @@ plans, artifact text, contract data, or output paths.
           (refusal (getf metadata :kanata-buffered-action-refusal)))
       (cond
         (actions
-         (format stream "    buffered Kanata action handoff (inert; non-emittable)~%")
+         (format stream "    buffered Kanata action handoff (typed; emission-gated)~%")
          (dolist (action actions)
            ;; The AST's canonical data never prints a source pathname, host
            ;; object, or raw parenthesized Kanata action fragment.
@@ -2524,7 +2699,7 @@ plans, artifact text, contract data, or output paths.
   (format stream "  realization grades~%")
   (let ((actions (ivory-key.backend::kanata-plan-buffered-actions plan)))
     (when actions
-      (format stream "  buffered action handoff (inert; non-emittable)~%")
+      (format stream "  buffered action handoff (typed; emission-gated)~%")
       (dolist (action actions)
         (format stream "    ~S~%"
                 (ivory-key.backend::kanata-buffered-interaction-action-canonical-data

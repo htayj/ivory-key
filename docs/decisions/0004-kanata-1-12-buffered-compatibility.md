@@ -243,7 +243,8 @@ completion:
 - an explicit analysis records what happens when the redispatched input would
   meet a binding, overlay, selector, or interaction; and
 - every selected backend either has an exact lowering/differential proof or
-  refuses before artifact emission.
+  refuses before artifact emission. The selected Manna realization now meets
+  this gate; partial and generic realizations still refuse.
 
 Revisit this decision if a source-era Kanata version/trace is recovered, if a
 new 1.12 oracle path proves a different queue or ordering rule, or if the

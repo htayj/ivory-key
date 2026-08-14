@@ -39,10 +39,11 @@ The bootstrap currently provides:
   emission, machine-readable manifests/source maps, and explicit refusal of
   unsupported semantics.
 
-The checked-in Manna Cadet layout now contains a frozen 52-key static-symbol
-transcription, plus separately identified selector/timed-interaction evidence.
-It is an auditable transcription, not a claim that Ivory Key has generated,
-installed, or activated an equivalent keyboard configuration. The twenty-level
+The checked-in Manna Cadet project contains the reviewed 52-key static-symbol
+transcription, selected selector/timed-interaction policy, closed A2/A360 native
+input ledgers, and exact XKB/Kanata allocations. Ivory Key can generate and
+validate both replacement artifact sets; it has not installed or activated
+either set on a keyboard. The twenty-level
 conformance fixture remains expressible in the abstract model but is not
 silently reduced to eight states. The CLI `simulate` command accepts a
 restricted declarative event stream for the whole-layout adapter's exact
@@ -109,10 +110,10 @@ composition's device and realization remain context only: simulation does not
 lower a backend, prove physical equivalence, emit files, or deploy anything.
 
 The checked-in `manna-cadet-project.ivory` is the auditable import graph for
-the frozen Manna layout, Kinesis Advantage 2 placement, Linux profile, and
-named `manna-cadet-linux` composition. Inspection works today; compilation is
-expected to refuse until every required selector, modifier, named output, and
-timed interaction has an exact approved realization.
+the frozen Manna layout, both Kinesis placements, the selected Linux profile,
+and named A2/A360 compositions. Both selected compositions compile to exact,
+source-mapped XKB/Kanata artifacts. Installation and live input validation are
+separate, authorization-gated operations described by the integration runbook.
 
 When a project realization selects an output vocabulary, exact static
 named-key and named-symbol bindings use its explicit XKB and Kanata spellings.
@@ -159,6 +160,6 @@ direnv exec . sbcl --script tests/external/manna-kanata-generated.lisp
 Besides parser acceptance, it compiles a focused XKB plan and checks its
 compiled groups, levels, symbols, actions, and consumed/unconsumed Shift state
 through libxkbcommon. The Manna-specific script separately checks that the
-installed Kanata parser accepts both closed, deterministic, non-emitting
-device proposals. Neither check claims Kanata interaction simulation, live
-device behavior, or Manna equivalence.
+installed Kanata parser accepts both closed, deterministic device artifacts;
+its opt-in pinned runtime mode covers the selected interaction scheduler. None
+of these checks is live-device or deployment proof.
