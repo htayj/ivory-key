@@ -1,6 +1,6 @@
 --- a/src/tests/sim_tests/tap_hold_tests.rs
 +++ b/src/tests/sim_tests/tap_hold_tests.rs
-@@ -1279,3 +1279,207 @@
+@@ -1279,3 +1279,213 @@
          result
      );
  }
@@ -30,6 +30,12 @@
 +         "t:199ms dn:LCtrl t:31ms up:LCtrl"),
 +    ] {
 +        assert_eq!(expected, simulate(cfg, events).to_ascii());
++    }
++    for (label, events, expected) in [
++        ("unequal-before-first-deadline", "d:a t:10 d:d t:50 d:b t:50 u:b t:20 u:a t:20 u:d t:10", "t:110ms dn:LCtrl t:7ms dn:LAlt t:6ms dn:B t:1ms up:B t:6ms up:LCtrl t:20ms up:LAlt"),
++        ("unequal-cross-first-deadline", "d:a t:10 d:d t:50 d:b t:150 u:b t:20 u:a t:20 u:d t:10", "t:199ms dn:LCtrl t:11ms dn:LAlt t:6ms dn:B t:1ms up:B t:13ms up:LCtrl t:20ms up:LAlt"),
++    ] {
++        assert_eq!(expected, simulate(cfg, events).to_ascii(), "{}", label);
 +    }
 +}
 +

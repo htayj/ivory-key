@@ -44,6 +44,17 @@ buffered policy for the sixteen transcribed timing interactions."
       (ivory-key.model:normalized-layout-interactions normalized))
      :origin (ivory-key.model:normalized-layout-origin normalized))))
 
+(defun layout-simulation-manna-buffered-layout-and-policy ()
+  "Return the complete selected Manna composition and its explicit policy."
+  (multiple-value-bind (unit placement realization)
+      (ivory-key.cli:load-project-composition-for-compilation
+       "manna-cadet-project.ivory" "manna-cadet-linux")
+    (declare (ignore placement))
+    (values
+     (ivory-key.cli::compiler-unit-normalized unit)
+     (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+      realization))))
+
 (defun layout-simulation-topology (&rest positions)
   (ivory-key.model::make-topology
    "layout-simulation-topology"
@@ -172,6 +183,69 @@ release exposes plain case.
                                                  :last))
                                               case-releases)
                                       "the first release in either order is non-final"))))
+
+(deftest simulation-manna-selected-buffered-policy-routes-whole-layout-context
+  "The selected policy routes real context, function, and unequal-owner rows."
+  (multiple-value-bind (layout policy)
+      (layout-simulation-manna-buffered-layout-and-policy)
+    (flet ((run (&rest events)
+             (ivory-key.simulate:simulate-normalized-layout-events
+              layout events :interaction-compatibility-policy policy)))
+      (layout-simulation-assert-equal
+       '((:text "f") (:text "q"))
+       (ivory-key.simulate:simulation-result-outputs
+        (run (layout-simulation-event 0 :down "f")
+             (layout-simulation-event 1 :down "q")
+             (layout-simulation-event 2 :up "f")
+             (layout-simulation-event 3 :up "q")))
+       "owner-first resolution preserves the owner tap and plain context key")
+      (layout-simulation-assert-equal
+       '((:text "Q"))
+       (ivory-key.simulate:simulation-result-outputs
+        (run (layout-simulation-event 0 :down "f")
+             (layout-simulation-event 1 :down "q")
+             (layout-simulation-event 2 :up "q")
+             (layout-simulation-event 3 :up "f")))
+       "foreign-first resolution applies the held case before routing q")
+      (layout-simulation-assert-equal
+       '((:command "quote"))
+       (ivory-key.simulate:simulation-result-outputs
+        (run (layout-simulation-event 0 :down "end")
+             (layout-simulation-event 200 :down "q")
+             (layout-simulation-event 201 :up "q")
+             (layout-simulation-event 202 :up "end")))
+       "the committed function owner routes q through the active patch")
+      (layout-simulation-assert-equal
+       '((:command "end"))
+       (ivory-key.simulate:simulation-result-outputs
+        (run (layout-simulation-event 0 :down "end")
+             (layout-simulation-event 200 :down "semicolon")
+             (layout-simulation-event 201 :up "semicolon")
+             (layout-simulation-event 202 :up "end")))
+       "an active function patch suppresses semicolon's base tap-hold owner")
+      (layout-simulation-assert-equal
+       '((:modifier :press "super") (:text "b")
+         (:modifier :release "super"))
+       (ivory-key.simulate:simulation-result-outputs
+        (run (layout-simulation-event 0 :down "a")
+             (layout-simulation-event 10 :down "semicolon")
+             (layout-simulation-event 16 :down "b")
+             (layout-simulation-event 17 :up "b")
+             (layout-simulation-event 230 :up "semicolon")
+             (layout-simulation-event 251 :up "a")))
+       "the first unequal deadline commits both owners and releases shared state once")
+      (layout-simulation-assert-equal
+       '((:modifier :press "control") (:modifier :press "super")
+         (:text "b")
+         (:modifier :release "super") (:modifier :release "control"))
+       (ivory-key.simulate:simulation-result-outputs
+        (run (layout-simulation-event 0 :down "a")
+             (layout-simulation-event 10 :down "d")
+             (layout-simulation-event 60 :down "b")
+             (layout-simulation-event 110 :up "b")
+             (layout-simulation-event 130 :up "a")
+             (layout-simulation-event 150 :up "d")))
+       "unequal owners with distinct held effects commit in deadline order"))))
 
 (deftest simulation-layout-dispatches-normalized-ordinary-bindings-with-context
   (let* ((case-axis (ivory-key.model::make-context-axis

@@ -100,7 +100,7 @@ shows a required input outside `defsrc`; do not broaden it implicitly.
 
 ## Required abstract contract
 
-For policy-selected owners with one shared deadline `D`, the reference model
+For policy-selected owners with their explicit deadlines, the reference model
 uses one opaque per-layout dispatch barrier, not a backend event string or a
 per-owner foreign slot. It records ordered pending foreign **press intervals**,
 each with physical `down`/paired `up`, selected direct route, dispatch frontier,
@@ -149,17 +149,18 @@ validation, or another timed interaction observe input that never occurred.
 Physical `down`/`up` events therefore remain immutable and appear exactly once
 in the pattern evidence stream. A routed dispatch notice refers back to the
 original physical index and records a separate dispatch-frontier sequence.
-Redispatch may start an authorized unpatched direct output-only ordinary
-binding, but it must not advance time, mutate physical pressed state, re-feed
-the simulator, or start an overlay or timed interaction. The foreign interval
-is in temporary dispatch custody, not in the committed candidate's participant
-claims.
+Redispatch may start an authorized output-only ordinary binding or sparse
+output-only overlay route, but it must not advance time, mutate physical
+pressed state, re-feed the simulator, or start a foreign timed interaction.
+The foreign interval is in temporary dispatch custody, not in the committed
+candidate's participant claims.
 
 The barrier records closed state per ordered interval: armed owners, withheld
 `down`, routed `down` awaiting its matching physical `up`, and completion with
 disposition and the paired physical positions, indices, and times. Multiple
-eligible owners with the same deadline attach to an interval; an unequal
-deadline combination refuses atomically before publishing the foreign event.
+eligible owners attach to an interval. When one owner reaches its deadline,
+Kanata 1.12's checked concurrent queue commits the other attached owners at
+that same frontier even when their configured deadlines differ.
 
 A deadline reached in `withheld-down` has a bounded reference path: the timeout
 candidates commit/acquire their held results and the simulator routes the
@@ -172,9 +173,10 @@ one exact raw trace. The reference barrier attaches every eligible owner with
 the same deadline to one interval, preserves deterministic owner order, and
 preserves shared held-effect reference counting. It also proves ordered multiple
 and repeated direct intervals, pairing reverse-order physical `up` edges with
-their own prior `down` interval. Unequal eligible-owner deadlines refuse
-atomically before the foreign `down` is published. Policy-selected owner
-positions remain outside the foreign domain.
+their own prior `down` interval. Two pinned unequal-deadline traces prove both
+foreign release before the first deadline and custody crossing that deadline;
+the reference barrier commits the peers in deterministic deadline order.
+Policy-selected owner positions remain outside the foreign domain.
 
 The early-owner-release prefix also exposes a limitation in the former output
 model: one atomic `(:named-key ...)` cannot prove the required tap press,
@@ -185,22 +187,22 @@ atomic; source authors do not receive a generic press/release or replay macro.
 The old output list may remain a compatibility projection, but the ordered
 transitions are normative for this policy.
 
-The reference simulator's redispatch domain is intentionally small: one
-unpatched, context-free direct ordinary binding whose sole normalized output
-is a named key. This is reference-only evidence and matches the route class
-exercised by the pinned Kanata differential. Text, named-symbol, no-output,
-context tables, overlays,
-timed-interaction participants, selector or state changes, modifier operations,
-commands, arbitrary sequences, unknown positions, and unbound positions
-refuse. No backend lowering is exact on account of this simulator boundary;
-the boundary can grow only with separate semantic and differential evidence.
+The reference simulator's redispatch domain remains output-only, but now
+includes complete context tables and sparse output-only overlay selection at
+the dispatch frontier. The selected Manna whole-layout regression covers
+plain/shifted text, a function-patch command, shared modifiers, and distinct
+unequal-deadline modifiers. An active overlay route suppresses the otherwise
+selected base-layer owner at the same position. Stateful or latch-sensitive
+routes, foreign timed-interaction participants, arbitrary sequences, unknown
+positions, and unbound positions still refuse. No backend lowering is exact
+on account of this simulator boundary; the boundary grows only with separate
+semantic and differential evidence.
 
 ## Explicit refusal boundary
 
-The barrier is deliberately not a general event queue. It admits only an
-unpatched, context-free, direct named-key ordinary route authorized by the same
-opaque layout token. It refuses C7/game or unmapped domains, overlays,
-stateful/latch-sensitive routes,
+The barrier is deliberately not a general event queue. It admits only closed
+output-only ordinary/context/overlay routes authorized by the same opaque
+layout token. It refuses C7/game or unmapped domains, stateful/latch-sensitive routes,
 foreign timed interactions, nested/arbitrary replay, and any backend that
 cannot preserve the listed order. It also does not prove a 360 state-machine
 trace, live keyboard events, XKB/client semantics, or the historic source-era

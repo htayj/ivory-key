@@ -166,6 +166,7 @@ outside this reference-only route contract.
                          '(or ivory-key.model::text-output
                            ivory-key.model::named-key-output
                            ivory-key.model::named-symbol-output
+                           ivory-key.model::command-output
                            ivory-key.model::no-output-behavior)))
                 entries))))
 
@@ -483,7 +484,8 @@ being given a false exact interpretation.
                   (model-identifier->simulation-value
                    (ivory-key.model::normalized-patch-state patch))))))
 
-(defun %compile-normalized-overlay-ordinary-binding (layout position)
+(defun %compile-normalized-overlay-ordinary-binding
+    (layout position &optional dispatch-plan-token)
   "Compile one potentially patched ordinary binding into exact simulator IR.
 
 All behavior variants are compiled before execution.  At each candidate's
@@ -523,14 +525,19 @@ the simulator's string-valued candidate context without backend lowering.
          (position-name (model-identifier->simulation-value position))
          (name (list :ordinary-overlay-binding position-name))
          (consulted-latches (%normalized-overlay-position-axis-names layout position)))
-    (make-sim-interaction
-     :name name
-     :participants (list position-name)
-     :route-kind :overlay-binding
-     :consulted-latches consulted-latches
-     :arbitration :priority
-     :cases
-     (list
+    (apply
+     (if dispatch-plan-token
+         #'make-routed-dispatch-ordinary-interaction
+         #'make-sim-interaction)
+     (append
+      (list
+       :name name
+       :participants (list position-name)
+       :route-kind :overlay-binding
+       :consulted-latches consulted-latches
+       :arbitration :priority
+       :cases
+       (list
       (make-sim-case
        :name name
        :pattern (down-pattern position-name)
@@ -568,39 +575,72 @@ the simulator's string-valued candidate context without backend lowering.
                           :details (list :overlay-selection selected-name
                                          :position position-name))
              (%apply-compiled-actions machine candidate selected)))))
-       :consulted-latches consulted-latches)))))
+       :consulted-latches consulted-latches)))
+      (and dispatch-plan-token
+           (list
+            :dispatch-plan-token dispatch-plan-token
+            :route-active-p
+            (lambda (machine)
+              (some
+               (lambda (descriptor)
+                 (and (eq (second descriptor) :binding)
+                      (string=
+                       (simulator-axis-value
+                        machine
+                        (model-identifier->simulation-value
+                         (ivory-key.model:normalized-patch-axis
+                          (first descriptor))))
+                       (model-identifier->simulation-value
+                        (ivory-key.model:normalized-patch-state
+                         (first descriptor))))))
+               compiled-patches))))))))
 
-(defun compile-normalized-overlay-ordinary-bindings (layout)
+(defun compile-normalized-overlay-ordinary-bindings
+    (layout &key dispatch-plan-token)
   "Compile canonical ordinary bindings with sparse normalized patch dispatch."
   (mapcar
    (lambda (position)
      (if (some (lambda (patch)
                  (%normalized-patch-binding-at patch position))
                (ivory-key.model::normalized-layout-patches layout))
-         (%compile-normalized-overlay-ordinary-binding layout position)
-         (compile-normalized-ordinary-binding
-          (%normalized-layout-binding-at layout position))))
+         (%compile-normalized-overlay-ordinary-binding
+          layout position dispatch-plan-token)
+         (if dispatch-plan-token
+             (%compile-normalized-ordinary-binding-with-route
+              (%normalized-layout-binding-at layout position)
+              (%normalized-layout-binding-at layout position)
+              dispatch-plan-token)
+             (compile-normalized-ordinary-binding
+              (%normalized-layout-binding-at layout position)))))
    (%normalized-layout-ordinary-positions layout)))
 
 (defun %assert-buffered-route-bindings-safe (layout)
-  "Prove every possible route is an unpatched closed output context table."
+  "Prove every possible base/patch route is one closed output context table."
   (dolist (position (%normalized-layout-ordinary-positions layout))
-    (when (some (lambda (patch) (%normalized-patch-binding-at patch position))
-                (ivory-key.model::normalized-layout-patches layout))
-      (%normalized-layout-simulation-error
-       :unsupported-buffered-foreign-overlay position
-       "Buffered dispatch refuses patched position ~A; the reference route has no overlay semantics."
-       (model-identifier->simulation-value position)))
+    (dolist (patch (ivory-key.model::normalized-layout-patches layout))
+      (let ((entry (%normalized-patch-binding-at patch position)))
+        (when (and entry
+                   (not (eq (cdr entry) :transparent))
+                   (not (and (typep (cdr entry) 'ivory-key.model::normalized-binding)
+                             (%buffered-output-route-binding-p (cdr entry)))))
+          (%normalized-layout-simulation-error
+           :unsupported-buffered-foreign-overlay entry
+           "Buffered patch route at ~A must contain only closed output behaviors."
+           (model-identifier->simulation-value position)))))
     (let ((base (%normalized-layout-binding-at layout position)))
-      (unless base
+      (unless (or base
+                  (some (lambda (patch)
+                          (let ((entry (%normalized-patch-binding-at patch position)))
+                            (and entry (not (eq (cdr entry) :transparent)))))
+                        (ivory-key.model::normalized-layout-patches layout)))
         (%normalized-layout-simulation-error
          :unsupported-buffered-overlay-without-fallback position
-         "Buffered dispatch position ~A has no unconditional base binding."
+         "Buffered dispatch position ~A has neither a base nor concrete patch binding."
          (model-identifier->simulation-value position)))
-      (unless (%buffered-output-route-binding-p base)
+      (when (and base (not (%buffered-output-route-binding-p base)))
         (%normalized-layout-simulation-error
          :unsupported-buffered-foreign-route base
-         "Buffered dispatch requires every behavior at position ~A to be text, named-key, named-symbol, or none."
+         "Buffered dispatch requires every behavior at position ~A to be text, named-key, named-symbol, command, or none."
          (model-identifier->simulation-value position))))))
 
 (defun %assert-buffered-owner-routes-safe (layout contracts)
@@ -614,16 +654,10 @@ the simulator's string-valued candidate context without backend lowering.
          :missing-buffered-owner-tap-route owner
          "Selected buffered owner ~A has no ordinary binding for its tap route."
          position))
-      (when (some (lambda (patch) (%normalized-patch-binding-at patch owner))
-                  (ivory-key.model::normalized-layout-patches layout))
-        (%normalized-layout-simulation-error
-         :unsupported-buffered-owner-overlay owner
-         "Selected buffered owner ~A has an overlay patch; tap routing has no overlay semantics."
-         position))
       (unless (%buffered-output-route-binding-p binding)
         (%normalized-layout-simulation-error
          :unsupported-buffered-owner-tap-route binding
-         "Selected buffered owner ~A must have only text, named-key, named-symbol, or none tap outputs."
+         "Selected buffered owner ~A must have only closed output tap behaviors."
          position)))))
 
 (defun %buffered-route-axis-names (layout)
@@ -690,8 +724,7 @@ positions that participate in timed interactions remain refused because their
 fallback ownership is not specified.
 "
   (%require-normalized-layout layout)
-  (let* ((bindings (ivory-key.model::normalized-layout-bindings layout))
-         (interactions (ivory-key.model::normalized-layout-interactions layout))
+  (let* ((interactions (ivory-key.model::normalized-layout-interactions layout))
          (contracts (%interaction-compatibility-contracts
                      layout interaction-compatibility-policy))
          (buffered-contracts (%buffered-contracts contracts))
@@ -706,8 +739,8 @@ fallback ownership is not specified.
     (%assert-disjoint-normalized-binding-positions
      (%normalized-layout-ordinary-positions layout) interactions buffered-contracts)
     (values (append (if buffered-contracts
-                       (%compile-normalized-ordinary-bindings-with-routes
-                        bindings bindings dispatch-plan-token)
+                       (compile-normalized-overlay-ordinary-bindings
+                        layout :dispatch-plan-token dispatch-plan-token)
                        (compile-normalized-overlay-ordinary-bindings layout))
                     (%compile-normalized-interactions-with-contracts
                      interactions

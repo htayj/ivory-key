@@ -165,7 +165,8 @@ observable reversible lifetime."
              (:constructor %make-sim-interaction
                  (&key name participants cases (priority 0) (arbitration :priority)
                        consulted-latches (route-kind :timed)
-                       buffered-dispatch-contract dispatch-plan-token)))
+                       buffered-dispatch-contract dispatch-plan-token
+                       route-active-p)))
   "A declarative interaction and its mutually competing cases.
 
 ARBITRATION is :PRIORITY or :LONGEST-MATCH.  A priority is never inferred
@@ -183,7 +184,11 @@ from host iteration order."
   buffered-dispatch-contract
   ;; Opaque, per-whole-layout identity shared only by selected timed and
   ;; eligible ordinary IR.  It prevents capability splicing across plans.
-  dispatch-plan-token)
+  dispatch-plan-token
+  ;; Optional complete-layout predicate for sparse overlay precedence.  Raw
+  ;; routes cannot use it to acquire buffered authority because they still
+  ;; lack the per-plan token.
+  route-active-p)
 
 (defun make-sim-interaction
     (&key name participants cases (priority 0) (arbitration :priority)
@@ -197,16 +202,18 @@ from host iteration order."
 
 (defun make-routed-dispatch-ordinary-interaction
     (&key name participants cases (priority 0) (arbitration :priority)
-       consulted-latches (route-kind :ordinary-binding) dispatch-plan-token)
+       consulted-latches (route-kind :ordinary-binding) dispatch-plan-token
+       route-active-p)
   "Internal complete-layout constructor for one eligible ordinary route."
-  (unless (eq route-kind :ordinary-binding)
-    (error "Routed dispatch capability is limited to an ordinary binding."))
+  (unless (member route-kind '(:ordinary-binding :overlay-binding) :test #'eq)
+    (error "Routed dispatch capability is limited to an ordinary or overlay binding."))
   (unless dispatch-plan-token
     (error "Routed dispatch requires an opaque whole-layout plan token."))
   (%make-sim-interaction
    :name name :participants participants :cases cases :priority priority
    :arbitration arbitration :consulted-latches consulted-latches
-   :route-kind :ordinary-binding :dispatch-plan-token dispatch-plan-token))
+   :route-kind route-kind :dispatch-plan-token dispatch-plan-token
+   :route-active-p route-active-p))
 
 (defun make-buffered-sim-interaction
     (&key name participants cases (priority 0) (arbitration :priority)
@@ -568,7 +575,7 @@ is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
 (defun buffered-route-output-value-p (value)
   "Whether VALUE is one closed non-stateful buffered-route output."
   (and (consp value)
-       (member (first value) '(:text :named-key :named-symbol) :test #'eq)
+       (member (first value) '(:text :named-key :named-symbol :command) :test #'eq)
        (stringp (second value))
        (null (cddr value))))
 
@@ -1340,12 +1347,20 @@ notice after the timeout candidate has committed its held result.
    (simulator-transactions-reversed machine)))
 
 (defun selected-buffered-interactions-at (machine position)
-  (remove-if-not
-   (lambda (interaction)
-     (and (eq (sim-interaction-route-kind interaction) :timed)
-          (sim-interaction-buffered-dispatch-contract interaction)
-          (member position (sim-interaction-participants interaction) :test #'equal)))
-   (simulator-interactions machine)))
+  (unless (find-if
+           (lambda (interaction)
+             (and (eq (sim-interaction-route-kind interaction) :overlay-binding)
+                  (member position (sim-interaction-participants interaction)
+                          :test #'equal)
+                  (sim-interaction-route-active-p interaction)
+                  (funcall (sim-interaction-route-active-p interaction) machine)))
+           (simulator-interactions machine))
+    (remove-if-not
+     (lambda (interaction)
+       (and (eq (sim-interaction-route-kind interaction) :timed)
+            (sim-interaction-buffered-dispatch-contract interaction)
+            (member position (sim-interaction-participants interaction) :test #'equal)))
+     (simulator-interactions machine))))
 
 (defun timed-interactions-at (machine position)
   (remove-if-not (lambda (interaction)
@@ -1411,11 +1426,6 @@ notice after the timeout candidate has committed its held result.
                  owners)
            (buffered-dispatch-refuse :unsupported-buffered-foreign-route
                                      (first owners) event)))
-    (let ((deadlines (remove-duplicates
-                      (mapcar #'buffered-dispatch-owner-deadline owners))))
-      (when (> (length deadlines) 1)
-        (buffered-dispatch-refuse :unequal-buffered-owner-deadline
-                                  (first owners) event)))
     (first routes)))
 
 (defun buffered-dispatch-allocate-interval (machine event owners route)
@@ -1502,7 +1512,8 @@ The whole-layout compiler proves that a callback route selects only closed
 output behaviors.  Raw and cross-layout IR cannot acquire its per-plan token.
 "
   (let ((cases (sim-interaction-cases interaction)))
-    (and (eq (sim-interaction-route-kind interaction) :ordinary-binding)
+    (and (member (sim-interaction-route-kind interaction)
+                 '(:ordinary-binding :overlay-binding) :test #'eq)
          (eq (sim-interaction-dispatch-plan-token interaction)
              (sim-interaction-dispatch-plan-token
               (buffered-dispatch-transaction-interaction transaction)))
@@ -1611,6 +1622,58 @@ deliberately later than a withheld DOWN for this bounded contract.
 
 (defun buffered-dispatch-interval-owner-resolution (machine interval event)
   "Return the shared committed role/candidates, or NIL until every owner resolves."
+  ;; Kanata 1.12's concurrent HoldTap queue resolves every waiting owner to
+  ;; HOLD when the first attached owner's timeout fires.  The later owner's
+  ;; own clock therefore does not remain pending behind an already released
+  ;; foreign interval.  This policy-specific transition is deliberately
+  ;; derived from the validated timeout role; it never applies to generic
+  ;; simulator candidates.
+  (let ((first-timeout
+          (find-if
+           (lambda (owner)
+             (let* ((candidate (buffered-transaction-committed-candidate machine owner))
+                    (role (and candidate
+                               (buffered-contract-role-for-candidate owner candidate))))
+               (and role
+                    (eq (ivory-key.model:interaction-compatibility-role-reference-role role)
+                        :timeout))))
+           (buffered-dispatch-interval-owners interval))))
+    (when first-timeout
+      (dolist (owner (buffered-dispatch-interval-owners interval))
+        (unless (buffered-transaction-committed-candidate machine owner)
+          (let* ((timeout-reference
+                   (find :timeout
+                         (ivory-key.model:release-trigger-interaction-compatibility-contract-role-references
+                          (buffered-dispatch-transaction-contract owner))
+                         :key #'ivory-key.model:interaction-compatibility-role-reference-role))
+                 (timeout-name
+                   (and timeout-reference
+                        (model-identifier->simulation-value
+                         (ivory-key.model:normalized-candidate-name
+                          (ivory-key.model:interaction-compatibility-role-reference-candidate
+                           timeout-reference)))))
+                 (candidate
+                   (find-if
+                    (lambda (candidate)
+                      (and (eq (simulation-candidate-status candidate) :viable)
+                           (eq (simulation-candidate-interaction candidate)
+                               (buffered-dispatch-transaction-interaction owner))
+                           (= (simulation-candidate-anchor-index candidate)
+                              (buffered-dispatch-transaction-owner-index owner))
+                           (equal (sim-case-name (simulation-candidate-case candidate))
+                                  timeout-name)))
+                    (simulator-candidates machine))))
+            (unless candidate
+              (buffered-dispatch-refuse :missing-buffered-peer-timeout owner event))
+            (dolist (other (simulator-candidates machine))
+              (when (and (not (eq other candidate))
+                         (eq (simulation-candidate-status other) :viable)
+                         (eq (simulation-candidate-interaction other)
+                             (buffered-dispatch-transaction-interaction owner))
+                         (= (simulation-candidate-anchor-index other)
+                            (buffered-dispatch-transaction-owner-index owner)))
+                (cancel-candidate machine other :peer-owner-timeout)))
+            (commit-candidate machine candidate))))))
   (let ((role-name nil)
         (resolved nil))
     (dolist (owner (buffered-dispatch-interval-owners interval))

@@ -677,7 +677,7 @@
                                 (getf interval :state)))
                         intervals)))))
 
-(deftest simulation-dispatch-barrier-attaches-equal-deadline-owners-and-refuses-unequal
+(deftest simulation-dispatch-barrier-attaches-equal-and-unequal-deadline-owners
   (multiple-value-bind (interactions axes)
       (dispatch-buffered-interactions
        :names '("tap-hold-case-f" "tap-hold-super-semicolon")
@@ -701,23 +701,27 @@
       (dispatch-buffered-interactions
        :names '("tap-hold-super-a" "tap-hold-super-semicolon")
        :owner-routes '("a"))
-    (let ((machine (ivory-key.simulate:make-simulator :interactions interactions :axes axes)))
-      (ivory-key.simulate:simulator-feed-event machine (dispatch-event 0 :down "a"))
-      (ivory-key.simulate:simulator-feed-event machine (dispatch-event 0 :down "semicolon"))
-      (handler-case
-          (progn
-            (ivory-key.simulate:simulator-feed-event machine (dispatch-event 1 :down "b"))
-            (error "Expected unequal-owner-deadline refusal."))
-        (ivory-key.simulate:buffered-dispatch-refusal (condition)
-          (is-equal :unequal-buffered-owner-deadline
-                    (ivory-key.simulate:buffered-dispatch-refusal-code condition))))
-      ;; Admission is atomic: the rejected direct DOWN never enters either
-      ;; physical evidence or the closed barrier dump.
-      (is-equal 2 (length (ivory-key.simulate:simulator-events machine)))
-      (is-equal nil
-                (getf (ivory-key.simulate::simulation-result-dispatch-barrier
-                       (ivory-key.simulate:simulator-result machine))
-                      :intervals)))))
+    (let* ((result
+             (ivory-key.simulate:simulate-events
+              interactions
+              (list (dispatch-event 0 :down "a")
+                    (dispatch-event 0 :down "semicolon")
+                    (dispatch-event 1 :down "b")
+                    ;; The 200 ms owner commits both attached holds before
+                    ;; the 250 ms peer deadline, matching the pinned 1.12
+                    ;; concurrent HoldTap observation.
+                    (dispatch-event 220 :up "b")
+                    (dispatch-event 230 :up "semicolon")
+                    (dispatch-event 240 :up "a"))
+              :axes axes))
+           (interval (first (getf
+                             (ivory-key.simulate::simulation-result-dispatch-barrier result)
+                             :intervals))))
+      (is-equal '(1 2) (getf interval :owners))
+      (is-equal :complete (getf interval :state))
+      (is-equal '((:modifier :press "super") (:named-key "b")
+                  (:modifier :release "super"))
+                (ivory-key.simulate:simulation-result-outputs result)))))
 
 (deftest simulation-dispatch-refuses-overlay-foreign-route
   (let* ((layout (dispatch-layout-with-named-b))

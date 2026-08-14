@@ -73,6 +73,18 @@ and scheduler.  It does not define an arbitration rule for an abstract
 multi-owner buffered transaction.  Likewise, post-hold owner release is an
 observable release, not evidence for an unmodeled cancellation operation.
 
+The same pinned runtime also fixes the previously unknown unequal-deadline
+precedence. Here `a` has a 250 ms timer and `d` has a 200 ms timer:
+
+| Label | Input events | Observed output |
+|---|---|---|
+| foreign interval resolves before the first deadline | `d:a t:10 d:d t:50 d:b t:50 u:b t:20 u:a t:20 u:d t:10` | `t:110ms dn:LCtrl t:7ms dn:LAlt t:6ms dn:B t:1ms up:B t:6ms up:LCtrl t:20ms up:LAlt` |
+| custody crosses the first deadline | `d:a t:10 d:d t:50 d:b t:150 u:b t:20 u:a t:20 u:d t:10` | `t:199ms dn:LCtrl t:11ms dn:LAlt t:6ms dn:B t:1ms up:B t:13ms up:LCtrl t:20ms up:LAlt` |
+
+These exact traces show that the earlier owner is committed alongside the
+first-deadline owner rather than waiting for its own later timer. They are a
+versioned scheduler fact, not a generic rule inferred from interaction order.
+
 ## Advantage 2 native input-domain edge order
 
 The native-domain matrix keeps the same hash-frozen Advantage 2 configuration and uses
@@ -200,14 +212,15 @@ This evidence narrows, but does not eliminate, the owner decision:
    no-delay/no-replay rule. It is then intentionally different from Kanata
    1.12.0 and cannot use the generic Kanata tap-hold action as an exact
    lowering.
-2. A Kanata-1.12 compatibility profile must model the pending foreign-event
-   buffer and its ordered release. Ivory Key now has a bounded single-owner
-   reference transaction, derived normalized contracts, and an inert typed
-   compiler handoff. The frozen native-route partition is now structurally
-   closed, but per-class queue/redispatch evidence, the process-unmapped input
-   boundary, cancellation, multi-owner arbitration, and backend differential
-   proof remain mandatory before selection or emission.
+2. The selected Kanata-1.12 compatibility profile models a bounded pending
+   foreign-event barrier and ordered release. Ivory Key now has derived
+   normalized contracts, equal- and unequal-deadline reference behavior, and
+   an inert typed compiler handoff. The frozen native-route partition is
+   structurally closed, but per-class queue/redispatch closure, cancellation,
+   complete A2/A360 backend differential proof, and downstream client behavior
+   remain mandatory before emission.
 
-Until one route is selected and implemented, the active Manna realization
-continues to refuse all sixteen source-selected tap-holds before artifact
-publication.
+The active Manna realization selects the buffered route for all sixteen source
+instances, but the compiler still refuses all of them before artifact
+publication. Selection records the intended semantics; it is not an exact
+backend grade.

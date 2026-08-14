@@ -188,9 +188,10 @@ The selection is carried as typed model metadata so `planned`, `backend`, and
 unsupported because Kanata 1.12 buffers and redispatches pending foreign input,
 contrary to its no-delay rule. The versioned buffered route has a closed,
 derived normalized contract and a bounded reference dispatch barrier. Its
-currently admitted foreign route is exactly one context-free named-key
-binding. Context tables, commands, state changes, overlays, and timed re-entry
-still refuse in the reference path.
+admitted foreign routes are closed output-only ordinary/context tables and
+sparse output-only overlays, including the selected function command patch.
+State changes, latch-sensitive routes, and foreign timed re-entry still refuse
+in the reference path.
 
 A buffered realization may additionally describe the backend atoms needed by
 the existing non-emitting Kanata action IR:
