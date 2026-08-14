@@ -31,7 +31,10 @@
    (entries :initarg :entries :reader normalized-candidate-entries)
    (effects :initarg :effects :reader normalized-candidate-effects)
    (context-axes :initarg :context-axes :reader normalized-candidate-context-axes)
-   (context-policy :initarg :context-policy :reader normalized-candidate-context-policy)))
+   (context-policy :initarg :context-policy :reader normalized-candidate-context-policy)
+   ;; Preserve the source-selected lifecycle start boundary; lowering must not
+   ;; turn an :ON-COMMIT hold back into a speculative acquisition.
+   (effect-start :initarg :effect-start :reader normalized-candidate-effect-start)))
 
 (defclass normalized-interaction ()
   ((name :initarg :name :reader normalized-interaction-name)
@@ -238,7 +241,8 @@ state just because some unrelated axis exists in the layout."
                                       (%sort-variants entries layout ordered))
                               :effects (%normalize-effects (candidate-effects candidate) layout)
                               :context-axes ordered
-                              :context-policy (candidate-context-policy candidate))))
+                              :context-policy (candidate-context-policy candidate)
+                              :effect-start (candidate-effect-start candidate))))
            (sort (copy-list (interaction-candidates interaction)) #'identifier<
                  :key #'candidate-name))))
 

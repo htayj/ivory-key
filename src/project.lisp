@@ -544,6 +544,7 @@ reliably distinguishable on every supported host.
          (topology-clause (find "uses-topology" clauses :test #'string=
                                 :key #'%form-name))
          (placements nil)
+         (position-coverage nil)
          (backend-mappings nil)
          (reserved-carriers nil)
          (seen-positions (make-hash-table :test #'equal))
@@ -579,24 +580,52 @@ reliably distinguishable on every supported host.
                (%fail context :unknown-device-position
                       "Device ~A places unknown topology position ~A." name position-name))
              (when (gethash position-name seen-positions)
-               (%fail context :duplicate-device-placement
-                      "Device ~A places position ~A more than once." name position-name))
+               (%fail context :duplicate-device-position-coverage
+                      "Device ~A declares coverage for position ~A more than once."
+                      name position-name))
              (setf (gethash position-name seen-positions) t)
              (%require-known-options context options '("xkb" "kanata") "PLACE")
              (let ((xkb (%device-backend-code context options "xkb" position-name name))
                    (kanata (%device-backend-code context options "kanata" position-name name)))
+               ;; The model has one opaque physical input per logical
+               ;; position.  The additional Kanata spelling is realization
+               ;; metadata consumed by the compiler bridge, never a second
+               ;; physical mapping for coverage validation.
                (dolist (entry (list (cons (format nil "xkb:~A" xkb) position)
                                     (cons (format nil "kanata:~A" kanata) position)))
                  (when (gethash (car entry) seen-physical)
                    (%fail context :duplicate-physical-placement
                           "Device ~A reuses physical input ~A." name (car entry)))
-                 (setf (gethash (car entry) seen-physical) t)
-                 (push entry placements))
-               (push (cons position-name (list :xkb xkb :kanata kanata)) backend-mappings))))
+                 (setf (gethash (car entry) seen-physical) t))
+               (push (cons (format nil "xkb:~A" xkb) position) placements)
+               (push (cons position-name (list :xkb xkb :kanata kanata)) backend-mappings)
+               (push (ivory-key.model:make-device-position-coverage position :physical)
+                     position-coverage))))
+          ((%named-form-p clause "unreachable")
+           (let* ((unreachable-children
+                    (%form-children context clause 2 2 "UNREACHABLE declaration"))
+                  (position-name
+                    (%identifier-node-name context (second unreachable-children)
+                                           "Unreachable logical position"))
+                  (position (ensure-identifier position-name)))
+             (unless (find-position position topology)
+               (%fail context :unknown-device-position
+                      "Device ~A marks unknown topology position ~A unreachable."
+                      name position-name))
+             (when (gethash position-name seen-positions)
+               (%fail context :duplicate-device-position-coverage
+                      "Device ~A declares coverage for position ~A more than once."
+                      name position-name))
+             (setf (gethash position-name seen-positions) t)
+             (push (ivory-key.model:make-device-position-coverage position :unreachable)
+                   position-coverage)))
           (t (%fail context :unknown-device-clause
                     "Device ~A has unsupported clause ~S." name (%form-name clause)))))
       (make-device-placement
        name topology (sort placements #'string< :key #'car)
+       :position-coverage
+       (sort position-coverage #'identifier<
+             :key #'ivory-key.model:device-position-coverage-position)
        :metadata (list :backend-mappings
                        (sort backend-mappings #'string< :key #'car)
                        :reserved-carriers (sort (remove-duplicates reserved-carriers) #'<))))))

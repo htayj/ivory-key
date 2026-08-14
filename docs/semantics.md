@@ -64,14 +64,28 @@ arbitration policy.
 The model's pattern algebra includes ordered and unordered composition,
 alternatives, duration bounds, deadlines, bounded proximity, overlap, absence
 between explicit boundaries, bounded repetition, captures, and context tests.
-Candidate effects have separate entry, commit, while-active, exit, and
-cancellation lists. Validation rejects irreversible output in speculative
-entry/while effects.  Source `hold-modifier` and `hold-axis-state` are valid
+The currently executable capture subset is one lexical, immutable binding in
+`(sequence (down P) (capture NAME (down SELECTOR)) (up (captured NAME)))` in a
+candidate match. The final `up` therefore denotes the same physical position
+as the first captured `down`; rebinding, nesting, alternatives, and unordered
+capture forms are refused. This does not yet assign replay, ordinary-binding
+suppression, or same-frontier ordering semantics. Candidate effects have
+separate entry, commit, while-active, exit, and cancellation lists, plus an
+explicit start policy: `on-match` is the existing speculative default, while
+`on-commit` starts effects only for the winning committed candidate. Validation
+rejects irreversible output in speculative entry/while effects. Source
+`hold-modifier` and `hold-axis-state` are valid
 only in `:while`; each effect owns and automatically releases its own semantic
 contribution at normal exit or cancellation.  Identical concurrent holders
 remain effective until the final owner leaves.  Direct `set-axis-state` is a
 separate base-state transition, overlaid while an axis hold remains active;
 conflicting held states for one axis are refused.
+
+For an `on-commit` effect, a participant release while its candidate is still
+viable is terminal cancellation: it cannot later commit on an unrelated event
+and acquire a zero-lifetime or stuck hold. A generated deadline remains ordered
+before a physical release at the same timestamp, so a deadline that commits at
+that boundary enters and exits normally.
 
 Context is dependency-scoped. A candidate normally captures the axes it
 consults at its anchor-down point; an explicit commit-time policy also exists
@@ -95,7 +109,10 @@ canonical source pattern, candidate transition, commit point, and responsible
 lifecycle effect. Ordinary committed behavior is explicitly marked
 `candidate-do`; entry, exit, and cancellation actions identify the effect and
 its lifecycle phase. A final held effect is therefore justified by its recorded
-entry transition rather than an inferred host-state mutation.
+entry transition rather than an inferred host-state mutation. When the finite
+capture subset is used, the trace also records the canonical captured name,
+physical position, and source-event index; it never serializes an event or
+pattern host object.
 
 The adapter applies already-normalized sparse overlays by declared precedence,
 with transparent fall-through to lower patches and then the base binding. Patch

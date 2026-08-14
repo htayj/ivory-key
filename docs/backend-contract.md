@@ -159,7 +159,12 @@ sibling directory derived from an exclusive random reservation, verifies the
 physical parent and temporary contents, refuses an existing target, and
 includes a deterministic generated-output contract. `manifest.json` records
 the language/compiler versions, selected declarations, relocatable source
-identities and SHA-256 hashes, backend artifact hashes, and fidelity grades.
+identities and SHA-256 hashes, backend artifact hashes, fidelity grades, and
+the closed per-topology-position `input_coverage` disposition (`physical` or
+`unreachable`). A missing coverage record is an exact-lowering refusal, never
+an implied unreachable position. This shape is generated-contract schema
+version 2; virtual backend carriers remain separate allocations, not input
+coverage.
 `allocations.json`, `source-map.json`, and `REPORT.md` expose the current empty
 or direct mappings without inventing carrier allocations or validation
 evidence. Header-only imported project modules are included, physical checkout

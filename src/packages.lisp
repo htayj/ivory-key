@@ -136,6 +136,12 @@
    #:topology-metadata #:find-position
    #:device-placement #:make-device-placement #:placement-name
    #:placement-topology #:placement-mappings #:placement-metadata
+   #:device-position-coverage #:make-device-position-coverage
+   #:device-position-coverage-position #:device-position-coverage-disposition
+   #:+device-position-coverage-dispositions+
+   #:placement-position-coverage #:placement-coverage-for-position
+   #:placement-missing-coverage-positions #:placement-coverage-complete-p
+   #:validate-device-placement-coverage
    ;; Behaviors and bindings.
    #:behavior #:behavior-axis-dependencies #:behavior-children
    #:text-output #:make-text-output #:output-text
@@ -184,7 +190,8 @@
    ;; Timed interaction model.
    #:position-selector #:make-position-selector #:position-selector-kind
    #:position-selector-positions #:any-position-selector
-   #:other-than-selector #:temporal-pattern #:make-temporal-pattern
+   #:other-than-selector #:captured-position-selector
+   #:temporal-pattern #:make-temporal-pattern
    #:temporal-pattern-kind #:temporal-pattern-arguments
    #:temporal-pattern-options #:temporal-pattern-option
    #:pattern-down #:pattern-up #:pattern-sequence #:pattern-all
@@ -199,7 +206,7 @@
    #:interaction-effects-behaviors #:interaction-candidate
    #:make-interaction-candidate #:candidate-name #:candidate-match
    #:candidate-commit #:candidate-behavior #:candidate-effects
-   #:candidate-context-axes #:candidate-context-policy
+   #:candidate-context-axes #:candidate-context-policy #:candidate-effect-start
    #:candidate-axis-dependencies #:interaction #:make-interaction
    #:interaction-name #:interaction-participants #:interaction-observe
    #:interaction-anchor #:interaction-candidates #:interaction-arbitration
@@ -243,7 +250,8 @@
    #:normalized-candidate-name #:normalized-candidate-match
    #:normalized-candidate-commit #:normalized-candidate-entries
    #:normalized-candidate-effects #:normalized-candidate-context-axes
-   #:normalized-candidate-context-policy #:normalize-layout
+   #:normalized-candidate-context-policy #:normalized-candidate-effect-start
+   #:normalize-layout
    #:normalized-binding-entry-for-context
    #:normalized-layout-binding-for-context #:normalized-layout-key
    ;; Backend-independent realization intent.

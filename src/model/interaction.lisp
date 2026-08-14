@@ -27,7 +27,7 @@
   positions)
 
 (defun make-position-selector (kind &rest positions)
-  (unless (member kind '(:position :any-position :other-than))
+  (unless (member kind '(:position :any-position :other-than :captured))
     (error "Unknown position-selector kind ~S." kind))
   (%make-position-selector kind (mapcar #'%interaction-identifier-or-parameter positions)))
 
@@ -39,6 +39,14 @@
 
 (defun other-than-selector (&rest positions)
   (apply #'make-position-selector :other-than positions))
+
+(defun captured-position-selector (name)
+  "Refer to NAME's earlier CAPTURE binding in the same finite candidate slice.
+
+The selector remains declarative: it names neither an event object nor a host
+callback.  Validation decides whether NAME is lexically available and whether
+the surrounding capture shape is one the reference machine can execute."
+  (make-position-selector :captured name))
 
 (defstruct (temporal-pattern
             (:constructor %make-temporal-pattern (kind arguments options))
@@ -185,19 +193,28 @@ owning effect exits or is cancelled."
    (context-axes :initarg :context-axes :initform nil :reader candidate-context-axes)
    (context-policy :initarg :context-policy :initform :anchor-down
                    :reader candidate-context-policy)
+   ;; :ON-MATCH preserves the original speculative effect timing.  :ON-COMMIT
+   ;; is the explicit non-speculative variant for a candidate whose held
+   ;; effect must not acquire until arbitration has selected the commitment.
+   (effect-start :initarg :effect-start :initform :on-match
+                 :reader candidate-effect-start)
    (metadata :initarg :metadata :initform nil :reader candidate-metadata)))
 
 (defun make-interaction-candidate (name match commit behavior
                                     &key effects context-axes
-                                      (context-policy :anchor-down) metadata)
+                                      (context-policy :anchor-down)
+                                        (effect-start :on-match) metadata)
   "Create a candidate with an explicit match, commitment, behavior, lifecycle."
   (unless (member context-policy '(:anchor-down :commit))
     (error "Unknown context observation policy ~S." context-policy))
+  (unless (member effect-start '(:on-match :on-commit))
+    (error "Unknown candidate effect start policy ~S." effect-start))
   (make-instance 'interaction-candidate
                  :name (ensure-identifier name) :match match :commit commit
                  :behavior behavior :effects (or effects (make-interaction-effects))
                  :context-axes (and context-axes (copy-identifier-list context-axes))
-                 :context-policy context-policy :metadata metadata))
+                 :context-policy context-policy :effect-start effect-start
+                 :metadata metadata))
 
 (defun candidate-axis-dependencies (candidate)
   "The exact dependency scope for a candidate's captured context."
@@ -278,3 +295,51 @@ finite merely because it happens to be represented by a small Lisp object."
                            (or (null minimum) (null maximum) (< minimum maximum)))))
          (otherwise t))
        (every #'temporal-pattern-finite-p (temporal-pattern-children pattern))))
+
+(defun %captured-position-selector-p (selector)
+  (and (typep selector 'position-selector)
+       (eq (position-selector-kind selector) :captured)))
+
+(defun temporal-pattern-capture-feature-p (pattern)
+  "Whether PATTERN contains a CAPTURE binding or CAPTURED selector reference."
+  (and (typep pattern 'temporal-pattern)
+       (or (eq (temporal-pattern-kind pattern) :capture)
+           (some #'%captured-position-selector-p
+                 (temporal-pattern-position-selectors pattern)))))
+
+(defun %direct-event-pattern-p (pattern kind &key captured-name)
+  (and (typep pattern 'temporal-pattern)
+       (eq (temporal-pattern-kind pattern) kind)
+       (= (length (temporal-pattern-arguments pattern)) 1)
+       (let ((selector (first (temporal-pattern-arguments pattern))))
+         (if captured-name
+             (and (%captured-position-selector-p selector)
+                  (= (length (position-selector-positions selector)) 1)
+                  (identifier= (first (position-selector-positions selector))
+                               captured-name))
+             (and (typep selector 'position-selector)
+                  (not (%captured-position-selector-p selector)))))))
+
+(defun temporal-pattern-capture-slice-p (pattern)
+  "Recognize the first executable capture slice.
+
+The reference simulator presently admits one immutable binding only in the
+three-event sequence DOWN, CAPTURE(DOWN), UP(CAPTURED).  This deliberately
+excludes nested, repeated, unordered, and alternative capture forms until
+their binding search and cancellation semantics have been specified."
+  (and (typep pattern 'temporal-pattern)
+       (eq (temporal-pattern-kind pattern) :sequence)
+       (= (length (temporal-pattern-arguments pattern)) 3)
+       (let* ((children (temporal-pattern-arguments pattern))
+              (first (first children))
+              (capture (second children))
+              (last (third children)))
+         (and (%direct-event-pattern-p first :down)
+              (typep capture 'temporal-pattern)
+              (eq (temporal-pattern-kind capture) :capture)
+              (= (length (temporal-pattern-arguments capture)) 2)
+              (let ((name (first (temporal-pattern-arguments capture)))
+                    (captured-pattern (second (temporal-pattern-arguments capture))))
+                (and (typep name 'identifier)
+                     (%direct-event-pattern-p captured-pattern :down)
+                     (%direct-event-pattern-p last :up :captured-name name)))))))

@@ -258,8 +258,8 @@ loop.  Arbitrary objects are not a deterministic public dump vocabulary.
 "
   (let ((active (make-hash-table :test #'eq)))
     (labels ((safe-p (object)
-               (cond ((or (null object) (stringp object) (integerp object)
-                          (keywordp object))
+               (cond ((or (null object) (eq object t) (stringp object)
+                          (integerp object) (keywordp object))
                       t)
                      ((consp object)
                       (unless (gethash object active)

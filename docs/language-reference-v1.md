@@ -224,7 +224,8 @@ an explicit commitment boundary:
     [(:commit-effect behavior ...)]
     [(:while behavior ...)]
     [(:exit behavior ...)]
-    [(:cancel behavior ...)]) ...)
+    [(:cancel behavior ...)]
+    [(:effect-start on-match|on-commit)]) ...)
 ```
 
 The historical direct one-candidate spelling is also implemented:
@@ -246,6 +247,18 @@ candidate has no ordinary output.  The default observation scope is
 explicit source anchor is accepted by the
 model, but the current reference adapter can prove it only for a single
 participant whose anchor is that participant; other anchor cases are refused.
+
+`effect-start` defaults to `on-match`, preserving the original lifecycle
+timing: a candidate's effects may begin as soon as its match is viable.  With
+`on-commit`, effects begin only after that candidate wins and commits; they do
+not acquire a held resource from a merely viable interpretation.  In the
+current reference adapter, an effect still has one participant and exits on
+that participant's `up`. If that `up` occurs while an `on-commit` candidate is
+still viable, it is terminal cancellation rather than a later zero-lifetime
+effect acquisition; a subsequent foreign event cannot revive or commit it.
+Generated deadlines still precede an equal-time physical `up`, so a deadline
+that commits first enters and then exits normally. Unsupported lifetime shapes
+are refused.
 
 ### 2.1 Input events and time
 
@@ -325,8 +338,9 @@ These source patterns decode into a finite normalized pattern tree:
 (context-is axis state)
 ```
 
-`position-selector` is a position identifier, `(other-than position ...)`, or
-`(any-position)`.  `all`, `either`, and `and` are unordered finite predicates:
+`position-selector` is a position identifier, `(other-than position ...)`,
+`(any-position)`, or the lexical capture reference `(captured identifier)`.
+`all`, `either`, and `and` are unordered finite predicates:
 all children must match for `all`/`and`; any child may match for `either`.
 `first` is source shorthand for `either`, not a separate clock rule.  In a
 commit point such as `(first (up i) (up o))`, it becomes ready when either
@@ -346,9 +360,25 @@ marked `occurrence`; `within` has exactly two of them.  Composite nesting in
 those occurrence slots decodes but is explicitly refused by the simulator,
 rather than receiving speculative temporal meaning.
 
-`capture` and `context-is` are **decoded, but refused by the reference
-adapter** because it has no capture store or runtime context predicate.  They
-are not available to a layout that claims current simulator conformance.
+The first executable capture slice is deliberately smaller than the general
+decoded pattern algebra:
+
+```lisp
+(sequence
+  (down position-selector)
+  (capture name (down position-selector))
+  (up (captured name)))
+```
+
+It may occur only as a candidate's `:match`. `name` is an immutable lexical
+binding to the first matching physical `down` for that candidate, and the
+closing `up` must be for that same position. A capture name cannot be rebound,
+and unbound references, nested captures, repeated captures, alternatives, and
+unordered capture arrangements are rejected. This rule makes the captured
+foreign-key identity explicit without assigning replay, ordinary-binding
+suppression, or same-frontier ordering semantics. `context-is` remains decoded
+but refused by the reference adapter because it has no runtime context
+predicate.
 
 **P-TIME-UNITS-01 — literal durations.**  The current source vocabulary uses
 literal integer milliseconds.  `(deadline 200 :after (down a))` and `(within

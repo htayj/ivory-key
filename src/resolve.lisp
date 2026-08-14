@@ -178,10 +178,16 @@ reads nor evaluates source text.
     (resolve* value nil)))
 
 (defun %resolve-position-selector (selector environment)
-  (apply #'make-position-selector (position-selector-kind selector)
-         (mapcar (lambda (position)
-                   (%interaction-template-value position environment))
-                 (position-selector-positions selector))))
+  ;; Capture names are candidate-local lexical bindings, never
+  ;; interaction-template arguments.  Resolving one through ENV would allow a
+  ;; template position parameter to rename a local capture accidentally.
+  (if (eq (position-selector-kind selector) :captured)
+      (apply #'make-position-selector :captured
+             (position-selector-positions selector))
+      (apply #'make-position-selector (position-selector-kind selector)
+             (mapcar (lambda (position)
+                       (%interaction-template-value position environment))
+                     (position-selector-positions selector)))))
 
 (defun %resolve-temporal-pattern (pattern environment)
   (labels ((resolve-value (value)
@@ -225,6 +231,7 @@ reads nor evaluates source text.
      :effects (resolve-effects (candidate-effects candidate))
      :context-axes (candidate-context-axes candidate)
      :context-policy (candidate-context-policy candidate)
+     :effect-start (candidate-effect-start candidate)
      :metadata (candidate-metadata candidate))))
 
 (defun resolve-interaction (interaction layout &key environment)
@@ -829,6 +836,12 @@ argument slot.
         ((and (consp value) (string= (%form-name value) "any-position"))
          (%require-form-arity value 1 1 :malformed-position-selector "ANY-POSITION selector")
          (any-position-selector))
+        ((and (consp value) (string= (%form-name value) "captured"))
+         (%require-form-arity value 2 2 :malformed-position-selector "CAPTURED selector")
+         ;; CAPTURED names a lexical pattern binding, not a template argument
+         ;; or topology position.  The semantic validator proves scope.
+         (captured-position-selector
+          (%require-identifier (second value) "CAPTURED name")))
         ((consp value)
          (%resolution-error :unknown-position-selector
                             "Unknown position selector ~S." (%form-name value)))
@@ -953,11 +966,13 @@ argument slot.
         nil)))
 
 (defun %decode-candidate (name options product-axes template-names &key parameters)
-  (%assert-known-forms options '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel")
+  (%assert-known-forms options '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel"
+                                "effect-start")
                        "interaction candidate option")
   (let* ((match-form (%single-form options "match" "interaction candidate" :required t))
          (commit-form (%single-form options "commit" "interaction candidate" :required t))
-         (do-form (%single-form options "do" "interaction candidate" :required t)))
+         (do-form (%single-form options "do" "interaction candidate" :required t))
+         (effect-start-form (%single-form options "effect-start" "interaction candidate")))
     (dolist (option (list match-form commit-form do-form))
       (%require-form-arity option 2 2 :malformed-interaction-case "interaction candidate option"))
     (make-interaction-candidate
@@ -970,7 +985,16 @@ argument slot.
                :commit (%decode-effect-option options "commit-effect" product-axes template-names)
                :while (%decode-effect-option options "while" product-axes template-names)
                :exit (%decode-effect-option options "exit" product-axes template-names)
-               :cancel (%decode-effect-option options "cancel" product-axes template-names)))))
+               :cancel (%decode-effect-option options "cancel" product-axes template-names))
+     :effect-start
+     (cond ((null effect-start-form) :on-match)
+           (t (%require-form-arity effect-start-form 2 2 :malformed-effect-start
+                                   "EFFECT-START option")
+              (cond ((string= (second effect-start-form) "on-match") :on-match)
+                    ((string= (second effect-start-form) "on-commit") :on-commit)
+                    (t (%resolution-error :unknown-effect-start
+                                          "Unknown EFFECT-START policy ~S."
+                                          (second effect-start-form)))))))))
 
 (defun %decode-arbitration (form)
   (when form
@@ -999,7 +1023,8 @@ argument slot.
   (let* ((name (%require-identifier (second form) "Interaction name"))
          (clauses (cddr form))
          (case-forms (%forms-named clauses "case"))
-         (direct-option-names '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel"))
+         (direct-option-names '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel"
+                               "effect-start"))
          (direct-options (remove-if-not (lambda (clause)
                                           (member (%form-name clause) direct-option-names
                                                   :test #'string=)) clauses))

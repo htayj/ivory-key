@@ -33,7 +33,8 @@
   normalized)
 
 (defstruct (compiler-placement
-            (:constructor %make-compiler-placement (name topology mappings)))
+            (:constructor %make-compiler-placement
+                (name topology mappings &optional position-coverage)))
   "A narrow, non-semantic device view used only at the lowering boundary.
 
 MAPPINGS is a canonical list of (logical-position . plist) pairs.  The plist
@@ -43,6 +44,9 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
   name
   topology
   mappings
+  ;; Typed MODEL:DEVICE-POSITION-COVERAGE records.  NIL means coverage was not
+  ;; supplied; it is deliberately not inferred from MAPPINGS.
+  (position-coverage nil)
   ;; Device-reserved Linux carrier codes are not semantic layout data.  A
   ;; realization may use one only when its profile vocabulary spells the
   ;; exact evidenced carrier action; every other lowering treats this
@@ -236,6 +240,12 @@ list.
   (unless (typep device 'ivory-key.model:device-placement)
     (%stage-error :decode :invalid-project-device
                   "Project composition device is not a model device placement."))
+  (handler-case
+      (ivory-key.model:validate-device-placement-coverage device)
+    (ivory-key.model:semantic-error (condition)
+      (%stage-error :decode (ivory-key.model:semantic-error-code condition)
+                    "Invalid project device coverage: ~A"
+                    (ivory-key.model:semantic-error-message condition))))
   (let ((mappings
           (%project-metadata-value
            (ivory-key.model:placement-metadata device) :backend-mappings
@@ -275,7 +285,9 @@ list.
                (ivory-key.model:identifier-name
                 (ivory-key.model:topology-name
                  (ivory-key.model:placement-topology device)))
-               (sort converted #'string< :key #'car))))
+               (sort converted #'string< :key #'car)
+               (copy-list
+                (ivory-key.model:placement-position-coverage device)))))
         (let ((reserved
                 (%project-metadata-value
                  (ivory-key.model:placement-metadata device) :reserved-carriers
@@ -437,6 +449,8 @@ input and are not silently consumed here.
                         (%identifier-string (second topology-form) :decode
                                             "Device topology name")))
          (mappings nil)
+         (position-coverage nil)
+         (seen-positions (make-hash-table :test #'equal))
          (reserved-carriers nil))
     (unless topology
       (%stage-error :decode :missing-device-topology
@@ -452,18 +466,38 @@ input and are not silently consumed here.
             ((%named-form-p clause "place")
              (let ((position (%identifier-string (second clause) :decode
                                                  "Placed logical position")))
-               (when (assoc position mappings :test #'string=)
-                 (%stage-error :decode :duplicate-device-placement
-                               "Device ~A places logical position ~A more than once."
+               (when (gethash position seen-positions)
+                 (%stage-error :decode :duplicate-device-position-coverage
+                               "Device ~A declares coverage for logical position ~A more than once."
                                name position))
+               (setf (gethash position seen-positions) t)
                (push (cons position
                            (list :xkb (%backend-option (cddr clause) "xkb" position name)
                                  :kanata (%backend-option (cddr clause) "kanata" position name)))
-                     mappings)))
+                     mappings)
+               (push (ivory-key.model:make-device-position-coverage
+                      position :physical)
+                     position-coverage)))
+            ((%named-form-p clause "unreachable")
+             (unless (= (length clause) 2)
+               (%stage-error :decode :invalid-device-coverage
+                             "Device ~A UNREACHABLE declarations need one position." name))
+             (let ((position (%identifier-string (second clause) :decode
+                                                 "Unreachable logical position")))
+               (when (gethash position seen-positions)
+                 (%stage-error :decode :duplicate-device-position-coverage
+                               "Device ~A declares coverage for logical position ~A more than once."
+                               name position))
+               (setf (gethash position seen-positions) t)
+               (push (ivory-key.model:make-device-position-coverage
+                      position :unreachable)
+                     position-coverage)))
             (t (%stage-error :decode :unknown-device-clause
                              "Device ~A has unsupported clause ~S." name clause))))
     (let ((placement (%make-compiler-placement name topology
-                                                 (sort mappings #'string< :key #'car))))
+                                                 (sort mappings #'string< :key #'car)
+                                                 (sort position-coverage #'ivory-key.model:identifier<
+                                                       :key #'ivory-key.model:device-position-coverage-position))))
       (setf (compiler-placement-reserved-carriers placement)
             (sort (remove-duplicates reserved-carriers :test #'=) #'<))
       placement)))
@@ -641,6 +675,130 @@ both paths construct the one public MODEL policy value.
   (cdr (find position (compiler-placement-mappings placement)
              :test #'ivory-key.model:identifier=
              :key #'car)))
+
+(defun %placement-coverage-disposition-for-position (placement position)
+  "Return POSITION's declared coverage disposition, NIL, or :INVALID.
+
+This compiler envelope may be built from a direct device file, so topology
+membership is checked against the normalized layout below.  It nevertheless
+requires typed, single-valued model records: physical mappings are never used
+as an implicit coverage declaration.
+"
+  (let ((records
+          (remove-if-not
+           (lambda (coverage)
+             (and (typep coverage 'ivory-key.model:device-position-coverage)
+                  (ivory-key.model:identifier=
+                   position
+                   (ivory-key.model:device-position-coverage-position coverage))))
+           (compiler-placement-position-coverage placement))))
+    (cond ((null records) nil)
+          ((rest records) :invalid)
+          (t (let ((disposition
+                     (ivory-key.model:device-position-coverage-disposition
+                      (first records))))
+               (if (member disposition '(:physical :unreachable) :test #'eq)
+                   disposition
+                   :invalid))))))
+
+(defun %input-coverage-records (normalized placement)
+  "Return deterministic, inspectable coverage records for a compiler request.
+
+NIL (missing) and :INVALID states can occur only on a refused inspection
+request.  Generated contracts receive this metadata only after the final
+exact gate, where records are therefore restricted to the two public model
+dispositions.
+"
+  (sort
+   (mapcar (lambda (position)
+             (let ((name (ivory-key.model:identifier-name
+                          (ivory-key.model:position-name position))))
+               (list :position name :disposition
+                     (%placement-coverage-disposition-for-position placement name))))
+           (ivory-key.model:topology-positions
+            (ivory-key.model:normalized-layout-topology normalized)))
+   #'string< :key (lambda (record) (getf record :position))))
+
+(defun %coverage-disposition-name (disposition)
+  (if (member disposition '(:physical :unreachable) :test #'eq)
+      (string-downcase (symbol-name disposition))
+      "missing-or-invalid"))
+
+(defun %coverage-fidelity-issue (placement position &key require-mapping)
+  "Return one precise coverage blocker for POSITION, or NIL.
+
+REQUIRE-MAPPING is true for an ordinary binding or interaction participant.
+An unused :UNREACHABLE topology position is a complete device declaration and
+does not itself lower a semantic behavior.
+"
+  (let* ((feature (ivory-key.model:identifier-name position))
+         (disposition (%placement-coverage-disposition-for-position placement position)))
+    (cond ((null disposition)
+           (%make-compiler-fidelity-issue
+            feature :missing-device-coverage
+            "No physical/unreachable coverage declaration is present for this topology position."))
+          ((eq disposition :invalid)
+           (%make-compiler-fidelity-issue
+            feature :invalid-device-coverage
+            "Device coverage for this topology position is malformed or conflicting."))
+          ((and require-mapping (eq disposition :unreachable))
+           (%make-compiler-fidelity-issue
+            feature :unreachable-device-position
+            "A real semantic binding or interaction participant is declared on an unreachable device position."))
+          ((and require-mapping (eq disposition :physical)
+                (null (%placement-for-position placement position)))
+           (%make-compiler-fidelity-issue
+            feature :physical-device-coverage-without-placement
+            "The position is declared physical but has no XKB/Kanata placement.")))))
+
+(defun %coverage-declaration-issues (normalized placement)
+  "Validate compiler-envelope records against NORMALIZED's actual topology.
+
+Direct device decoding intentionally does not load a topology file.  This is
+the one point where its typed declarations can be checked against the selected
+layout without reparsing or inferring any reachability.
+"
+  (let ((positions
+          (ivory-key.model:topology-positions
+           (ivory-key.model:normalized-layout-topology normalized)))
+        (seen (make-hash-table :test #'equal))
+        (issues nil))
+    (dolist (coverage (compiler-placement-position-coverage placement))
+      (cond ((not (typep coverage 'ivory-key.model:device-position-coverage))
+             (push (%make-compiler-fidelity-issue
+                    :device :invalid-device-coverage
+                    "Device coverage contains a non-model record.")
+                   issues))
+            (t
+             (let* ((position
+                      (ivory-key.model:device-position-coverage-position coverage))
+                    (name (ivory-key.model:identifier-name position)))
+               (cond ((gethash name seen)
+                      (push (%make-compiler-fidelity-issue
+                             name :duplicate-device-position-coverage
+                             "Device coverage declares this topology position more than once.")
+                            issues))
+                     ((not (find position positions
+                                 :key #'ivory-key.model:position-name
+                                 :test #'ivory-key.model:identifier=))
+                      (push (%make-compiler-fidelity-issue
+                             name :unknown-device-coverage-position
+                             "Device coverage names a position absent from the selected topology.")
+                            issues)))
+               (setf (gethash name seen) t)))))
+    issues))
+
+(defun %push-fidelity-issue-once (issue issues)
+  "Preserve one deterministic coverage diagnostic per feature/code pair."
+  (if (or (null issue)
+          (find issue issues
+                :test (lambda (left right)
+                        (and (eq (compiler-fidelity-issue-code left)
+                                 (compiler-fidelity-issue-code right))
+                             (string= (compiler-fidelity-issue-feature left)
+                                      (compiler-fidelity-issue-feature right))))))
+      issues
+      (cons issue issues)))
 
 ;;; Fidelity analysis and lowering ------------------------------------------
 
@@ -938,6 +1096,20 @@ compile gate.
                      (%layout-topology-name normalized)
                      (compiler-placement-topology placement)))
             issues))
+    (dolist (issue (%coverage-declaration-issues normalized placement))
+      (setf issues (%push-fidelity-issue-once issue issues)))
+    ;; A selected project composition is structurally complete only when its
+    ;; device states how every topology position is covered.  Do this before
+    ;; binding lowering so a position omitted from both device mapping and
+    ;; layout binding remains an explicit evidence gap rather than silently
+    ;; disappearing from the composition.
+    (dolist (position (ivory-key.model:topology-positions
+                       (ivory-key.model:normalized-layout-topology normalized)))
+      (setf issues
+            (%push-fidelity-issue-once
+             (%coverage-fidelity-issue placement
+                                       (ivory-key.model:position-name position))
+             issues)))
     (when (ivory-key.model:modifier-set-members
            (ivory-key.model:normalized-layout-modifiers normalized))
       (push (%make-compiler-fidelity-issue
@@ -945,6 +1117,15 @@ compile gate.
              "The bootstrap pipeline has no modifier allocation or consumed-modifier plan.")
             issues))
     (dolist (interaction (ivory-key.model:normalized-layout-interactions normalized))
+      ;; Participants are physical inputs even if their behavior is mediated
+      ;; by a timed interaction rather than an ordinary binding.  Do not let
+      ;; the generic interaction refusal conceal missing/unreachable coverage.
+      (dolist (participant
+               (ivory-key.model:normalized-interaction-participants interaction))
+        (setf issues
+              (%push-fidelity-issue-once
+               (%coverage-fidelity-issue placement participant :require-mapping t)
+               issues)))
       (push (%make-compiler-fidelity-issue
              (ivory-key.model:identifier-name
               (ivory-key.model:normalized-interaction-name interaction))
@@ -983,8 +1164,12 @@ compile gate.
       (let* ((position (ivory-key.model:normalized-binding-position binding))
              (feature (ivory-key.model:identifier-name position))
              (placement-entry (%placement-for-position placement position))
+             (coverage-issue
+               (%coverage-fidelity-issue placement position :require-mapping t))
              (entries-for-binding (ivory-key.model:normalized-binding-entries binding)))
         (cond
+          (coverage-issue
+           (setf issues (%push-fidelity-issue-once coverage-issue issues)))
           ((null placement-entry)
            (push (%make-compiler-fidelity-issue
                   feature :missing-device-placement
@@ -1040,6 +1225,8 @@ compile gate.
                              :metadata
                              (list :xkb-carrier-entries xkb-carrier-entries
                                    :selector-policy selector-policy
+                                   :input-coverage
+                                   (%input-coverage-records normalized placement)
                                    :kanata-source-order
                                    (mapcar (lambda (mapping)
                                              (cons (car mapping) (getf (cdr mapping) :kanata)))
@@ -1087,7 +1274,7 @@ compile gate.
 
 ;;; Deterministic inspection -------------------------------------------------
 
-(defun %planner-placement-from-compiler-placement (placement)
+(defun %planner-placement-from-compiler-placement (placement topology)
   "Project the bootstrap device envelope into the planner's one-to-one view.
 
 The compiler envelope deliberately preserves both XKB and Kanata spellings for
@@ -1117,11 +1304,15 @@ emitter request.
               mappings)))
     (ivory-key.model:make-device-placement
      (compiler-placement-name placement)
-     ;; The planner only compares topology identities.  Do not borrow the
-     ;; layout's topology object here: doing so would conceal a mismatched
-     ;; compiler-placement topology from its explicit planner refusal.
-     (ivory-key.model:make-topology (compiler-placement-topology placement) nil)
-     (sort mappings #'string< :key #'car))))
+     ;; Keep the normalized topology's positions for coverage inspection, but
+     ;; retain the device-declared topology identity so the planner still
+     ;; exposes a topology mismatch rather than borrowing it away.
+     (ivory-key.model:make-topology
+      (compiler-placement-topology placement)
+      (ivory-key.model:topology-positions topology))
+     (sort mappings #'string< :key #'car)
+     :position-coverage
+     (copy-list (compiler-placement-position-coverage placement)))))
 
 (defun %plan-normalized-layout-for-inspection (normalized placement)
   "Return a target-neutral capability plan or its structured refusal.
@@ -1133,11 +1324,22 @@ modifiers, named symbols, commands, or interactions.
   (handler-case
       (values
        (ivory-key.backend:plan-normalized-layout
-        normalized (%planner-placement-from-compiler-placement placement)
+        normalized
+        (%planner-placement-from-compiler-placement
+         placement (ivory-key.model:normalized-layout-topology normalized))
         :backends (list (ivory-key.backend:make-xkb-backend)))
        nil)
     (ivory-key.backend:planner-refusal (condition)
-      (values nil condition))))
+      (values nil condition))
+    (ivory-key.model:semantic-error (condition)
+      ;; Direct device inspection can surface an unknown coverage position
+      ;; only after the selected layout supplies a topology.  Present it as a
+      ;; planner disposition instead of leaking a model condition through an
+      ;; explain-only API.
+      (values nil
+              (make-condition 'ivory-key.backend:planner-refusal
+                              :code (ivory-key.model:semantic-error-code condition)
+                              :detail (ivory-key.model:semantic-error-message condition))))))
 
 (defun %planner-inspection-name (value)
   (typecase value
@@ -1792,7 +1994,15 @@ identity.  No physical pathname or root ordering enters generated data.
                                       source-inputs)
   "Make one data-only output contract for the current exact direct pipeline."
   (let* ((normalized (compiler-unit-normalized unit))
-         (topology (ivory-key.model:normalized-layout-topology normalized)))
+         (topology (ivory-key.model:normalized-layout-topology normalized))
+         ;; This request reached a pipeline result only through the final
+         ;; no-issues compile gate.  The contract layer independently accepts
+         ;; only :PHYSICAL/:UNREACHABLE records, so an inspection-only missing
+         ;; state can never be published as successful build data.
+         (input-coverage
+           (getf (ivory-key.backend:lowering-request-metadata
+                  (ivory-key.backend:pipeline-result-request pipeline-result))
+                 :input-coverage)))
     (ivory-key.build-contract:make-build-contract
      :layout (ivory-key.model:identifier-name
               (ivory-key.model:normalized-layout-name normalized))
@@ -1801,6 +2011,7 @@ identity.  No physical pathname or root ordering enters generated data.
      :device (compiler-placement-name placement)
      :profile (compiler-realization-name realization)
      :source-hashes (%source-hash-records-for-pathnames source-inputs)
+     :input-coverage input-coverage
      :pipeline-result pipeline-result)))
 
 (defun compile-layout-source (layout-path &key topology-path device-path
@@ -1875,6 +2086,12 @@ timed interaction it cannot lower exactly.
                (ivory-key.model:normalized-layout-name (compiler-unit-normalized unit)))
               (compiler-placement-name placement)
               (compiler-realization-name realization))
+      (format stream "Input coverage:~%")
+      (dolist (record (%input-coverage-records
+                       (compiler-unit-normalized unit) placement))
+        (format stream "  ~A: ~A~%"
+                (getf record :position)
+                (%coverage-disposition-name (getf record :disposition))))
       (%write-planner-inspection stream plan planner-refusal)
       (if issues
           (progn

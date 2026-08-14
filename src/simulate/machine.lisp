@@ -154,7 +154,8 @@ from host iteration order."
 
 (defstruct (simulation-candidate
              (:constructor %make-simulation-candidate
-                 (&key id interaction case anchor-index context latch-snapshot deadlines)))
+                 (&key id interaction case anchor-index context latch-snapshot deadlines
+                       captures)))
   id
   interaction
   case
@@ -162,6 +163,10 @@ from host iteration order."
   context
   (latch-snapshot nil :type list)
   (deadlines nil :type list)
+  ;; Candidate-local immutable bindings created by the deliberately small
+  ;; CAPTURE pattern slice.  This is not a global pressed-key lookup: a later
+  ;; physical event cannot reassign a name once it has been captured.
+  (captures (make-hash-table :test #'equal))
   (status :viable :type keyword)
   (effect-state (make-hash-table :test #'eq))
   (claimed-event-indices nil :type list))
@@ -217,6 +222,12 @@ Only an active effect may own a held axis or modifier contribution.  Binding
 this dynamically keeps SIM-ACTION compact while preserving identity through
 callbacks selected from normalized behavior tables.")
 
+(defun canonical-pattern-position (position)
+  "Return POSITION in the closed deterministic pattern-dump vocabulary."
+  (if (captured-position-reference-p position)
+      (list :captured (second position))
+      position))
+
 (defun canonical-pattern-provenance (pattern)
   "Return a closed canonical representation of a compiled source PATTERN.
 
@@ -228,19 +239,24 @@ model-compiled IR."
     (ecase (event-pattern-kind pattern)
       (:event
        (list :event (event-pattern-event-kind pattern)
-             (event-pattern-position pattern)))
+             (canonical-pattern-position (event-pattern-position pattern))))
+      (:capture
+       (list :capture (event-pattern-capture-name pattern)
+             (canonical-pattern-provenance (first (event-pattern-children pattern)))))
       ((:sequence :all :either :and)
        (cons (event-pattern-kind pattern)
              (mapcar #'canonical-pattern-provenance
                      (event-pattern-children pattern))))
       (:duration
-       (list :duration (event-pattern-position pattern)
+       (list :duration (canonical-pattern-position (event-pattern-position pattern))
              :at-least (event-pattern-at-least pattern)
              :less-than (event-pattern-less-than pattern)))
       (:deadline
        (list :deadline (event-pattern-milliseconds pattern)
-             :after-position (event-pattern-after-position pattern)
-             :while-down (event-pattern-while-down pattern)))
+             :after-position (canonical-pattern-position
+                              (event-pattern-after-position pattern))
+             :while-down (canonical-pattern-position
+                          (event-pattern-while-down pattern))))
       (:within
        (list :within (event-pattern-milliseconds pattern)
              (canonical-pattern-provenance (first (event-pattern-children pattern)))
@@ -254,7 +270,7 @@ model-compiled IR."
                        ;; leave a host EVENT-PATTERN struct in provenance.
                        (if (typep child 'event-pattern)
                            (canonical-pattern-provenance child)
-                           (list :position child)))
+                           (list :position (canonical-pattern-position child))))
                      (event-pattern-children pattern))))
       (:without
        (list :without
@@ -282,12 +298,24 @@ model-compiled IR."
 SOURCE-PATTERN defaults to the candidate's match pattern.  Lifecycle callers
 substitute their ENTER-AT, EXIT-AT, or CANCEL-AT trigger.  RESPONSIBLE-EFFECT
 is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
-  (let ((case (simulation-candidate-case candidate)))
-    (list :source-pattern
-          (canonical-pattern-provenance (or source-pattern (sim-case-pattern case)))
-          :candidate-transition transition
-          :commit-point (candidate-commit-point-provenance candidate)
-          :responsible-effect responsible-effect)))
+  (let ((case (simulation-candidate-case candidate))
+        (bindings nil))
+    (maphash (lambda (name binding)
+               (push (list name
+                           :position (capture-binding-position binding)
+                           :down-index (capture-binding-down-index binding))
+                     bindings))
+             (simulation-candidate-captures candidate))
+    (let ((base
+            (list :source-pattern
+                  (canonical-pattern-provenance
+                   (or source-pattern (sim-case-pattern case)))
+                  :candidate-transition transition
+                  :commit-point (candidate-commit-point-provenance candidate)
+                  :responsible-effect responsible-effect)))
+      (if bindings
+          (append base (list :captures (sort bindings #'string< :key #'first)))
+          base))))
 
 (defun effect-provenance (effect phase)
   (list :effect (sim-effect-name effect) :phase phase))
@@ -513,7 +541,8 @@ release; intermediate releases only reduce ownership."
   (let ((events (simulator-event-vector machine)))
     (make-pattern-match-context :events events
                                 :start-index (simulation-candidate-anchor-index candidate)
-                                :anchor-index (simulation-candidate-anchor-index candidate))))
+                                :anchor-index (simulation-candidate-anchor-index candidate)
+                                :captures (simulation-candidate-captures candidate))))
 
 (defun candidate-all-deadline-patterns (case)
   (remove-duplicates
@@ -551,6 +580,7 @@ release; intermediate releases only reduce ownership."
                      :id id :interaction interaction :case case
                      :anchor-index anchor-index
                      :context (simulator-axes-alist machine)
+                     :captures (make-hash-table :test #'equal)
                      :latch-snapshot
                      (snapshot-latches machine
                                       (remove-duplicates
@@ -714,11 +744,18 @@ release; intermediate releases only reduce ownership."
                  :details reason
                  :provenance
                  (candidate-provenance
-                  candidate :cancelled
+                 candidate :cancelled
                   :source-pattern
-                  (if (eq reason :cancel-pattern)
-                      (sim-case-cancel-at (simulation-candidate-case candidate))
-                      (sim-case-pattern (simulation-candidate-case candidate)))
+                  (case reason
+                    (:cancel-pattern
+                     (sim-case-cancel-at (simulation-candidate-case candidate)))
+                    ;; An ON-COMMIT effect has no speculative entry.  If its
+                    ;; owner has already released, that candidate cannot
+                    ;; subsequently commit and acquire a zero-lifetime hold.
+                    (:participant-exited-before-commit
+                     (sim-case-exit-at (simulation-candidate-case candidate)))
+                    (otherwise
+                     (sim-case-pattern (simulation-candidate-case candidate))))
                   :responsible-effect :none)))
   candidate)
 
@@ -832,6 +869,17 @@ release; intermediate releases only reduce ownership."
                   (candidate-pattern-matched-p machine candidate (sim-case-cancel-at case)))
               (cancel-candidate machine candidate
                                 (if (eq main-status :failed) :pattern-failed :cancel-pattern)))
+             ;; A NIL ENTER-AT is the compiled ON-COMMIT lifecycle contract.
+             ;; Its owner UP wins while the candidate is still viable: no
+             ;; later foreign event may commit an interaction whose held
+             ;; lifetime has already ended.  Committed candidates continue to
+             ;; process the same EXIT-AT normally, including a deadline just
+             ;; before an equal-time physical release.
+             ((and (null (sim-case-enter-at case))
+                   (sim-case-exit-at case)
+                   (candidate-pattern-matched-p machine candidate
+                                                (sim-case-exit-at case)))
+              (cancel-candidate machine candidate :participant-exited-before-commit))
              (t
               (update-candidate-effects machine candidate)
               (when (candidate-commit-ready-p machine candidate)

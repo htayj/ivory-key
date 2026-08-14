@@ -7,10 +7,13 @@
                         %execute-model-behavior))
 
 ;;; The simulator deliberately has a smaller executable vocabulary than the
-;;; model.  In particular, it has no capture store, no context predicate in an
-;;; EVENT-PATTERN, and no representation for a multi-position exclusion.  This
-;;; adapter refuses those constructs instead of making the reference oracle
-;;; silently less precise than the source model.
+;;; model.  It implements only the first, explicitly delimited capture store
+;;; slice and has no context predicate or representation for a multi-position
+;;; exclusion.  This adapter refuses the rest instead of making the reference
+;;; oracle silently less precise than the source model.
+
+(defvar *capture-slice-compilation* nil
+  "True only while compiling the validated three-event CAPTURE slice.")
 
 (define-condition model-simulation-compilation-error
     (ivory-key.model::semantic-error)
@@ -73,7 +76,17 @@ Common Lisp package or on keyword interning."
           :unsupported-position-selector selector
           "The simulator can exclude one position, not ~D positions."
           (length positions)))
-       (list :other-than (model-identifier->simulation-value (first positions)))))))
+       (list :other-than (model-identifier->simulation-value (first positions))))
+      (:captured
+       (unless *capture-slice-compilation*
+         (%simulation-compilation-error
+          :unsupported-capture-reference selector
+          "CAPTURED selectors are executable only in the validated finite capture slice."))
+       (unless (= (length positions) 1)
+         (%simulation-compilation-error
+          :malformed-capture-reference selector
+          "A CAPTURED selector must name exactly one lexical binding."))
+       (list :captured (model-identifier->simulation-value (first positions)))))))
 
 (defun %model-pattern-arguments (pattern expected)
   (let ((arguments (ivory-key.model::temporal-pattern-arguments pattern)))
@@ -127,7 +140,12 @@ MODEL-SIMULATION-COMPILATION-ERROR rather than being weakened or ignored."
         (compile-model-position-selector (first (%model-pattern-arguments pattern 1)))))
       (:sequence
        (let ((children (mapcar #'compile-model-temporal-pattern arguments)))
-         (%require-atomic-simulator-patterns children pattern "SEQUENCE")
+         (if (some (lambda (child) (eq (event-pattern-kind child) :capture)) children)
+             (unless *capture-slice-compilation*
+               (%simulation-compilation-error
+                :unsupported-capture-shape pattern
+                "CAPTURE is executable only in the validated finite capture slice."))
+             (%require-atomic-simulator-patterns children pattern "SEQUENCE"))
          (apply #'sequence-pattern children)))
       (:all
        (apply #'all-pattern (mapcar #'compile-model-temporal-pattern arguments)))
@@ -183,10 +201,24 @@ MODEL-SIMULATION-COMPILATION-ERROR rather than being weakened or ignored."
                                                                               :at-least 0)
                          :at-most (ivory-key.model::temporal-pattern-option pattern
                                                                              :at-most))))
-      ((:capture :context-is)
+      (:capture
+       (unless *capture-slice-compilation*
+         (%simulation-compilation-error
+          :unsupported-contextual-temporal-pattern pattern
+          "CAPTURE is executable only in the validated finite capture slice."))
+       (let ((arguments (%model-pattern-arguments pattern 2)))
+         (let ((name (first arguments))
+               (child (compile-model-temporal-pattern (second arguments))))
+           (unless (and (eq (event-pattern-kind child) :event)
+                        (eq (event-pattern-event-kind child) :down))
+             (%simulation-compilation-error
+              :unsupported-capture-shape pattern
+              "CAPTURE must bind one direct DOWN event."))
+           (capture-pattern (model-identifier->simulation-value name) child))))
+      (:context-is
        (%simulation-compilation-error
         :unsupported-contextual-temporal-pattern pattern
-        "The reference simulator has no capture store or context predicate for ~A."
+        "The reference simulator has no context predicate for ~A."
         kind))
       (otherwise
        (%simulation-compilation-error
@@ -424,14 +456,37 @@ operation name).  They are simulator observations, never backend tokens."
            :unresolved-normalized-context entries
            "No normalized behavior variant matches the captured simulator context.")))))))
 
-(defun %single-participant-effect-boundaries (participants effects)
+(defun %single-participant-effect-boundaries (participants effects effect-start)
   (when effects
     (unless (= (length participants) 1)
       (%simulation-compilation-error
        :unsupported-effect-lifetime effects
        "Lifecycle effects require one participant because this simulator IR has no per-candidate anchor pattern."))
     (let ((position (model-identifier->simulation-value (first participants))))
-      (values (down-pattern position) (up-pattern position)))))
+      (values (ecase effect-start
+                (:on-match (down-pattern position))
+                ;; A NIL entry trigger means COMMIT-CANDIDATE alone may begin
+                ;; this lifecycle.  The participant UP remains its exact
+                ;; release boundary.
+                (:on-commit nil))
+              (up-pattern position)))))
+
+(defun %capture-slice-compilable-p (match commit source)
+  "Prove the one executable CAPTURE shape before lowering it.
+
+The semantic validator normally provides this proof.  Keep the adapter
+fail-closed for callers that compile model objects directly."
+  (when (ivory-key.model::temporal-pattern-capture-feature-p commit)
+    (%simulation-compilation-error
+     :unsupported-capture-commit-point source
+     "CAPTURE is permitted only in a candidate MATCH pattern, not its COMMIT point."))
+  (let ((uses-capture (ivory-key.model::temporal-pattern-capture-feature-p match)))
+    (when (and uses-capture
+               (not (ivory-key.model::temporal-pattern-capture-slice-p match)))
+      (%simulation-compilation-error
+       :unsupported-capture-shape source
+       "The simulator supports only DOWN, CAPTURE(DOWN), UP(CAPTURED) capture matching."))
+    uses-capture))
 
 (defun %compile-raw-effects (interaction candidate)
   (let* ((effects (ivory-key.model::candidate-effects candidate))
@@ -534,11 +589,17 @@ operation name).  They are simulator observations, never backend tokens."
      "The simulator captures context at candidate anchor-down, not at ~S."
      (ivory-key.model::candidate-context-policy candidate)))
   (let* ((effect (%compile-raw-effects interaction candidate))
-         (active-effects (and effect (list effect))))
-    (multiple-value-bind (enter-at exit-at)
-        (%single-participant-effect-boundaries
-         (ivory-key.model::interaction-participants interaction) active-effects)
-      (make-sim-case
+         (active-effects (and effect (list effect)))
+         (capture-slice-p
+           (%capture-slice-compilable-p (ivory-key.model::candidate-match candidate)
+                                        (ivory-key.model::candidate-commit candidate)
+                                        candidate)))
+    (let ((*capture-slice-compilation* capture-slice-p))
+      (multiple-value-bind (enter-at exit-at)
+          (%single-participant-effect-boundaries
+           (ivory-key.model::interaction-participants interaction) active-effects
+           (ivory-key.model::candidate-effect-start candidate))
+        (make-sim-case
        :name (model-identifier->simulation-value (ivory-key.model::candidate-name candidate))
        :pattern (compile-model-temporal-pattern
                  (ivory-key.model::candidate-match candidate))
@@ -553,9 +614,9 @@ operation name).  They are simulator observations, never backend tokens."
                (ivory-key.model::effect-commit-behaviors
                 (ivory-key.model::candidate-effects candidate)))
        :priority (or priority 0)
-       :consulted-latches
-       (mapcar #'model-identifier->simulation-value
-               (ivory-key.model::candidate-axis-dependencies candidate))))))
+         :consulted-latches
+         (mapcar #'model-identifier->simulation-value
+                 (ivory-key.model::candidate-axis-dependencies candidate)))))))
 
 (defun compile-model-interaction (interaction)
   "Compile one raw model INTERACTION into a simulator interaction."
@@ -592,11 +653,18 @@ operation name).  They are simulator observations, never backend tokens."
      "The simulator captures context at candidate anchor-down, not at ~S."
      (ivory-key.model::normalized-candidate-context-policy candidate)))
   (let* ((effect (%compile-normalized-effects interaction candidate))
-         (active-effects (and effect (list effect))))
-    (multiple-value-bind (enter-at exit-at)
-        (%single-participant-effect-boundaries
-         (ivory-key.model::normalized-interaction-participants interaction) active-effects)
-      (make-sim-case
+         (active-effects (and effect (list effect)))
+         (capture-slice-p
+           (%capture-slice-compilable-p
+            (ivory-key.model::normalized-candidate-match candidate)
+            (ivory-key.model::normalized-candidate-commit candidate)
+            candidate)))
+    (let ((*capture-slice-compilation* capture-slice-p))
+      (multiple-value-bind (enter-at exit-at)
+          (%single-participant-effect-boundaries
+           (ivory-key.model::normalized-interaction-participants interaction) active-effects
+           (ivory-key.model::normalized-candidate-effect-start candidate))
+        (make-sim-case
        :name (model-identifier->simulation-value
               (ivory-key.model::normalized-candidate-name candidate))
        :pattern (compile-model-temporal-pattern
@@ -613,9 +681,9 @@ operation name).  They are simulator observations, never backend tokens."
        (%normalized-effect-actions
         (getf (ivory-key.model::normalized-candidate-effects candidate) :commit))
        :priority (or priority 0)
-       :consulted-latches
-       (mapcar #'model-identifier->simulation-value
-               (ivory-key.model::normalized-candidate-context-axes candidate))))))
+         :consulted-latches
+         (mapcar #'model-identifier->simulation-value
+                 (ivory-key.model::normalized-candidate-context-axes candidate)))))))
 
 (defun compile-normalized-interaction (interaction)
   "Compile a normalized interaction into a simulator interaction."

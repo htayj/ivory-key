@@ -154,6 +154,55 @@
     (case second (:match (sequence (down a) (up a))) (:commit (up a)) (:do (unicode \"b\")))))")))
        (ivory-key.model:validate-layout layout)))))
 
+(deftest decoder-capture-selector-and-effect-start-are-closed
+  (let* ((layout
+           (decoder-layout-from-string
+            "(ivory-key 1)
+(define-layout capture-slice
+  (binding a (unicode \"a\"))
+  (binding b (unicode \"b\"))
+  (interaction foreign-release
+    (:participants a)
+    (:observe any-position)
+    (:anchor a)
+    (case release
+      (:match (sequence (down a)
+                        (capture foreign (down (other-than a)))
+                        (up (captured foreign))))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit))))"))
+         (candidate (first (ivory-key.model::interaction-candidates
+                            (first (ivory-key.model:layout-interactions layout)))))
+         (match (ivory-key.model::candidate-match candidate))
+         (up (third (ivory-key.model::temporal-pattern-arguments match)))
+         (selector (first (ivory-key.model::temporal-pattern-arguments up))))
+    (ivory-key.model:validate-layout layout)
+    (is-equal :on-commit (ivory-key.model::candidate-effect-start candidate))
+    (is-equal :captured (ivory-key.model::position-selector-kind selector))
+    (is-equal '("foreign")
+              (mapcar #'ivory-key.model::identifier-name
+                      (ivory-key.model::position-selector-positions selector))))
+  (decoder-signals-code
+   :unknown-effect-start
+   (lambda ()
+     (decoder-layout-from-string
+      "(ivory-key 1)
+(define-layout bad-effect-start
+  (interaction a
+    (:participants a)
+    (:match (down a)) (:commit when-matched) (:do none)
+    (:effect-start later)))")))
+  (decoder-signals-code
+   :malformed-position-selector
+   (lambda ()
+     (decoder-layout-from-string
+      "(ivory-key 1)
+(define-layout bad-captured
+  (interaction a
+    (:participants a)
+    (:match (up (captured foreign extra))) (:commit when-matched) (:do none)))"))))
+
 (deftest decoder-never-interns-source-identifiers
   (let ((name "surface-decoder-must-not-intern-this")
         (package (find-package :ivory-key.model)))

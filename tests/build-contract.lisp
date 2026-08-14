@@ -44,8 +44,11 @@
    (list
     (ivory-key.build-contract:make-source-hash-record
      "z.ivory" (ivory-key.build-contract:sha256-hex "z"))
-    (ivory-key.build-contract:make-source-hash-record
+   (ivory-key.build-contract:make-source-hash-record
      "a.ivory" (ivory-key.build-contract:sha256-hex "a")))
+   :input-coverage
+   (list (list :position "t" :disposition :unreachable)
+         (list :position "q" :disposition :physical))
    :pipeline-result pipeline))
 
 (defun build-contract-test-write (directory pipeline)
@@ -75,21 +78,33 @@
              (report (uiop:read-file-string (merge-pathnames "REPORT.md" directory)))
              (xkb (merge-pathnames "keymap.xkb" directory))
              (xkb-hash (ivory-key.build-contract:sha256-hex xkb)))
-        (is (search "\"schema_version\":1" manifest))
+        (is (search "\"schema_version\":2" manifest))
         (is (search "\"language_version\":1" manifest))
         (is (search "\"layout\":\"contract-layout\"" manifest))
         (is (search "\"path\":\"a.ivory\"" manifest))
         (is (< (search "\"path\":\"a.ivory\"" manifest)
                (search "\"path\":\"z.ivory\"" manifest)))
         (is (search xkb-hash manifest))
+        (is (search "\"input_coverage\":[{\"disposition\":\"physical\",\"position\":\"q\"},{\"disposition\":\"unreachable\",\"position\":\"t\"}]"
+                    manifest))
         (is (not (search "\"validation\"" manifest)))
-        (is-equal (format nil "{\"allocations\":[],\"schema_version\":1}~%")
+        (is-equal (format nil "{\"allocations\":[],\"schema_version\":2}~%")
                   allocations)
         (is (search "\"artifact\":\"keymap.xkb\"" source-map))
         (is (search "\"backend\":\"xkb\"" source-map))
         (is (search "\"binding\":\"q\"" source-map))
         (is (search "No concrete resource allocations" report))
+        (is (search "## Device input coverage" report))
+        (is (search "`t`: unreachable" report))
         (is (search "No external validation ran during compilation" report))))))
+
+(deftest build-contract-refuses-non-physical-coverage-states
+  (signals error
+    (ivory-key.build-contract:make-build-contract
+     :layout "layout" :topology "topology" :device "device" :profile "profile"
+     :source-hashes nil
+     :input-coverage (list (list :position "q" :disposition :missing))
+     :pipeline-result (build-contract-test-pipeline))))
 
 (deftest build-contract-is-byte-deterministic-for-identical-pipeline-data
   (with-build-contract-test-directory (first)

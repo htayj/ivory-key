@@ -185,12 +185,134 @@
             (is (search (format nil "\"path\":\"~A\"" identity) manifest)))
           ;; The source digest is of these on-disk bytes, but their physical
           ;; checkout paths must never be published in a generated contract.
-          (is (not (search (uiop:native-namestring (truename layout)) manifest))))
+          (is (not (search (uiop:native-namestring (truename layout)) manifest)))
+          (is (search "\"input_coverage\":[{\"disposition\":\"physical\",\"position\":\"q\"}]"
+                      manifest)))
         ;; A second call never supersedes a previously emitted good build.
         (signals error
           (ivory-key.cli::compile-layout-source
            layout :topology-path topology :device-path device
            :realization-path realization :output-directory output))))))
+
+(deftest compiler-device-coverage-is-explicit-for-completeness-and-lowering
+  ;; A structurally complete topology may contain an unused, intentionally
+  ;; unreachable position.  It is retained in the successful build contract.
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write
+                    directory "layout.ivory"
+                    "(ivory-key 1)
+(define-layout direct (uses-topology two) (binding q (unicode \"q\")))"))
+           (topology (compiler-test-write
+                      directory "topology.ivory"
+                      "(ivory-key 1)
+(define-topology two (position q) (position t))"))
+           (device (compiler-test-write
+                    directory "device.ivory"
+                    "(ivory-key 1)
+(define-device covered (uses-topology two)
+  (place q (:xkb AD01) (:kanata q))
+  (unreachable t))"))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (unit (ivory-key.cli::load-layout-for-compilation
+                  layout :topology-path topology))
+           (placement (ivory-key.cli::decode-device-source device))
+           (output (merge-pathnames "covered-build/" directory)))
+      (multiple-value-bind (request issues)
+          (ivory-key.cli::analyze-normalized-layout
+           (ivory-key.cli::compiler-unit-normalized unit) placement)
+        (is request)
+        (is (null issues)))
+      (ivory-key.cli::compile-layout-source
+       layout :topology-path topology :device-path device
+       :realization-path realization :output-directory output)
+      (let ((manifest (uiop:read-file-string (merge-pathnames "manifest.json" output))))
+        (is (search "\"input_coverage\":[{\"disposition\":\"physical\",\"position\":\"q\"},{\"disposition\":\"unreachable\",\"position\":\"t\"}]"
+                    manifest)))
+      (let ((report (with-output-to-string (stream)
+                      (ivory-key.cli::explain-layout-source
+                       layout :topology-path topology :device-path device
+                       :realization-path realization :stream stream))))
+        (is (search "Input coverage:" report))
+        (is (search "q: physical" report))
+        (is (search "t: unreachable" report)))))
+  ;; A missing record is never inferred from an absent mapping, including for
+  ;; an otherwise unused topology position in a selected composition.
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write
+                    directory "layout.ivory"
+                    "(ivory-key 1)
+(define-layout partial (uses-topology two) (binding q (unicode \"q\")))"))
+           (topology (compiler-test-write
+                      directory "topology.ivory"
+                      "(ivory-key 1)
+(define-topology two (position q) (position t))"))
+           (device (compiler-test-write
+                    directory "device.ivory"
+                    "(ivory-key 1)
+(define-device partial-device (uses-topology two)
+  (place q (:xkb AD01) (:kanata q)))"))
+           (unit (ivory-key.cli::load-layout-for-compilation
+                  layout :topology-path topology))
+           (placement (ivory-key.cli::decode-device-source device)))
+      (multiple-value-bind (request issues)
+          (ivory-key.cli::analyze-normalized-layout
+           (ivory-key.cli::compiler-unit-normalized unit) placement)
+        (is request)
+        (is-equal '(:missing-device-coverage)
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
+      (is-equal :missing-device-coverage
+                (compiler-stage-code-from
+                 (lambda ()
+                   (ivory-key.cli::make-lowering-request-from-normalized-layout
+                    (ivory-key.cli::compiler-unit-normalized unit) placement))))))
+  ;; An explicitly unreachable input is structurally declared but cannot be
+  ;; omitted from a real ordinary binding.
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write
+                    directory "device.ivory"
+                    "(ivory-key 1)
+(define-device unreachable-device (uses-topology one) (unreachable q))"))
+           (unit (ivory-key.cli::load-layout-for-compilation
+                  layout :topology-path topology))
+           (placement (ivory-key.cli::decode-device-source device)))
+      (multiple-value-bind (request issues)
+          (ivory-key.cli::analyze-normalized-layout
+           (ivory-key.cli::compiler-unit-normalized unit) placement)
+        (is request)
+        (is-equal '(:unreachable-device-position)
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))))
+  ;; Timed interaction participants are physical inputs too.  A generic timed
+  ;; lowering remains refused for its own reason, but coverage is reported
+  ;; independently instead of being hidden behind that broader refusal.
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write
+                    directory "layout.ivory"
+                    "(ivory-key 1)
+(define-layout interaction-only
+  (uses-topology one)
+  (interaction q-tap
+    (:participants q)
+    (case tap
+      (:match (sequence (down q) (up q)))
+      (:commit (up q))
+      (:do (unicode \"q\")))))"))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write
+                    directory "device.ivory"
+                    "(ivory-key 1)
+(define-device interaction-device (uses-topology one) (unreachable q))"))
+           (unit (ivory-key.cli::load-layout-for-compilation
+                  layout :topology-path topology))
+           (placement (ivory-key.cli::decode-device-source device)))
+      (multiple-value-bind (request issues)
+          (ivory-key.cli::analyze-normalized-layout
+           (ivory-key.cli::compiler-unit-normalized unit) placement)
+        (is request)
+        (is (member :unreachable-device-position
+                    (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))))))
 
 (deftest compiler-bridge-refuses-unproven-context-selection-before-emission
   (with-compiler-test-directory (directory)
@@ -407,6 +529,31 @@
                           (ivory-key.model:identifier-name
                            (ivory-key.model:position-name position)))
                         (ivory-key.model:topology-positions topology))))))
+
+(deftest compiler-project-placement-conversion-refuses-malformed-programmatic-coverage
+  "COMPILER-PLACEMENT-FROM-MODEL revalidates model instances that bypass source."
+  (let* ((topology
+           (ivory-key.model:make-topology
+            "programmatic-coverage"
+            (list (ivory-key.model:make-logical-position "q"))))
+         (q (ivory-key.model:make-identifier "q"))
+         (unknown (ivory-key.model:make-identifier "not-on-topology"))
+         (device
+           ;; MAKE-INSTANCE intentionally bypasses MAKE-DEVICE-PLACEMENT's
+           ;; eager validation, simulating an embedding caller with malformed
+           ;; constructed data.  No backend metadata should be trusted first.
+           (make-instance
+            'ivory-key.model:device-placement
+            :name (ivory-key.model:make-identifier "bad-programmatic-device")
+            :topology topology
+            :mappings (list (cons "P01" q) (cons "P02" unknown))
+            :position-coverage
+            (list (ivory-key.model:make-device-position-coverage q :physical))
+            :metadata nil)))
+    (is-equal :unknown-device-placement-position
+              (compiler-stage-code-from
+               (lambda ()
+                 (ivory-key.cli::compiler-placement-from-model device))))))
 
 (deftest compiler-project-composition-compiles-without-reparsing-components
   (with-compiler-test-directory (directory)
@@ -1013,7 +1160,7 @@ complete carrier table from an invented Manna behavior.
        '(:unsupported-semantic-modifiers :unsupported-context-selection
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unsupported-timed-interaction :unsupported-timed-interaction
-         :missing-device-placement :unsupported-context-selection
+         :missing-device-coverage :unsupported-context-selection
          :unproved-patch-activation :unsupported-context-selection)
        (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
       ;; Final project compilation chooses the deterministic first refusal;

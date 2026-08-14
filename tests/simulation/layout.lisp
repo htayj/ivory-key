@@ -472,20 +472,19 @@ release exposes plain case.
             (list mode-axis)
             (list (cons "q"
                         (ivory-key.model::make-axis-operation :toggle "mode")))))
-         (captured-candidate
+         (context-candidate
            (ivory-key.model::make-interaction-candidate
-            "captured"
-            (ivory-key.model::pattern-capture
-             "value" (ivory-key.model::pattern-down "l"))
+            "contextual"
+            (ivory-key.model::pattern-context-is "mode" "plain")
             :when-matched
             (ivory-key.model::make-text-output "never")))
          (unsupported-pattern-layout
            (layout-simulation-normalized-layout
-            nil
+            (list mode-axis)
             (list (cons "q" (ivory-key.model::make-text-output "q")))
             :interactions
             (list (ivory-key.model::make-interaction
-                   "captured" '("l") (list captured-candidate)))
+                   "contextual" '("l") (list context-candidate)))
             :positions '("l" "q"))))
     (layout-simulation-assert-equal
      :unsupported-axis-operation

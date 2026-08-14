@@ -153,10 +153,81 @@
    :unknown-realization-vocabulary-backend
    (lambda ()
      (ivory-key.model:make-realization-profile
-      "incompatible-vocabulary" :pipeline '("backend-a")
+     "incompatible-vocabulary" :pipeline '("backend-a")
       :vocabulary (ivory-key.model::make-output-vocabulary '("backend-b") nil))))
   (vocabulary-signals-code
    :invalid-realization-vocabulary
    (lambda ()
      (ivory-key.model:make-realization-profile
       "not-a-vocabulary" :pipeline '("backend-a") :vocabulary "backend-a"))))
+
+(deftest device-coverage-programmatic-mappings-must-be-one-to-one-and-covered
+  "Coverage-bearing placements cannot bypass DEFINE-DEVICE source invariants."
+  (let* ((topology
+           (ivory-key.model:make-topology
+            "coverage-topology"
+            (list (ivory-key.model:make-logical-position "q")
+                  (ivory-key.model:make-logical-position "w"))))
+         (physical-q
+           (ivory-key.model:make-device-position-coverage "q" :physical))
+         (physical-w
+           (ivory-key.model:make-device-position-coverage "w" :physical))
+         (unreachable-q
+           (ivory-key.model:make-device-position-coverage "q" :unreachable)))
+    ;; Existing no-coverage programmatic placements remain inspectable.  The
+    ;; validator deliberately does not infer coverage or reject this legacy
+    ;; partial envelope merely because one mapping names an absent position.
+    (let ((legacy
+            (ivory-key.model:make-device-placement
+             "legacy" topology
+             (list (cons "P01" "q") (cons "P02" "not-on-topology")))))
+      (is (null (ivory-key.model:placement-position-coverage legacy)))
+      (is (ivory-key.model:validate-device-placement-coverage legacy)))
+    (vocabulary-signals-code
+     :unknown-device-placement-position
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "unknown-mapping" topology (list (cons "P01" "not-on-topology"))
+        :position-coverage (list physical-q))))
+    (vocabulary-signals-code
+     :missing-device-coverage
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "uncovered-mapping" topology
+        (list (cons "P01" "q") (cons "P02" "w"))
+        :position-coverage (list physical-q))))
+    (vocabulary-signals-code
+     :unreachable-device-coverage-with-placement
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "unreachable-mapping" topology (list (cons "P01" "q"))
+        :position-coverage (list unreachable-q))))
+    (vocabulary-signals-code
+     :duplicate-device-placement
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "duplicate-logical-mapping" topology
+        (list (cons "P01" "q") (cons "P02" "q"))
+        :position-coverage (list physical-q))))
+    (vocabulary-signals-code
+     :physical-device-coverage-without-placement
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "physical-without-map" topology nil
+        :position-coverage (list physical-q))))
+    (vocabulary-signals-code
+     :duplicate-device-position-coverage
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "conflicting-coverage" topology (list (cons "P01" "q"))
+        :position-coverage
+        (list physical-q unreachable-q))))
+    ;; Supplying a different covered position does not permit a second map
+    ;; for Q; the generic model has one physical input per logical position.
+    (vocabulary-signals-code
+     :duplicate-device-placement
+     (lambda ()
+       (ivory-key.model:make-device-placement
+        "duplicate-with-complete-coverage" topology
+        (list (cons "P01" "q") (cons "P02" "q") (cons "P03" "w"))
+        :position-coverage (list physical-q physical-w))))))

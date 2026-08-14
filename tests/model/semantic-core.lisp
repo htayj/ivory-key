@@ -37,6 +37,52 @@
     (declare (ignore ignored))
     (mapcar #'ivory-key.model::semantic-diagnostic-code diagnostics)))
 
+(defun model-semantic-error-code-from (thunk)
+  (handler-case
+      (progn (funcall thunk)
+             (error "Expected an Ivory Key model semantic error."))
+    (ivory-key.model::semantic-error (condition)
+      (ivory-key.model::semantic-error-code condition))))
+
+(deftest model-device-coverage-is-closed-complete-and-conflict-checked
+  (let* ((topology (model-test-topology "q" "less-greater"))
+         (placement
+           (ivory-key.model::make-device-placement
+            "covered-device" topology '(("AD01" . "q"))
+            :position-coverage
+            (list (ivory-key.model::make-device-position-coverage "q" :physical)
+                  (ivory-key.model::make-device-position-coverage
+                   "less-greater" :unreachable)))))
+    (is (ivory-key.model::placement-coverage-complete-p placement))
+    (is (null (ivory-key.model::placement-missing-coverage-positions placement)))
+    (is-equal :unreachable
+              (ivory-key.model::device-position-coverage-disposition
+               (ivory-key.model::placement-coverage-for-position
+                placement "less-greater"))))
+  ;; An omitted coverage record remains a distinguishable evidence gap.
+  (let* ((topology (model-test-topology "q" "w"))
+         (placement
+           (ivory-key.model::make-device-placement
+            "partial-device" topology '(("AD01" . "q"))
+            :position-coverage
+            (list (ivory-key.model::make-device-position-coverage "q" :physical)))))
+    (is (not (ivory-key.model::placement-coverage-complete-p placement)))
+    (is-equal '("w")
+              (mapcar #'ivory-key.model::identifier-name
+                      (mapcar #'ivory-key.model::position-name
+                              (ivory-key.model::placement-missing-coverage-positions placement)))))
+  ;; An unreachable declaration may not also be smuggled in as a physical map.
+  (let ((topology (model-test-topology "q")))
+    (is-equal
+     :unreachable-device-coverage-with-placement
+     (model-semantic-error-code-from
+      (lambda ()
+        (ivory-key.model::make-device-placement
+         "conflict-device" topology '(("AD01" . "q"))
+         :position-coverage
+         (list (ivory-key.model::make-device-position-coverage
+                "q" :unreachable))))))))
+
 (deftest model-eight-state-product-order
   (let* ((case (ivory-key.model::make-context-axis "case" '("plain" "shifted")))
          (script (ivory-key.model::make-context-axis "script" '("roman" "greek")))
@@ -186,6 +232,71 @@
                   (ivory-key.model::make-interaction "bad-repeat" '("a") (list candidate)))))
     (signals ivory-key.model::semantic-validation-error
       (ivory-key.model::validate-layout layout))))
+
+(defun model-capture-slice-candidate (&key (effect-start :on-match))
+  (ivory-key.model::make-interaction-candidate
+   "foreign-release"
+   (ivory-key.model::pattern-sequence
+    (ivory-key.model::pattern-down "a")
+    (ivory-key.model::pattern-capture
+     "foreign"
+     (ivory-key.model::pattern-down
+      (ivory-key.model::other-than-selector "a")))
+    (ivory-key.model::pattern-up
+     (ivory-key.model::captured-position-selector "foreign")))
+   :when-matched (ivory-key.model::make-no-output-behavior)
+   :effect-start effect-start))
+
+(deftest model-capture-slice-is-lexical-finite-and-normalized
+  (let* ((candidate (model-capture-slice-candidate :effect-start :on-commit))
+         (interaction (ivory-key.model::make-interaction
+                       "foreign-release" '("a") (list candidate)
+                       :observe :any-position :anchor "a"))
+         (layout (model-interaction-layout interaction))
+         (normalized (ivory-key.model::normalize-layout layout))
+         (normalized-candidate
+           (first (ivory-key.model::normalized-interaction-candidates
+                   (first (ivory-key.model::normalized-layout-interactions normalized))))))
+    (multiple-value-bind (ignored diagnostics)
+        (ivory-key.model::validate-layout layout :signal-on-error nil)
+      (declare (ignore ignored))
+      (is (null diagnostics)))
+    (is-equal :on-commit
+              (ivory-key.model::normalized-candidate-effect-start normalized-candidate)))
+  ;; A reference has no dynamic/global lookup: it must bind lexically in the
+  ;; same candidate and be admitted by the finite first slice.
+  (let* ((candidate
+           (ivory-key.model::make-interaction-candidate
+            "unbound"
+            (ivory-key.model::pattern-sequence
+             (ivory-key.model::pattern-down "a")
+             (ivory-key.model::pattern-up
+              (ivory-key.model::captured-position-selector "foreign")))
+            :when-matched (ivory-key.model::make-no-output-behavior)))
+         (layout
+           (model-interaction-layout
+            (ivory-key.model::make-interaction "unbound" '("a") (list candidate)))))
+    (is (member :unbound-capture-reference (model-validation-codes layout)))
+    (is (member :unsupported-capture-shape (model-validation-codes layout))))
+  ;; Rebinding the same name and nesting CAPTURE leave the deliberately
+  ;; executable three-event slice and are fail-closed before lowering.
+  (let* ((candidate
+           (ivory-key.model::make-interaction-candidate
+            "rebind"
+            (ivory-key.model::pattern-sequence
+             (ivory-key.model::pattern-down "a")
+             (ivory-key.model::pattern-capture
+              "foreign" (ivory-key.model::pattern-down "b"))
+             (ivory-key.model::pattern-capture
+              "foreign" (ivory-key.model::pattern-down "b"))
+             (ivory-key.model::pattern-up
+              (ivory-key.model::captured-position-selector "foreign")))
+            :when-matched (ivory-key.model::make-no-output-behavior)))
+         (layout
+           (model-interaction-layout
+            (ivory-key.model::make-interaction "rebind" '("a") (list candidate)))))
+    (is (member :capture-rebinding (model-validation-codes layout)))
+    (is (member :unsupported-capture-shape (model-validation-codes layout)))))
 
 (deftest model-ambiguous-commitment-is-rejected-unless-arbitrated
   (let* ((first (model-simple-candidate "first"))

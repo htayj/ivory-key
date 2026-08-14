@@ -8,7 +8,9 @@
 ;;; particular front-end and prevents this report layer from becoming another
 ;;; lowering path.
 
-(defconstant +build-contract-schema-version+ 1)
+;; Version 2 adds MANIFEST.JSON input_coverage, a deterministic topology
+;; disposition inventory independent of backend carrier allocation records.
+(defconstant +build-contract-schema-version+ 2)
 (defconstant +ivory-key-language-version+ 1)
 (defparameter +ivory-key-compiler-version+ "0.1.0")
 
@@ -21,7 +23,7 @@
 (defstruct (build-contract
             (:constructor %make-build-contract
                 (language-version compiler-version layout topology device profile
-                 source-hashes pipeline-result validation-evidence)))
+                 source-hashes input-coverage pipeline-result validation-evidence)))
   "The data from which all Phase 6 contract files are rendered.
 
 Every slot is immutable by convention.  VALIDATION-EVIDENCE is NIL unless a
@@ -35,6 +37,9 @@ not manufacture either tool versions or validation claims.
   device
   profile
   source-hashes
+  ;; One closed physical-reachability record per selected topology position.
+  ;; This stays independent of backend carrier allocation inventories.
+  input-coverage
   pipeline-result
   validation-evidence)
 
@@ -267,10 +272,41 @@ the contract records the bytes the toolchain observed.
                       (source-hash-record-path first)))
     ordered))
 
+(defun %input-coverage-record< (left right)
+  (string< (getf left :position) (getf right :position)))
+
+(defun %canonical-input-coverage (records)
+  "Validate closed device input coverage records for an emitted contract.
+
+Only the compiler's successful exact path supplies these records.  Missing,
+invalid, virtual-carrier, or backend-specific allocation states are not part
+of this contract vocabulary and cannot be serialized as device coverage.
+"
+  (unless (listp records)
+    (error "Build-contract input coverage must be a list or NIL."))
+  (let ((canonical nil))
+    (dolist (record records)
+      (unless (and (listp record) (= (length record) 4)
+                   (eq (first record) :position)
+                   (eq (third record) :disposition)
+                   (stringp (second record)) (plusp (length (second record)))
+                   (member (fourth record) '(:physical :unreachable) :test #'eq))
+        (error "Build-contract input coverage record is malformed: ~S." record))
+      (push (list :position (second record) :disposition (fourth record)) canonical))
+    (let ((ordered (sort canonical #'%input-coverage-record<)))
+      (loop for left on ordered
+            for first = (first left)
+            for second = (second left)
+            while second
+            when (string= (getf first :position) (getf second :position))
+              do (error "Duplicate input coverage record for position ~A."
+                        (getf first :position)))
+      ordered)))
+
 (defun make-build-contract (&key (language-version +ivory-key-language-version+)
                                  (compiler-version +ivory-key-compiler-version+)
                                  layout topology device profile source-hashes
-                                 pipeline-result validation-evidence)
+                                 input-coverage pipeline-result validation-evidence)
   "Construct data for a deterministic current-build output contract.
 
 The selected names and source records are explicit inputs because a compiler
@@ -289,6 +325,7 @@ confinement.  NIL validation evidence is the normal compile-time state.
    language-version compiler-version
    (%canonical-name layout) (%canonical-name topology) (%canonical-name device)
    (%canonical-name profile) (%canonical-source-hashes source-hashes)
+   (%canonical-input-coverage input-coverage)
    pipeline-result (copy-list validation-evidence)))
 
 ;;; Restricted deterministic JSON ------------------------------------------------
@@ -468,6 +505,15 @@ normal generated manifest omits the validation key altogether.
              (cons "compiler" (%object (cons "name" "ivory-key")
                                         (cons "version" (build-contract-compiler-version contract))))
              (cons "fidelity" (%array (mapcar #'%realization-json realizations)))
+             (cons "input_coverage"
+                   (%array
+                    (mapcar (lambda (record)
+                              (%object
+                               (cons "disposition"
+                                     (string-downcase
+                                      (symbol-name (getf record :disposition))))
+                               (cons "position" (getf record :position))))
+                            (build-contract-input-coverage contract))))
              (cons "language_version" (build-contract-language-version contract))
              (cons "schema_version" +build-contract-schema-version+)
              (cons "selected"
@@ -524,6 +570,14 @@ normal generated manifest omits the validation key altogether.
                 (source-hash-record-path record)
                 (source-hash-record-sha256 record)))))
 
+(defun %format-input-coverage (contract stream)
+  (if (null (build-contract-input-coverage contract))
+      (format stream "No device input coverage records were supplied.~%")
+      (dolist (record (build-contract-input-coverage contract))
+        (format stream "- `~A`: ~A~%"
+                (getf record :position)
+                (string-downcase (symbol-name (getf record :disposition)))))))
+
 (defun build-contract-report-string (contract directory)
   "Render the deterministic human-readable report for an already-emitted build."
   (unless (typep contract 'build-contract)
@@ -542,6 +596,9 @@ normal generated manifest omits the validation key altogether.
       (format stream "- Topology: `~A`~%" (build-contract-topology contract))
       (format stream "- Device: `~A`~%" (build-contract-device contract))
       (format stream "- Profile: `~A`~%~%" (build-contract-profile contract))
+      (format stream "## Device input coverage~%~%")
+      (%format-input-coverage contract stream)
+      (format stream "~%")
       (format stream "## Source hashes~%~%")
       (%format-source-list contract stream)
       (format stream "~%## Fidelity grades~%~%")

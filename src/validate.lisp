@@ -46,13 +46,69 @@
     (return-from %validate-position-selector
       (%diagnostic diagnostics :invalid-position-selector
                    "A temporal position selector is malformed: ~S." selector)))
-  (dolist (position (position-selector-positions selector))
-    (unless (find-position position (layout-topology layout))
-      (setf diagnostics
-            (%diagnostic diagnostics :unknown-position
-                         "Unknown logical position ~A in temporal pattern."
-                         (identifier-name position)))))
+  (cond
+    ((eq (position-selector-kind selector) :captured)
+     ;; A captured name is candidate-local lexical data, not a topology
+     ;; position.  %VALIDATE-CAPTURE-SLICE establishes its binding and scope.
+     (unless (and (= (length (position-selector-positions selector)) 1)
+                  (typep (first (position-selector-positions selector)) 'identifier))
+       (setf diagnostics
+             (%diagnostic diagnostics :invalid-captured-selector
+                          "CAPTURED requires exactly one capture identifier."))))
+    (t
+     (dolist (position (position-selector-positions selector))
+       (unless (find-position position (layout-topology layout))
+         (setf diagnostics
+               (%diagnostic diagnostics :unknown-position
+                            "Unknown logical position ~A in temporal pattern."
+                            (identifier-name position)))))))
   diagnostics)
+
+(defun %capture-pattern-names (pattern)
+  (when (typep pattern 'temporal-pattern)
+    (append (when (eq (temporal-pattern-kind pattern) :capture)
+              (let ((name (first (temporal-pattern-arguments pattern))))
+                (and (typep name 'identifier) (list name))))
+            (mapcan #'%capture-pattern-names (temporal-pattern-children pattern)))))
+
+(defun %captured-selector-names (pattern)
+  (when (typep pattern 'temporal-pattern)
+    (loop for selector in (temporal-pattern-position-selectors pattern)
+          when (eq (position-selector-kind selector) :captured)
+            append (position-selector-positions selector))))
+
+(defun %validate-capture-slice (candidate diagnostics)
+  "Validate lexical capture scope and the deliberately narrow executable shape."
+  (let* ((match (candidate-match candidate))
+         (commit (candidate-commit candidate))
+         (captures (%capture-pattern-names match))
+         (references (%captured-selector-names match)))
+    (when (and (typep commit 'temporal-pattern)
+               (temporal-pattern-capture-feature-p commit))
+      (setf diagnostics
+            (%diagnostic diagnostics :unsupported-capture-scope
+                         "Candidate ~A may use CAPTURE only in its :MATCH pattern in the first simulator slice."
+                         (identifier-name (candidate-name candidate)))))
+    (dolist (name (%duplicates captures #'identifier-key))
+      (setf diagnostics
+            (%diagnostic diagnostics :capture-rebinding
+                         "Candidate ~A binds capture name ~A more than once."
+                         (identifier-name (candidate-name candidate))
+                         (identifier-name name))))
+    (dolist (name references)
+      (unless (find name captures :test #'identifier=)
+        (setf diagnostics
+              (%diagnostic diagnostics :unbound-capture-reference
+                           "Candidate ~A references CAPTURED ~A without an earlier CAPTURE binding."
+                           (identifier-name (candidate-name candidate))
+                           (identifier-name name)))))
+    (when (or captures references)
+      (unless (temporal-pattern-capture-slice-p match)
+        (setf diagnostics
+              (%diagnostic diagnostics :unsupported-capture-shape
+                           "Candidate ~A must use the finite sequence DOWN, CAPTURE(DOWN), UP(CAPTURED); nested, repeated, alternative, and unordered capture forms are refused."
+                           (identifier-name (candidate-name candidate))))))
+    diagnostics))
 
 (defun %validate-temporal-pattern (pattern layout diagnostics)
   (unless (typep pattern 'temporal-pattern)
@@ -366,10 +422,17 @@ different safe-but-non-held behavior."
                                    "Candidate ~A has an unbounded or unknown temporal pattern."
                                    (identifier-name (candidate-name candidate)))))
   (setf diagnostics (%validate-temporal-pattern (candidate-match candidate) layout diagnostics))
+  (setf diagnostics (%validate-capture-slice candidate diagnostics))
   (unless (candidate-commit candidate)
     (setf diagnostics (%diagnostic diagnostics :missing-commit
-                                   "Candidate ~A has no explicit commit point."
-                                   (identifier-name (candidate-name candidate)))))
+                                     "Candidate ~A has no explicit commit point."
+                                     (identifier-name (candidate-name candidate)))))
+  (unless (member (candidate-effect-start candidate) '(:on-match :on-commit))
+    (setf diagnostics
+          (%diagnostic diagnostics :unknown-effect-start
+                       "Candidate ~A has unknown effect-start policy ~S."
+                       (identifier-name (candidate-name candidate))
+                       (candidate-effect-start candidate))))
   (setf diagnostics (%validate-behavior (candidate-behavior candidate) layout diagnostics))
   (when (%contains-held-lifecycle-behavior-p (candidate-behavior candidate))
     (setf diagnostics

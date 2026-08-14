@@ -206,3 +206,116 @@
            nil)
        (ivory-key.simulate::model-simulation-compilation-error () t))
      "capture must not be silently discarded by simulation lowering")))
+
+(defun compile-simulation-capture-release-fixture ()
+  (let* ((effects
+           (ivory-key.model::make-interaction-effects
+            :while (list (ivory-key.model::make-held-modifier-operation "super"))))
+         (candidate
+           (ivory-key.model::make-interaction-candidate
+            "foreign-release"
+            (ivory-key.model::pattern-sequence
+             (ivory-key.model::pattern-down "a")
+             (ivory-key.model::pattern-capture
+              "foreign"
+              (ivory-key.model::pattern-down
+               (ivory-key.model::other-than-selector "a")))
+             (ivory-key.model::pattern-up
+              (ivory-key.model::captured-position-selector "foreign")))
+            :when-matched (ivory-key.model::make-no-output-behavior)
+            :effects effects :effect-start :on-commit))
+         (interaction
+           (ivory-key.model::make-interaction
+            "foreign-release" '("a") (list candidate)
+            :observe :any-position :anchor "a")))
+    (ivory-key.simulate::compile-model-interaction interaction)))
+
+(deftest simulation-compile-capture-is-immutable-and-effect-starts-at-commit
+  ;; The held modifier cannot acquire merely because the anchor and foreign
+  ;; DOWNs matched; it begins only when the captured physical key releases.
+  (let ((partial
+          (compile-simulation-result
+           (list (compile-simulation-capture-release-fixture))
+           (list (compile-simulation-event 0 :down "a")
+                 (compile-simulation-event 1 :down "b")
+                 (compile-simulation-event 2 :down "c")
+                 (compile-simulation-event 3 :up "c")))))
+    (compile-simulation-assert-equal
+     nil (ivory-key.simulate::simulation-result-outputs partial)
+     "on-commit effect is not speculative before the captured release"))
+  (let* ((result
+           (compile-simulation-result
+            (list (compile-simulation-capture-release-fixture))
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 1 :down "b")
+                  (compile-simulation-event 2 :down "c")
+                  (compile-simulation-event 3 :up "c")
+                  (compile-simulation-event 4 :up "b")
+                  (compile-simulation-event 5 :up "a"))))
+         (commit
+           (find :commit (ivory-key.simulate::simulation-result-trace result)
+                 :key #'ivory-key.simulate::simulation-trace-entry-kind))
+         (provenance (ivory-key.simulate::simulation-trace-entry-provenance commit))
+         (dump (ivory-key.simulate::simulation-result-dump-string result)))
+    (compile-simulation-assert-equal
+     '((:modifier :press "super") (:modifier :release "super"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "captured foreign release commits then participant release ends the owner")
+    ;; C's early release cannot steal the immutable first binding for B.
+    (compile-simulation-assert-equal
+     '(("foreign" :position "b" :down-index 1))
+     (getf provenance :captures)
+     "capture provenance records the one immutable physical binding")
+    (compile-simulation-assert
+     (search "(:capture \"foreign\"" dump)
+     "capture source provenance remains in the closed deterministic dump vocabulary")))
+
+(deftest simulation-compile-on-commit-cancels-at-owner-up-before-foreign-release
+  (let* ((result
+           (compile-simulation-result
+            (list (compile-simulation-capture-release-fixture))
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 1 :down "b")
+                  (compile-simulation-event 2 :up "a")
+                  (compile-simulation-event 3 :up "b"))))
+         (cancel (find :cancel (ivory-key.simulate::simulation-result-trace result)
+                       :key #'ivory-key.simulate::simulation-trace-entry-kind))
+         (provenance (ivory-key.simulate::simulation-trace-entry-provenance cancel)))
+    (compile-simulation-assert-equal
+     nil (ivory-key.simulate::simulation-result-outputs result)
+     "owner release before the captured foreign release cannot create a zero-lifetime press")
+    (compile-simulation-assert-equal
+     nil (ivory-key.simulate::simulation-result-active-effects result)
+     "a cancelled on-commit candidate has no stuck effect owner")
+    (compile-simulation-assert-equal
+     :participant-exited-before-commit
+     (ivory-key.simulate::simulation-trace-entry-details cancel)
+     "the cancellation explains the terminal owner boundary")
+    (compile-simulation-assert-equal
+     :cancelled (getf provenance :candidate-transition)
+     "the trace records cancellation rather than a later commitment")
+    (compile-simulation-assert-equal
+     '(:event :up "a") (getf provenance :source-pattern)
+     "cancellation provenance names the participant exit boundary")))
+
+(deftest simulation-compile-on-commit-keeps-deadline-before-equal-time-owner-up
+  (let* ((effects
+           (ivory-key.model::make-interaction-effects
+            :while (list (ivory-key.model::make-held-modifier-operation "super"))))
+         (candidate
+           (ivory-key.model::make-interaction-candidate
+            "deadline-hold"
+            (ivory-key.model::pattern-deadline 100 :after "a" :while-down "a")
+            :when-matched (ivory-key.model::make-no-output-behavior)
+            :effects effects :effect-start :on-commit))
+         (interaction (ivory-key.model::make-interaction "deadline-hold" '("a")
+                                                        (list candidate)))
+         (result
+           (compile-simulation-result
+            (list (ivory-key.simulate::compile-model-interaction interaction))
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 100 :up "a")))))
+    (compile-simulation-assert-equal
+     '((:modifier :press "super") (:modifier :release "super"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "the generated deadline commits before its equal-time physical owner release")))

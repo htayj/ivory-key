@@ -305,6 +305,43 @@ physical device's input inventory.  A lowering plan needs the logical lookup.
 (defun %planner-input-for-position (position input-mappings)
   (cdr (find position input-mappings :key #'car :test #'identifier=)))
 
+(defun %planner-coverage-disposition-for-position (placement position)
+  "Return explicit coverage for POSITION when this placement supplies it.
+
+NIL has two deliberately distinct callers: old programmatic placements have
+no coverage list at all and retain their established planner behavior; a
+non-NIL list with no record is missing evidence and is refused below.
+"
+  (let ((coverage (ivory-key.model:placement-position-coverage placement)))
+    (when coverage
+      (let ((record
+              (find position coverage :test #'identifier=
+                    :key #'ivory-key.model:device-position-coverage-position)))
+        (and record
+             (ivory-key.model:device-position-coverage-disposition record))))))
+
+(defun %planner-require-covered-input (placement position input)
+  "Refuse a covered device position that cannot carry a semantic binding."
+  (let ((coverages (ivory-key.model:placement-position-coverage placement)))
+    (when coverages
+      (let ((disposition (%planner-coverage-disposition-for-position placement position)))
+        (cond ((null disposition)
+               (error 'planner-refusal :code :missing-device-coverage
+                      :feature position
+                      :detail "No physical/unreachable coverage declaration is present for this logical binding."))
+              ((eq disposition :unreachable)
+               (error 'planner-refusal :code :unreachable-device-position
+                      :feature position
+                      :detail "A logical binding is declared on an unreachable device position."))
+              ((not (eq disposition :physical))
+               (error 'planner-refusal :code :invalid-device-coverage
+                      :feature position
+                      :detail "The device coverage disposition is not recognized.")))))
+    (unless input
+      (error 'planner-refusal :code :missing-device-placement
+             :feature position
+             :detail "No physical input is assigned to this logical binding."))))
+
 (defun %planner-static-p (axes)
   "Whether AXES describe a product table rather than a behavioral lowering."
   (every (lambda (axis) (eq (axis-resolution axis) :product)) axes))
@@ -319,10 +356,7 @@ physical device's input inventory.  A lowering plan needs the logical lookup.
                              (find-axis axis-name (normalized-layout-axes layout)
                                         :errorp t))
                            (normalized-binding-axes binding))))
-        (unless input
-          (error 'planner-refusal :code :missing-device-placement
-                 :feature position
-                 :detail "No physical input is assigned to this logical binding."))
+        (%planner-require-covered-input placement position input)
         (push (make-planned-binding position input axes
                                     (normalized-binding-entries binding)
                                     :static-p (%planner-static-p axes))

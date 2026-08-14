@@ -56,7 +56,10 @@
          collect
          (cons position
                (list :xkb (format nil "AD~2,'0D" ordinal)
-                     :kanata (string-downcase position))))))
+                     :kanata (string-downcase position))))
+   (loop for position in positions
+         collect (ivory-key.model::make-device-position-coverage
+                  position :physical))))
 
 (defun backend-differential-analyze (layout)
   (ivory-key.cli::analyze-normalized-layout

@@ -174,7 +174,11 @@ oracle: a narrow search of frozen commit
 package pin, or lock file (its README only links upstream).  Neither primary
 file supplies a total order for equal-time events, multi-owner release, or the
 precise concurrent-tap-hold scheduler.  No Ivory Key interaction is added from
-these rows until an owner selects that complete policy.
+these rows until an owner selects that complete policy.  [ADR 0003]
+(decisions/0003-manna-release-trigger-v1.md) records one proposed modern
+`manna-release-trigger-v1` route for later review.  It is not selected or
+implemented semantics, does not alter this evidence classification, and does
+not establish historical Kanata equivalence or unblock Manna lowering.
 
 The direct physical Shift pair is now materialized separately.  If an
 owner-scoped `tap-hold-release` lifecycle is selected without changing the

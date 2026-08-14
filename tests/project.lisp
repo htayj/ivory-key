@@ -107,16 +107,47 @@
       (is (typep layout 'ivory-key.model:layout))
       (is (eq topology (ivory-key.model:layout-topology layout)))
       (is (eq topology (ivory-key.model:placement-topology device)))
+      (is-equal :physical
+                (ivory-key.model::device-position-coverage-disposition
+                 (ivory-key.model::placement-coverage-for-position device "q")))
       (is composition)
       ;; Imported declarations carry the exact import site as provenance.
       (is-equal 1 (length (ivory-key.source:source-span-import-stack
                            (ivory-key.project:project-definition-span definition))))
       (is-equal '((:topology "keyboard") (:layout "basic") (:device "board")
                   (:realization "linux") (:composition "basic-linux"))
-                (mapcar (lambda (item)
+                        (mapcar (lambda (item)
                           (list (ivory-key.project:project-definition-kind item)
                                 (ivory-key.project:project-definition-name item)))
                         (ivory-key.project:project-load-result-definitions result))))))
+
+(deftest project-device-coverage-rejects-duplicate-and-unknown-declarations
+  (with-project-test-directory (directory)
+    (let ((entry (write-complete-project
+                  directory '("topology.ivory" "layout.ivory" "device.ivory"
+                              "realization.ivory" "composition.ivory"))))
+      (project-test-write
+       directory "device.ivory"
+       "(ivory-key 1)
+(define-device board (uses-topology keyboard)
+  (place q (:xkb AD01) (:kanata q))
+  (unreachable q))")
+      (is-equal :duplicate-device-position-coverage
+                (project-error-code-from
+                 (lambda ()
+                   (ivory-key.project:load-project entry :source-roots (list directory)))))))
+  (with-project-test-directory (directory)
+    (let ((entry (write-complete-project
+                  directory '("topology.ivory" "layout.ivory" "device.ivory"
+                              "realization.ivory" "composition.ivory"))))
+      (project-test-write
+       directory "device.ivory"
+       "(ivory-key 1)
+(define-device board (uses-topology keyboard) (unreachable not-on-topology))")
+      (is-equal :unknown-device-position
+                (project-error-code-from
+                 (lambda ()
+                   (ivory-key.project:load-project entry :source-roots (list directory))))))))
 
 (deftest project-loader-rejects-import-cycles-and-root-escapes
   (with-project-test-directory (directory)
