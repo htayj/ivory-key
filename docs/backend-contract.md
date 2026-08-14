@@ -116,6 +116,17 @@ modifier, and resource obligations. That section is observational: the
 unchanged direct emitter still independently refuses every unproved selector,
 named output, modifier, or timed interaction.
 
+For tables larger than one native bank, that report includes deterministic
+bank sizes, complete context-to-bank/level assignments, advertised-capacity
+status, and explicit bank-selector/carrier needs. These are planning facts,
+not an XKB group-selection implementation.
+
+In project mode, a realization-owned output vocabulary can make a static typed
+named key or named symbol exact by supplying both XKB and Kanata spellings.
+Analysis and compilation use the same vocabulary-aware path. Missing mappings,
+commands without an approved semantic lowering, profile/backend mismatches,
+and tokens rejected by an existing backend validator stop before build output.
+
 Tool validation is optional environmental evidence. A passing `xkbcli` or
 `kanata` invocation proves only the generated artifact was accepted by that
 installed tool; it does not prove semantic equivalence, live device behavior,

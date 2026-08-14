@@ -45,11 +45,16 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
   mappings)
 
 (defstruct (compiler-realization
-            (:constructor %make-compiler-realization (name pipeline grades)))
+            (:constructor %make-compiler-realization
+                (name pipeline grades vocabulary)))
   "The subset of a realization profile consumed by this bootstrap pipeline."
   name
   pipeline
-  grades)
+  grades
+  ;; NIL means the established direct static table is selected.  A non-NIL
+  ;; vocabulary is realization-owned data resolved by the project loader; it
+  ;; is never inferred from a layout binding or direct source file.
+  vocabulary)
 
 (defstruct (compiler-fidelity-issue
             (:constructor %make-compiler-fidelity-issue (feature code detail)))
@@ -281,7 +286,8 @@ list.
                     (ivory-key.model:identifier-name
                      (ivory-key.model:realization-profile-name realization))))
     (let ((pipeline (ivory-key.model:realization-profile-pipeline realization))
-          (grades (ivory-key.model:realization-profile-permitted-losses realization)))
+          (grades (ivory-key.model:realization-profile-permitted-losses realization))
+          (vocabulary (ivory-key.model:realization-profile-vocabulary realization)))
       (unless (and (listp pipeline) (every #'stringp pipeline)
                    (listp grades) (every #'stringp grades))
         (%stage-error :decode :invalid-project-realization
@@ -300,10 +306,28 @@ list.
                         (ivory-key.model:identifier-name
                          (ivory-key.model:realization-profile-name realization))
                         grade)))
+      ;; The model validates this invariant for source-decoded profiles.  Keep
+      ;; it at the compiler boundary too: callers can construct model objects
+      ;; programmatically, and a vocabulary cannot silently describe a
+      ;; backend which the selected profile does not run.
+      (when vocabulary
+        (unless (typep vocabulary 'ivory-key.model:output-vocabulary)
+          (%stage-error :decode :invalid-project-vocabulary
+                        "Realization ~A has a non-vocabulary output mapping."
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:realization-profile-name realization))))
+        (dolist (backend (ivory-key.model:output-vocabulary-backends vocabulary))
+          (unless (member (ivory-key.model:identifier-name backend)
+                          pipeline :test #'string=)
+            (%stage-error :decode :vocabulary-profile-mismatch
+                          "Realization ~A selects no backend named ~A for its output vocabulary."
+                          (ivory-key.model:identifier-name
+                           (ivory-key.model:realization-profile-name realization))
+                          (ivory-key.model:identifier-name backend)))))
       (%make-compiler-realization
        (ivory-key.model:identifier-name
         (ivory-key.model:realization-profile-name realization))
-       (copy-list pipeline) (copy-list grades)))))
+       (copy-list pipeline) (copy-list grades) vocabulary))))
 
 (defun %project-layout-compiler-unit (project-path layout)
   "Normalize an already validated project layout without a second source load."
@@ -417,6 +441,14 @@ input and are not silently consumed here.
          (pipeline (%option-value clauses "pipeline"))
          (grades (%option-value clauses "allow-grades"))
          (forbid-shell (%option-value clauses "forbid-shell-actions")))
+    ;; Output vocabularies are project declarations and may be imported or
+    ;; forward-referenced.  The one-file compiler intentionally has no
+    ;; project graph to resolve them, so refusing is safer than discarding a
+    ;; selected profile contract and falling back to the static table.
+    (when (find "uses-output-vocabulary" clauses :test #'string= :key #'%form-name)
+      (%stage-error :decode :unsupported-single-file-vocabulary
+                    "Realization ~A selects an output vocabulary; use project compilation to resolve it."
+                    name))
     (unless (equal pipeline '("kanata" "xkb"))
       (%stage-error :decode :unsupported-realization-pipeline
                     "Realization ~A must declare exactly (pipeline kanata xkb), got ~S."
@@ -429,7 +461,7 @@ input and are not silently consumed here.
       (unless (member grade '("exact" "emulated" "lossy") :test #'string=)
         (%stage-error :decode :unknown-realization-grade
                       "Realization ~A allows unknown fidelity grade ~S." name grade)))
-    (%make-compiler-realization name (copy-list pipeline) (copy-list grades))))
+    (%make-compiler-realization name (copy-list pipeline) (copy-list grades) nil)))
 
 (defun %layout-topology-name (layout)
   (ivory-key.model:identifier-name
@@ -501,7 +533,69 @@ input and are not silently consumed here.
         feature :unsupported-composite-behavior
         "The bootstrap pipeline accepts only one static output per binding."))))
 
-(defun analyze-normalized-layout (normalized placement)
+(defun %vocabulary-spelling-for-output (vocabulary behavior backend feature)
+  "Resolve one opaque profile spelling, retaining model failures as lowering data.
+
+The vocabulary model owns identity validation; this compiler boundary turns
+its closed diagnostics into an ordinary fidelity refusal so the caller cannot
+partially emit a build after a missing mapping.
+"
+  (handler-case
+      (ivory-key.model:output-vocabulary-spelling-for-output
+       vocabulary behavior backend)
+    (ivory-key.model:semantic-error (condition)
+      (%make-compiler-fidelity-issue
+       feature
+       (case (ivory-key.model:semantic-error-code condition)
+         (:unknown-vocabulary-backend :missing-vocabulary-backend)
+         (:missing-vocabulary-mapping :missing-vocabulary-mapping)
+         (:unsupported-vocabulary-output :unsupported-vocabulary-output)
+         (otherwise :invalid-output-vocabulary))
+       (ivory-key.model:semantic-error-message condition)))))
+
+(defun %profile-output-lowering (behavior feature vocabulary)
+  "Return (:XKB SPELLING :KANATA SPELLING), or one fidelity issue.
+
+Both selected direct backends need an explicit spelling for a typed semantic
+output.  We resolve both before accepting the entry, which makes a missing
+backend or identity mapping fail before the backend adapters see a request.
+Commands still have no conservative direct lowering, even if a vocabulary
+contains opaque spellings for them: neither selected backend advertises a
+semantic command capability.
+"
+  (let ((xkb-output
+          (%vocabulary-spelling-for-output vocabulary behavior "xkb" feature)))
+    (if (typep xkb-output 'compiler-fidelity-issue)
+        xkb-output
+        (let ((kanata-output
+                (%vocabulary-spelling-for-output vocabulary behavior "kanata" feature)))
+          (if (typep kanata-output 'compiler-fidelity-issue)
+              kanata-output
+              (if (typep behavior 'ivory-key.model:command-output)
+                  (%make-compiler-fidelity-issue
+                   feature :unsupported-command-output
+                   "The direct XKB/Kanata pipeline has no approved semantic command lowering.")
+                  (list :xkb xkb-output :kanata kanata-output)))))))
+
+(defun %output-lowering (behavior feature vocabulary)
+  "Return backend outputs for one static binding, or a fidelity issue.
+
+Only typed named outputs consult a selected realization vocabulary.  Unicode
+and no-output behavior retain their established static lowering and Kanata
+carrier forwarding; modifier, selector, interaction, and composite refusals
+remain entirely unchanged.
+"
+  (if (and vocabulary
+           (or (typep behavior 'ivory-key.model:named-key-output)
+               (typep behavior 'ivory-key.model:named-symbol-output)
+               (typep behavior 'ivory-key.model:command-output)))
+      (%profile-output-lowering behavior feature vocabulary)
+      (let ((xkb-output (%static-output-lowering behavior feature)))
+        (if (typep xkb-output 'compiler-fidelity-issue)
+            xkb-output
+            (list :xkb xkb-output)))))
+
+(defun analyze-normalized-layout (normalized placement &key vocabulary)
   "Return a backend-neutral lowering request and every blocking fidelity issue.
 
 The request is non-NIL only when every normalized feature is exactly
@@ -549,24 +643,28 @@ unknown vocabulary entry into an approximate direct key mapping.
                   "The bootstrap pipeline cannot prove exact selection of multiple abstract context entries.")
                  issues))
           (t
-           (let ((xkb-output
-                   (%static-output-lowering
+           (let ((outputs
+                   (%output-lowering
                     (ivory-key.model:normalized-entry-behavior
                      (first entries-for-binding))
-                    feature)))
-             (if (typep xkb-output 'compiler-fidelity-issue)
-                 (push xkb-output issues)
+                    feature vocabulary)))
+             (if (typep outputs 'compiler-fidelity-issue)
+                 (push outputs issues)
                  ;; Kanata forwards the device's explicit carrier spelling to
-                 ;; XKB.  It must not substitute the abstract output token.
+                 ;; XKB for static Unicode/no-output bindings.  A selected
+                 ;; realization vocabulary instead supplies a checked opaque
+                 ;; Kanata spelling for a typed named output.
                  (push (make-instance 'ivory-key.backend:key-entry
                                       :position feature
                                       :physical-code
                                       (list :xkb (getf placement-entry :xkb)
                                             :kanata (getf placement-entry :kanata))
                                       :outputs
-                                      (list :xkb (list xkb-output)
-                                            :kanata (list (getf placement-entry :kanata)))
-                                      )
+                                      (list :xkb (list (getf outputs :xkb))
+                                            :kanata
+                                            (list (or (getf outputs :kanata)
+                                                      (getf placement-entry
+                                                            :kanata)))))
                        entries)))))))
     (setf issues
           (sort issues #'string<
@@ -585,9 +683,10 @@ unknown vocabulary entry into an approximate direct key mapping.
                                :metadata nil)
                 nil))))
 
-(defun make-lowering-request-from-normalized-layout (normalized placement)
+(defun make-lowering-request-from-normalized-layout (normalized placement &key vocabulary)
   "Return a complete bootstrap lowering request or signal its first failure."
-  (multiple-value-bind (request issues) (analyze-normalized-layout normalized placement)
+  (multiple-value-bind (request issues)
+      (analyze-normalized-layout normalized placement :vocabulary vocabulary)
     (if request
         request
         (let ((issue (first issues)))
@@ -610,7 +709,8 @@ unknown vocabulary entry into an approximate direct key mapping.
 (defun %compile-unit-to-pipeline (unit placement realization)
   (%require-compatible-realization realization)
   (let ((request (make-lowering-request-from-normalized-layout
-                  (compiler-unit-normalized unit) placement)))
+                  (compiler-unit-normalized unit) placement
+                  :vocabulary (compiler-realization-vocabulary realization))))
     (handler-case
         (ivory-key.backend:compile-xkb-kanata-request request :allow-lossy nil)
       (error (condition)
@@ -686,6 +786,78 @@ modifiers, named symbols, commands, or interactions.
                (%planner-inspection-name
                 (ivory-key.backend:realization-feature result)))))
 
+(defun %planner-bank-capacity-status (partition)
+  "Return a stable statement of advertised versus required bank capacity."
+  (let ((advertised
+          (ivory-key.backend:multi-bank-partition-requirement-bank-capacity
+           partition))
+        (required
+          (ivory-key.backend:multi-bank-partition-requirement-bank-count
+           partition)))
+    (cond ((null advertised) "advertised bank capacity: unadvertised")
+          ((< advertised required)
+           (format nil "advertised bank capacity: ~D (exceeded; ~D required)"
+                   advertised required))
+          (t (format nil "advertised bank capacity: ~D (within capacity)"
+                     advertised)))))
+
+(defun %write-planner-bank-partitions (stream plan)
+  "Write complete canonical bank assignments only when a table needs banks."
+  (let ((partitions
+          (ivory-key.backend:lowering-plan-multi-bank-partition-requirements
+           plan)))
+    (when partitions
+      (format stream "Planner multi-bank partitions~%")
+      (dolist (partition partitions)
+        (let ((banks (ivory-key.backend:multi-bank-partition-requirement-banks
+                      partition)))
+          (format stream "  ~A: ~D banks; native level capacity: ~D; ~A~%"
+                  (ivory-key.model:identifier-name
+                   (ivory-key.backend:multi-bank-partition-requirement-position
+                    partition))
+                  (ivory-key.backend:multi-bank-partition-requirement-bank-count
+                   partition)
+                  (ivory-key.backend:multi-bank-partition-requirement-level-capacity
+                   partition)
+                  (%planner-bank-capacity-status partition))
+          ;; Do not use a nested FORMAT iteration here: its escape directive
+          ;; is scoped to each two-element bank tuple.  Writing the stable
+          ;; summary explicitly keeps every bank visible.
+          (format stream "    bank sizes:")
+          (dolist (bank banks)
+            (format stream " ~A=~D"
+                    (ivory-key.backend:static-table-bank-ordinal bank)
+                    (length (ivory-key.backend:static-table-bank-entries
+                             bank))))
+          (terpri stream)
+          (format stream "    canonical context assignments~%")
+          (dolist (assignment
+                   (ivory-key.backend:multi-bank-partition-requirement-assignments
+                    partition))
+            (format stream "      ~A -> bank ~D level ~D~%"
+                    (ivory-key.model:context-tuple-key
+                     (ivory-key.backend:static-table-bank-assignment-context
+                      assignment))
+                    (ivory-key.backend:static-table-bank-assignment-bank-index
+                     assignment)
+                    (ivory-key.backend:static-table-bank-assignment-level-index
+                     assignment))))))))
+
+(defun %write-planner-bank-selector-obligations (stream plan)
+  "Write bank-selection needs without suggesting a selected target lowering."
+  (let ((requirements
+          (ivory-key.backend:lowering-plan-bank-selector-requirements plan)))
+    (when requirements
+      (format stream "Planner bank-selector/carrier obligations~%")
+      (dolist (requirement requirements)
+        (format stream
+                "  ~A: select ~D banks; requires ~D distinguishable carrier values; lowering unproved~%"
+                (ivory-key.model:identifier-name
+                 (ivory-key.backend:bank-selector-requirement-position requirement))
+                (ivory-key.backend:bank-selector-requirement-bank-count requirement)
+                (ivory-key.backend:bank-selector-requirement-carrier-value-count
+                 requirement))))))
+
 (defun %write-planner-inspection (stream plan refusal)
   "Write a canonical capability-planner report without implying emission."
   (format stream "Planner inspection~%")
@@ -708,6 +880,11 @@ modifiers, named symbols, commands, or interactions.
       (when result
         (format stream "    ~A~%"
                 (ivory-key.backend:realization-detail result)))))
+  ;; These sections appear only for tables exceeding one advertised native
+  ;; level bank.  Their detailed assignments are evidence for a future
+  ;; selector lowering, not an emission request or an emulation claim.
+  (%write-planner-bank-partitions stream plan)
+  (%write-planner-bank-selector-obligations stream plan)
   (format stream "Planner selector obligations~%")
   (let ((selectors (ivory-key.backend:lowering-plan-selector-requirements plan)))
     (if selectors
@@ -1149,7 +1326,9 @@ timed interaction it cannot lower exactly.
       (%plan-normalized-layout-for-inspection
        (compiler-unit-normalized unit) placement)
     (multiple-value-bind (request issues)
-        (analyze-normalized-layout (compiler-unit-normalized unit) placement)
+        (analyze-normalized-layout
+         (compiler-unit-normalized unit) placement
+         :vocabulary (compiler-realization-vocabulary realization))
       (format stream "Ivory Key capability explanation~%")
       (format stream "Layout: ~A~%Device: ~A~%Realization: ~A~%"
               (ivory-key.model:identifier-name

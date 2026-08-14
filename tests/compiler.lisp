@@ -102,6 +102,17 @@
       (format stream "    (at (s~2,'0D) (unicode \"a\"))~%" number))
     (format stream "  ))~%")))
 
+(defun compiler-test-forty-level-layout ()
+  (with-output-to-string (stream)
+    (format stream "(ivory-key 1)~%(define-layout forty~%  (uses-topology one)~%")
+    (format stream "  (axis plane (:states")
+    (loop for number from 1 to 40 do
+      (format stream " s~2,'0D" number))
+    (format stream ") (:resolution product))~%  (binding q~%")
+    (loop for number from 1 to 40 do
+      (format stream "    (at (s~2,'0D) (unicode \"a\"))~%" number))
+    (format stream "  ))~%")))
+
 (defun write-compiler-test-project (directory &key
                                                (layout-source +compiler-test-layout+)
                                                (topology-source +compiler-test-topology+)
@@ -260,6 +271,10 @@
       (dolist (report (list direct-report project-report))
         (is (search "Planner static tables (canonical normalized entry counts)" report))
         (is (search "q: 2 entries; XKB grade exact" report))
+        ;; <=8 remains a one-bank plan, so existing inspection output does not
+        ;; gain a speculative bank-selection section.
+        (is (not (search "Planner multi-bank partitions" report)))
+        (is (not (search "Planner bank-selector/carrier obligations" report)))
         (is (search "Planner selector obligations" report))
         (is (search "case [product] states: plain shifted; default: plain; positions: q"
                     report))
@@ -305,9 +320,64 @@
       (is (null project-result))
       (dolist (report (list direct-report project-report))
         (is (search "q: 20 entries; XKB grade unsupported" report))
+        (is (search "Planner multi-bank partitions" report))
+        (is (search "q: 3 banks; native level capacity: 8; advertised bank capacity: 4 (within capacity)"
+                    report))
+        (is (search "bank sizes: 1=8 2=8 3=4" report))
+        (is (search "plane=s01 -> bank 1 level 1" report))
+        (is (search "plane=s08 -> bank 1 level 8" report))
+        (is (search "plane=s09 -> bank 2 level 1" report))
+        (is (search "plane=s20 -> bank 3 level 4" report))
+        (is (search "Planner bank-selector/carrier obligations" report))
+        (is (search "q: select 3 banks; requires 3 distinguishable carrier values; lowering unproved"
+                    report))
+        (is (search "bank-selector q:" report))
+        (is (search "bank-carrier q x3:" report))
         (is (search "requires a separately proven emulation or another target" report))
         ;; The planner has not made a future emulation claim, and it does not
         ;; relax the emitter's independent refusal of context selection.
+        (is (search "Fidelity: unsupported" report))
+        (is (search "[UNSUPPORTED-CONTEXT-SELECTION]" report))))))
+
+(deftest compiler-explain-shows-bank-capacity-overflow-without-emission
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project
+                     directory
+                     :layout-source (compiler-test-forty-level-layout)
+                     :composition-source
+                     "(ivory-key 1)
+(realize direct-build (:layout forty) (:device test-device) (:profile direct-linux))
+"))
+           (layout (merge-pathnames "layout.ivory" directory))
+           (topology (merge-pathnames "topology.ivory" directory))
+           (device (merge-pathnames "device.ivory" directory))
+           (realization (merge-pathnames "realization.ivory" directory))
+           (direct-result nil)
+           (project-result nil)
+           (direct-report
+             (with-output-to-string (stream)
+               (setf direct-result
+                     (ivory-key.cli::explain-layout-source
+                      layout :topology-path topology :device-path device
+                      :realization-path realization :stream stream))))
+           (project-report
+             (with-output-to-string (stream)
+               (setf project-result
+                     (ivory-key.cli:explain-project-source
+                      project "direct-build" :stream stream)))))
+      (is (null direct-result))
+      (is (null project-result))
+      (dolist (report (list direct-report project-report))
+        (is (search "q: 40 entries; XKB grade unsupported" report))
+        (is (search "q: 5 banks; native level capacity: 8; advertised bank capacity: 4 (exceeded; 5 required)"
+                    report))
+        (is (search "bank sizes: 1=8 2=8 3=8 4=8 5=8" report))
+        (is (search "plane=s01 -> bank 1 level 1" report))
+        (is (search "plane=s40 -> bank 5 level 8" report))
+        (is (search "q: select 5 banks; requires 5 distinguishable carrier values; lowering unproved"
+                    report))
+        (is (search "bank-carrier q x5:" report))
+        ;; The direct bridge receives no multi-bank lowering request.
         (is (search "Fidelity: unsupported" report))
         (is (search "[UNSUPPORTED-CONTEXT-SELECTION]" report))))))
 
@@ -490,3 +560,269 @@
                             (ivory-key.cli:compile-project-source
                              project "direct-build" :output-directory output)))))
           (ignore-errors (delete-file link-path)))))))
+
+;;; Realization-owned output vocabularies -----------------------------------
+
+(defun write-compiler-vocabulary-project (directory layout-source vocabulary-source)
+  "Write a synthetic project whose selected profile owns VOCABULARY-SOURCE.
+
+All backend spellings in these fixtures are deliberately synthetic.  Their
+only claim is that the existing conservative adapters either accept or reject
+their opaque atom grammar; they do not document a real keyboard profile.
+"
+  (compiler-test-write
+   directory "project.ivory"
+   "(ivory-key 1)
+(import \"topology.ivory\")
+(import \"layout.ivory\")
+(import \"device.ivory\")
+(import \"vocabulary.ivory\")
+(import \"realization.ivory\")
+(import \"composition.ivory\")
+")
+  (compiler-test-write directory "topology.ivory" +compiler-test-topology+)
+  (compiler-test-write directory "layout.ivory" layout-source)
+  (compiler-test-write directory "device.ivory" +compiler-test-device+)
+  (compiler-test-write directory "vocabulary.ivory" vocabulary-source)
+  (compiler-test-write
+   directory "realization.ivory"
+   "(ivory-key 1)
+(define-realization vocabulary-linux
+  (pipeline kanata xkb)
+  (uses-output-vocabulary synthetic-output)
+  (allow-grades exact emulated)
+  (forbid-shell-actions yes))
+")
+  (compiler-test-write
+   directory "composition.ivory"
+   "(ivory-key 1)
+(realize vocabulary-build
+  (:layout vocabulary-layout)
+  (:device test-device)
+  (:profile vocabulary-linux))
+")
+  (merge-pathnames "project.ivory" directory))
+
+(defun compiler-vocabulary-layout (behavior)
+  (format nil
+          "(ivory-key 1)~%(define-layout vocabulary-layout~%  (uses-topology one)~%  (binding q ~A))~%"
+          behavior))
+
+(defun compiler-vocabulary-source (backends mappings)
+  (format nil
+          "(ivory-key 1)~%(define-output-vocabulary synthetic-output~%  (backends ~A)~%~{  ~A~%~})~%"
+          backends mappings))
+
+(defun compiler-test-read-file (pathname)
+  (with-open-file (stream pathname :direction :input :external-format :utf-8)
+    (let ((content (make-string (file-length stream))))
+      (read-sequence content stream)
+      content)))
+
+(deftest compiler-project-vocabulary-lowers-named-outputs-through-backend-adapters
+  (with-compiler-test-directory (directory)
+    (let* ((project
+             (write-compiler-vocabulary-project
+              directory
+              (compiler-vocabulary-layout "(named-symbol synthetic-symbol)")
+              (compiler-vocabulary-source
+               "xkb kanata"
+               '("(map-output named-symbol synthetic-symbol (:xkb \"F13\") (:kanata \"f13\"))"))))
+           (output (merge-pathnames "vocabulary-build/" directory)))
+      (multiple-value-bind (unit placement realization)
+          (ivory-key.cli:load-project-composition-for-compilation
+           project "vocabulary-build")
+        (is (typep (ivory-key.cli::compiler-realization-vocabulary realization)
+                   'ivory-key.model:output-vocabulary))
+        (multiple-value-bind (request issues)
+            (ivory-key.cli::analyze-normalized-layout
+             (ivory-key.cli::compiler-unit-normalized unit) placement
+             :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization))
+          (is request)
+          (is (null issues))
+          (let ((entry (first (ivory-key.backend:lowering-request-entries request))))
+            (is-equal '("F13")
+                      (ivory-key.backend:key-entry-outputs-for entry :xkb))
+            (is-equal '("f13")
+                      (ivory-key.backend:key-entry-outputs-for entry :kanata)))))
+      ;; This passes through COMPILE-XKB-KANATA-REQUEST, which invokes both
+      ;; adapter safety checks before WRITE-NEW-PIPELINE-RESULT can emit.
+      (is (ivory-key.cli:compile-project-source
+           project "vocabulary-build" :output-directory output))
+      (is (search "F13"
+                  (compiler-test-read-file (merge-pathnames "keymap.xkb" output))))
+      (is (search "f13"
+                  (compiler-test-read-file (merge-pathnames "layout.kbd" output)))))))
+
+(deftest compiler-project-without-vocabulary-keeps-static-named-key-lowering
+  (with-compiler-test-directory (directory)
+    (let ((project
+            (write-compiler-test-project
+             directory
+             :layout-source
+             "(ivory-key 1)
+(define-layout direct
+  (uses-topology one)
+  (binding q (named-key return)))
+")))
+      (multiple-value-bind (unit placement realization)
+          (ivory-key.cli:load-project-composition-for-compilation project "direct-build")
+        (is (null (ivory-key.cli::compiler-realization-vocabulary realization)))
+        (multiple-value-bind (request issues)
+            (ivory-key.cli::analyze-normalized-layout
+             (ivory-key.cli::compiler-unit-normalized unit) placement)
+          (is request)
+          (is (null issues))
+          (let ((entry (first (ivory-key.backend:lowering-request-entries request))))
+            (is-equal '("Return")
+                      (ivory-key.backend:key-entry-outputs-for entry :xkb))
+            ;; No profile vocabulary means the established physical carrier
+            ;; pass-through remains in force.
+            (is-equal '("q")
+                      (ivory-key.backend:key-entry-outputs-for entry :kanata))))))))
+
+(deftest compiler-project-vocabulary-refuses-missing-unsupported-and-unsafe-outputs
+  (dolist (case
+           (list
+            (list :missing-vocabulary-mapping
+                  "(named-symbol needed-symbol)"
+                  (compiler-vocabulary-source
+                   "xkb kanata"
+                   '("(map-output named-symbol other-symbol (:xkb \"F14\") (:kanata \"f14\"))")))
+            (list :missing-vocabulary-backend
+                  "(named-key synthetic-key)"
+                  (compiler-vocabulary-source
+                   "xkb"
+                   '("(map-output named-key synthetic-key (:xkb \"F15\"))")))
+            (list :unsupported-command-output
+                  "(command synthetic-command)"
+                  (compiler-vocabulary-source
+                   "xkb kanata"
+                   '("(map-output command synthetic-command (:xkb \"F16\") (:kanata \"f16\"))")))
+            ;; The registry leaves backend grammars opaque.  A syntactically
+            ;; unsafe Kanata token must therefore reach and be refused by the
+            ;; existing backend boundary, never be sanitized or emitted.
+            (list :backend-refusal
+                  "(named-key unsafe-key)"
+                  (compiler-vocabulary-source
+                   "xkb kanata"
+                   '("(map-output named-key unsafe-key (:xkb \"F17\") (:kanata \"unsafe;token\"))")))))
+    (destructuring-bind (expected-code behavior vocabulary-source) case
+      (with-compiler-test-directory (directory)
+        (let* ((project
+                 (write-compiler-vocabulary-project
+                  directory (compiler-vocabulary-layout behavior) vocabulary-source))
+               (output (merge-pathnames "refused-build/" directory)))
+          (is-equal expected-code
+                    (compiler-stage-code-from
+                     (lambda ()
+                       (ivory-key.cli:compile-project-source
+                        project "vocabulary-build" :output-directory output))))
+          (is (null (probe-file output))))))))
+
+(deftest compiler-refuses-programmatic-vocabulary-profile-mismatch
+  ;; Source-decoded profiles reject this in the model.  This boundary test
+  ;; proves callers cannot bypass that refusal with a manually made profile.
+  (let* ((vocabulary
+           (ivory-key.model:make-output-vocabulary
+            '("other-backend") nil))
+         (profile
+           (make-instance
+            'ivory-key.model:realization-profile
+            :name (ivory-key.model:make-identifier "mismatched-profile")
+            :pipeline '("kanata" "xkb")
+            :vocabulary vocabulary
+            :permitted-losses '("exact")
+            :metadata '(:forbid-shell-actions "yes"))))
+    (is-equal :vocabulary-profile-mismatch
+              (compiler-stage-code-from
+               (lambda ()
+                 (ivory-key.cli::compiler-realization-from-model profile))))))
+
+(deftest compiler-project-vocabulary-maps-named-key-and-keeps-unicode-static
+  (dolist (fixture
+           (list
+            (list "(named-key synthetic-key)"
+                  (compiler-vocabulary-source
+                   "xkb kanata"
+                   '("(map-output named-key synthetic-key (:xkb \"F18\") (:kanata \"f18\"))"))
+                  '("F18") '("f18"))
+            ;; A vocabulary supplies spellings only for typed named outputs;
+            ;; Unicode remains on the pre-existing static XKB/carrier path.
+            (list "(unicode \"q\")"
+                  (compiler-vocabulary-source "xkb kanata" nil)
+                  '("U71") '("q"))))
+    (destructuring-bind (behavior vocabulary-source expected-xkb expected-kanata)
+        fixture
+      (with-compiler-test-directory (directory)
+        (let ((project
+                (write-compiler-vocabulary-project
+                 directory (compiler-vocabulary-layout behavior) vocabulary-source)))
+          (multiple-value-bind (unit placement realization)
+              (ivory-key.cli:load-project-composition-for-compilation
+               project "vocabulary-build")
+            (multiple-value-bind (request issues)
+                (ivory-key.cli::analyze-normalized-layout
+                 (ivory-key.cli::compiler-unit-normalized unit) placement
+                 :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization))
+              (is request)
+              (is (null issues))
+              (let ((entry (first (ivory-key.backend:lowering-request-entries request))))
+                (is-equal expected-xkb
+                          (ivory-key.backend:key-entry-outputs-for entry :xkb))
+                (is-equal expected-kanata
+                          (ivory-key.backend:key-entry-outputs-for entry :kanata)))
+              ;; The request is deliberately run through both existing
+              ;; backend validators without writing any artifact.
+              (is (ivory-key.backend:compile-xkb-kanata-request
+                   request :allow-lossy nil)))))))))
+
+(deftest compiler-project-explain-uses-the-selected-output-vocabulary
+  (dolist (fixture
+           (list
+            (list "(named-symbol synthetic-symbol)"
+                  (compiler-vocabulary-source
+                   "xkb kanata"
+                   '("(map-output named-symbol synthetic-symbol (:xkb \"F19\") (:kanata \"f19\"))"))
+                  t :exact)
+            (list "(named-symbol missing-symbol)"
+                  (compiler-vocabulary-source
+                   "xkb kanata"
+                   '("(map-output named-symbol other-symbol (:xkb \"F20\") (:kanata \"f20\"))"))
+                  nil :missing-vocabulary-mapping)))
+    (destructuring-bind (behavior vocabulary-source expected-request expected-code)
+        fixture
+      (with-compiler-test-directory (directory)
+        (let* ((project
+                 (write-compiler-vocabulary-project
+                  directory (compiler-vocabulary-layout behavior) vocabulary-source))
+               (report (with-output-to-string (stream)
+                         (let ((request
+                                 (ivory-key.cli:explain-project-source
+                                  project "vocabulary-build" :stream stream)))
+                           (if expected-request
+                               (is request)
+                               (is (null request)))))))
+          (ecase expected-code
+            (:exact
+             (is (search "Fidelity: exact for the current direct pipeline" report)))
+            (:missing-vocabulary-mapping
+             (is (search "Fidelity: unsupported" report))
+             (is (search "[MISSING-VOCABULARY-MAPPING]" report))))))))
+  ;; Opaque spelling safety remains an adapter concern.  Explain follows the
+  ;; same pipeline as compile after analysis and therefore refuses this map
+  ;; instead of presenting a false exact disposition.
+  (with-compiler-test-directory (directory)
+    (let ((project
+            (write-compiler-vocabulary-project
+             directory
+             (compiler-vocabulary-layout "(named-key unsafe-explain-key)")
+             (compiler-vocabulary-source
+              "xkb kanata"
+              '("(map-output named-key unsafe-explain-key (:xkb \"F21\") (:kanata \"unsafe;token\"))")))))
+      (is-equal :backend-refusal
+                (compiler-stage-code-from
+                 (lambda ()
+                   (ivory-key.cli:explain-project-source
+                    project "vocabulary-build"
+                    :stream (make-string-output-stream))))))))

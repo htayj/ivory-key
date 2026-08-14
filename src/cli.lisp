@@ -276,27 +276,61 @@ and physical mappings ambiguous.
              (format *standard-output* "  ~A~%" (getf result :output)))))))
     (cond (failed 1) (unavailable 2) (t 0))))
 
+(defun normalized-project-layout-for-simulation (project-path composition-name)
+  "Load one project once and return its selected normalized layout for simulation.
+
+The project composition still establishes that one resolved layout, device,
+and realization belong together.  Simulation deliberately consumes only the
+already validated layout: device placement and realization policy are context,
+not a request to lower a backend, prove physical equivalence, or deploy.
+"
+  (let* ((project (ivory-key.project:load-project project-path))
+         (composition (ivory-key.project:project-composition
+                       project composition-name :errorp t))
+         (layout (ivory-key.project:project-realization-composition-layout
+                  composition)))
+    (handler-case
+        ;; LOAD-PROJECT already decoded, resolved, and validated this layout.
+        ;; Keep normalization as the explicit in-memory simulation boundary;
+        ;; never route the selected device/profile through compiler lowering.
+        (ivory-key.model:normalize-layout layout :validate nil)
+      (ivory-key.model:semantic-error (condition)
+        (%stage-error :normalize (ivory-key.model:semantic-error-code condition)
+                      "~A" (ivory-key.model:semantic-error-message condition)))
+      (error (condition)
+        (%stage-error :normalize :normalizer-failure "~A" condition)))))
+
 (defun simulate-command (arguments)
-  (let* ((options (command-options arguments '("--layout" "--topology" "--events")))
-         (layout-path (required-option options "--layout"))
+  (let* ((options (command-options arguments
+                                   '("--layout" "--topology" "--project"
+                                     "--composition" "--events")))
+         (layout-path (optional-option options "--layout"))
          (topology-path (optional-option options "--topology"))
-         (events-path (required-option options "--events"))
-         ;; Load and normalize the declared layout before reading any event
-         ;; fixture.  The fixture decoder is a separately bounded, closed
-         ;; source vocabulary; it has no path to CL:READ, evaluation, backend
-         ;; lowering, deployment, or a project import traversal.
-         (unit (load-layout-for-compilation layout-path :topology-path topology-path))
-         (events (ivory-key.simulate::decode-simulation-event-stream-file events-path))
-         (result
-           (ivory-key.simulate::simulate-normalized-layout-event-stream
-            (compiler-unit-normalized unit) events)))
-    ;; Both the result and trace are rendered by the adapter rather than host
-    ;; object printers, so scripts get a deterministic, backend-neutral report.
-    ;; Any event-source or model-adapter refusal escapes to MAIN and therefore
-    ;; receives its established nonzero failure status.
-    (write-string (ivory-key.simulate::simulation-result-dump-string result)
-                  *standard-output*)
-    0))
+         (events-path (required-option options "--events")))
+    (multiple-value-bind (project-path composition-name)
+        (project-option-values options "simulate")
+      (reject-mixed-project-options project-path (list layout-path topology-path)
+                                    "simulate")
+      (let* ((normalized
+               (if project-path
+                   (normalized-project-layout-for-simulation
+                    project-path composition-name)
+                   (compiler-unit-normalized
+                    (load-layout-for-compilation
+                     (required-option options "--layout") :topology-path topology-path))))
+             ;; The fixture decoder is a separately bounded, closed source
+             ;; vocabulary.  It has no path to CL:READ, evaluation, backend
+             ;; lowering, deployment, or an additional project traversal.
+             (events (ivory-key.simulate::decode-simulation-event-stream-file events-path))
+             (result
+               (ivory-key.simulate::simulate-normalized-layout-event-stream
+                normalized events)))
+        ;; Both the result and trace are rendered by the adapter rather than
+        ;; host object printers, so scripts get a deterministic report.  Any
+        ;; source or adapter refusal escapes to MAIN and returns nonzero.
+        (write-string (ivory-key.simulate::simulation-result-dump-string result)
+                      *standard-output*)
+        0))))
 
 (defun print-usage (&optional (stream *standard-output*))
   (format stream "Usage: ivory-key COMMAND [ARGUMENTS...]~%~%")
@@ -308,6 +342,7 @@ and physical mappings ambiguous.
   (format stream "          or --stage typed|normalized --project FILE --composition NAME~%")
   (format stream "  levels --layout FILE [--topology FILE] | --project FILE --composition NAME~%")
   (format stream "  simulate --layout FILE [--topology FILE] --events FILE~%")
+  (format stream "          or --project FILE --composition NAME --events FILE~%")
   (format stream "  explain --layout FILE --device FILE --realization FILE [--topology FILE]~%")
   (format stream "          or --project FILE --composition NAME~%")
   (format stream "  compile --layout FILE --device FILE --realization FILE --output DIR [--topology FILE]~%")

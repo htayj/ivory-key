@@ -110,6 +110,12 @@ obligations before the stricter direct-emitter disposition. An exact XKB table
 capacity grade is observational and does not authorize selector or output
 lowering.
 
+For a multi-bank table, inspection also prints every canonical context-to-bank
+and native-level assignment, the `8+8+4`-style bank sizes, advertised bank
+capacity, and the still-unproved selector/carrier obligation. A table needing
+five banks against an advertised four remains complete in the report and is
+explicitly over capacity; neither case authorizes emission.
+
 No claim of semantic equivalence should be made for a fixture merely because
 it parses, simulates a supported subset, or plans. Backend output is never used
 to retroactively define abstract semantics.

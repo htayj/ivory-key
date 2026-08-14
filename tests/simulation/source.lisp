@@ -205,3 +205,98 @@
                     rendered))
         (is (search "0 event event=(:down \"q\" nil)" rendered))
         (is (search "UNSUPPORTED-NORMALIZED-OVERLAYS" reported))))))
+
+(deftest simulation-cli-loads-project-composition-without-backend-lowering
+  "Project simulation selects one resolved layout; it does not compile its profile."
+  (with-simulation-source-test-directory (directory)
+    (let* ((project
+             (simulation-source-test-write
+              directory "project.ivory"
+              "(ivory-key 1)
+(import \"topology.ivory\")
+(import \"layout.ivory\")
+(import \"device.ivory\")
+(import \"realization.ivory\")
+(import \"composition.ivory\")"))
+           (layout
+             (simulation-source-test-write
+              directory "layout.ivory"
+              "(ivory-key 1)
+(define-layout project-sim (uses-topology keyboard)
+  (binding q (unicode \"q\")))"))
+           (events
+             (simulation-source-test-write
+              directory "events.ivory"
+              "(ivory-key 1)
+(simulation (event 0 down q) (event 10 up q))"))
+           (output (make-string-output-stream))
+           (errors (make-string-output-stream)))
+      (simulation-source-test-write
+       directory "topology.ivory"
+       "(ivory-key 1)
+(define-topology keyboard
+  (position q (:row 1) (:column 1) (:hand left) (:finger pinky)))")
+      (simulation-source-test-write
+       directory "device.ivory"
+       "(ivory-key 1)
+(define-device project-board (uses-topology keyboard)
+  (place q (:xkb AD01) (:kanata q)))")
+      ;; UNSUPPORTED is valid project policy but intentionally refused by the
+      ;; compiler's exact bootstrap bridge.  A successful simulation therefore
+      ;; proves project mode stays in the resolved layout path.
+      (simulation-source-test-write
+       directory "realization.ivory"
+       "(ivory-key 1)
+(define-realization simulation-context
+  (pipeline future-backend)
+  (allow-grades unsupported)
+  (forbid-shell-actions yes))")
+      (simulation-source-test-write
+       directory "composition.ivory"
+       "(ivory-key 1)
+(realize project-simulation
+  (:layout project-sim)
+  (:device project-board)
+  (:profile simulation-context))")
+      (let ((*standard-output* output)
+            (*error-output* errors))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "simulate" "--project" (namestring project)
+                         "--composition" "project-simulation"
+                         "--events" (namestring events))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "simulate" "--project" (namestring project)
+                         "--composition" "missing-composition"
+                         "--events" (namestring events))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "simulate" "--project" (namestring project)
+                         "--composition" "project-simulation"
+                         "--layout" (namestring layout)
+                         "--events" (namestring events))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "simulate" "--project" (namestring project)
+                         "--events" (namestring events))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "simulate" "--project" (namestring project)
+                         "--project" (namestring project)
+                         "--composition" "project-simulation"
+                         "--events" (namestring events))))
+        (is-equal 1
+                  (ivory-key.cli:main
+                   (list "simulate" "--project" (namestring project)
+                         "--composition" "project-simulation"))))
+      (let ((rendered (get-output-stream-string output))
+            (reported (get-output-stream-string errors)))
+        (is (search (format nil "simulation-result~%outputs~%  (:text \"q\")~%trace~%")
+                    rendered))
+        (is (search "Project has no COMPOSITION named missing-composition." reported))
+        (is (search "simulate cannot mix --project/--composition with explicit source files."
+                    reported))
+        (is (search "simulate requires --project and --composition together." reported))
+        (is (search "Option --project was supplied more than once." reported))
+        (is (search "Missing required option --events." reported))))))

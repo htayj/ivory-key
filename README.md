@@ -67,6 +67,7 @@ ivory-key dump-ir --stage typed|normalized --project PROJECT --composition NAME
 ivory-key levels --layout FILE [--topology FILE]
 ivory-key levels --project PROJECT --composition NAME
 ivory-key simulate --layout FILE [--topology FILE] --events FILE
+ivory-key simulate --project PROJECT --composition NAME --events FILE
 ivory-key explain --layout FILE --topology FILE --device FILE --realization FILE
 ivory-key explain --project PROJECT --composition NAME
 ivory-key compile --layout FILE --topology FILE --device FILE --realization FILE --output DIR
@@ -84,11 +85,22 @@ profile paths, because that would make the selected meaning and placement
 ambiguous. `dump-ir` project mode exposes only typed and normalized stages;
 raw parsed inspection remains a single-file mode.
 
+Project simulation selects the composition's already resolved layout and runs
+the same restricted, backend-neutral event adapter as direct layout mode. The
+composition's device and realization remain context only: simulation does not
+lower a backend, prove physical equivalence, emit files, or deploy anything.
+
 The checked-in `manna-cadet-project.ivory` is the auditable import graph for
 the frozen Manna layout, Kinesis Advantage 2 placement, Linux profile, and
 named `manna-cadet-linux` composition. Inspection works today; compilation is
 expected to refuse until every required selector, modifier, named output, and
 timed interaction has an exact approved realization.
+
+When a project realization selects an output vocabulary, exact static
+named-key and named-symbol bindings use its explicit XKB and Kanata spellings.
+Missing backend mappings, missing identities, commands without an approved
+semantic lowering, and unsafe backend tokens refuse before any build is
+written. No spellings are inferred from the Manna transcription.
 
 ## Documentation
 
