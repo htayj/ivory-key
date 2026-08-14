@@ -184,14 +184,20 @@ Realizations may also record one bounded, explicitly selected Manna/Kanata
 interaction-compatibility route:
 
 ```lisp
-(interaction-compatibility modern-no-delay)
+(interaction-compatibility modern-no-delay
+  (instances tap-hold-case-f tap-hold-case-j))
 ;; or
-(interaction-compatibility kanata-1-12-buffered)
+(interaction-compatibility kanata-1-12-buffered
+  (instances tap-hold-case-f tap-hold-case-j))
 ```
 
 This clause is realization policy, not layout behavior or a generic tap/hold
-primitive. Its absence means unselected; there is no default. The two values
-are closed identifiers. `modern-no-delay` names the proposed ADR 0003
+primitive. Its absence means unselected; there is no default. `instances` is
+required, occurs exactly once, and names a nonempty set of concrete normalized
+interaction instances to which the policy applies. Duplicate or unknown names
+are errors; unlisted interactions retain the generic timed-interaction refusal.
+The former profile-wide `(interaction-compatibility MODE)` spelling is invalid.
+The two mode values are closed identifiers. `modern-no-delay` names the proposed ADR 0003
 foreign-event contract, while `kanata-1-12-buffered` names the versioned ADR
 0004 observation. Both currently remain backend refusals: the former differs
 from Kanata 1.12 event delivery, and the latter lacks an abstract typed

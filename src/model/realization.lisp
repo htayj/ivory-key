@@ -22,8 +22,9 @@
    ;; A deliberately narrow selection for the one currently disputed
    ;; Manna/Kanata timed-interaction boundary.  NIL means no route has been
    ;; selected; it must never be interpreted as a modern or versioned-runtime
-   ;; default by a compiler or backend.  V1 has no per-interaction applicability
-   ;; link yet, so selected values remain refusal/inspection policy only.
+   ;; default by a compiler or backend.  A selected policy identifies its
+   ;; finite interaction-instance set, so it cannot relabel unrelated timed
+   ;; interactions as Manna-specific obligations.
    (interaction-compatibility-policy
     :initarg :interaction-compatibility-policy :initform nil
     :reader realization-profile-interaction-compatibility-policy)
@@ -105,7 +106,12 @@ prove a carrier/pass-through stage without inventing a backend token here.
   '(:modern-no-delay :kanata-1-12-buffered))
 
 (defclass realization-interaction-compatibility-policy ()
-  ((mode :initarg :mode :reader realization-interaction-compatibility-policy-mode)))
+  ((mode :initarg :mode :reader realization-interaction-compatibility-policy-mode)
+   ;; Canonical, nonempty set of concrete normalized interaction identities.
+   ;; Template body names are not eligible: the compiler validates these
+   ;; identifiers only after top-level instance materialization/normalization.
+   (interactions :initarg :interactions
+                 :reader realization-interaction-compatibility-policy-interactions)))
 
 (defclass realization-static-type ()
   ((position :initarg :position :reader realization-static-type-position)
@@ -148,20 +154,52 @@ prove a carrier/pass-through stage without inventing a backend token here.
     (%realization-error code "~A has unsupported value ~S." role value))
   value)
 
-(defun make-realization-interaction-compatibility-policy (mode)
+(defun %realization-interaction-compatibility-instances (interactions)
+  "Validate and canonically order the policy's concrete interaction instances."
+  (unless (listp interactions)
+    (%realization-error
+     :invalid-realization-interaction-compatibility-instances
+     "Realization interaction compatibility instances must be a list, got ~S."
+     interactions))
+  (when (null interactions)
+    (%realization-error
+     :empty-realization-interaction-compatibility-instances
+     "Realization interaction compatibility requires at least one instance."))
+  (let ((canonical
+          (mapcar (lambda (interaction)
+                    (handler-case
+                        (ensure-identifier interaction)
+                      (error ()
+                        (%realization-error
+                         :invalid-realization-interaction-compatibility-instance
+                         "Realization interaction compatibility instance must be an identifier, got ~S."
+                         interaction))))
+                  interactions)))
+    (unless (unique-identifiers-p canonical)
+      (%realization-error
+       :duplicate-realization-interaction-compatibility-instance
+       "Realization interaction compatibility repeats an instance identity."))
+    (sort canonical #'identifier<)))
+
+(defun make-realization-interaction-compatibility-policy (mode interactions)
   "Select one closed V1 Manna/Kanata timed-interaction compatibility route.
 
 MODE is either :MODERN-NO-DELAY, the proposed `manna-release-trigger-v1`
 foreign-event rule, or :KANATA-1-12-BUFFERED, the bounded versioned Kanata
-1.12 buffer/replay observation.  This model value selects neither a generic
-interaction meaning nor a backend action.  A NIL profile slot is deliberately
-unselected rather than a default MODE.
+1.12 buffer/replay observation.  INTERACTIONS is a nonempty, canonical set of
+concrete interaction-instance identities to which this narrow refusal route
+applies.  This model value selects neither a generic interaction meaning nor a
+backend action.  A NIL profile slot is deliberately unselected rather than a
+default MODE.
 "
   (%realization-closed-value
    mode +realization-interaction-compatibility-modes+
    :unsupported-realization-interaction-compatibility-mode
    "Realization interaction compatibility mode")
-  (make-instance 'realization-interaction-compatibility-policy :mode mode))
+  (make-instance 'realization-interaction-compatibility-policy
+                 :mode mode
+                 :interactions
+                 (%realization-interaction-compatibility-instances interactions)))
 
 (defun validate-realization-interaction-compatibility-policy (policy)
   "Validate POLICY as one closed, selected V1 compatibility route."
@@ -170,10 +208,35 @@ unselected rather than a default MODE.
      :invalid-realization-interaction-compatibility-policy
      "Expected a REALIZATION-INTERACTION-COMPATIBILITY-POLICY, got ~S."
      policy))
-  ;; Reuse the public constructor so programmatically assembled values get
-  ;; exactly the same closed-enum validation as decoded source.
-  (make-realization-interaction-compatibility-policy
-   (realization-interaction-compatibility-policy-mode policy))
+  (let* ((stored
+           (realization-interaction-compatibility-policy-interactions policy))
+         ;; Reuse the public constructor so programmatically assembled values
+         ;; receive the same closed-enum, nonempty, and duplicate validation as
+         ;; decoded source.  Do not replace POLICY: realization/profile objects
+         ;; preserve their identity across compiler boundaries.
+         (canonical-policy
+           (make-realization-interaction-compatibility-policy
+            (realization-interaction-compatibility-policy-mode policy)
+            stored))
+         (canonical
+           (realization-interaction-compatibility-policy-interactions
+            canonical-policy)))
+    ;; A raw MAKE-INSTANCE may bypass the constructor.  Permit no alternative
+    ;; representation here: inspection, metadata, and backend matching all
+    ;; require actual identifier objects in canonical set order.  Silently
+    ;; replacing the slot would make an identity-bearing realization mutable at
+    ;; validation time; refusing leaves that programmatic error explicit.
+    (unless (every (lambda (interaction)
+                     (typep interaction 'identifier))
+                   stored)
+      (%realization-error
+       :invalid-realization-interaction-compatibility-instance
+       "Programmatic interaction compatibility instances must be IDENTIFIER objects."))
+    (unless (and (= (length stored) (length canonical))
+                 (every #'identifier= stored canonical))
+      (%realization-error
+       :noncanonical-realization-interaction-compatibility-instances
+       "Programmatic interaction compatibility instances must be in canonical set order.")))
   policy)
 
 (defun make-realization-static-type (position type group-two-type)

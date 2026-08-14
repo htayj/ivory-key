@@ -367,8 +367,8 @@
         (is (null (find-symbol (string-upcase name) project-package)))
         (is (null (find-symbol (string-upcase name) model-package)))))))
 
-(deftest project-realization-interaction-compatibility-is-closed-and-optional
-  "Project source retains no compatibility default and accepts only two routes."
+(deftest project-realization-interaction-compatibility-is-closed-scoped-and-optional
+  "Project source retains no default and accepts only closed target sets."
   (with-project-test-directory (directory)
     (labels ((load-realization (source)
                (let ((entry
@@ -387,36 +387,65 @@
                       ("kanata-1-12-buffered" . :kanata-1-12-buffered)))
         (let* ((profile
                  (load-realization
-                  (source (format nil "(interaction-compatibility ~A)" (car case)))))
+                  (source (format nil "(interaction-compatibility ~A (instances later first))"
+                                  (car case)))))
                (policy
-                 (ivory-key.model::realization-profile-interaction-compatibility-policy
-                  profile)))
+                (ivory-key.model::realization-profile-interaction-compatibility-policy
+                 profile)))
           (is (typep policy
                      'ivory-key.model::realization-interaction-compatibility-policy))
           (is-equal (cdr case)
                     (ivory-key.model::realization-interaction-compatibility-policy-mode
-                     policy))))
+                     policy))
+          (is-equal '("first" "later")
+                    (mapcar #'ivory-key.model:identifier-name
+                            (ivory-key.model::realization-interaction-compatibility-policy-interactions
+                             policy)))))
       (is (null
            (ivory-key.model::realization-profile-interaction-compatibility-policy
             (load-realization (source "")))))
       (let ((uninterned "project-compatibility-mode-must-not-intern")
+            (uninterned-target "project-compatibility-target-must-not-intern")
             (package (find-package :ivory-key.project)))
         (is (null (find-symbol (string-upcase uninterned) package)))
+        (is (null (find-symbol (string-upcase uninterned-target) package)))
         (is-equal
          :unknown-realization-interaction-compatibility-mode
          (project-error-code-from
           (lambda ()
             (load-realization
-             (source (format nil "(interaction-compatibility ~A)" uninterned))))))
-        (is (null (find-symbol (string-upcase uninterned) package))))
+             (source (format nil "(interaction-compatibility ~A (instances ~A))"
+                             uninterned uninterned-target))))))
+        (is (null (find-symbol (string-upcase uninterned) package)))
+        (is (null (find-symbol (string-upcase uninterned-target) package))))
       (is-equal
        :duplicate-realization-clause
        (project-error-code-from
         (lambda ()
           (load-realization
-           (source "(interaction-compatibility modern-no-delay) (interaction-compatibility kanata-1-12-buffered)")))))
+           (source "(interaction-compatibility modern-no-delay (instances one)) (interaction-compatibility kanata-1-12-buffered (instances two))")))))
       (is-equal
        :invalid-realization-interaction-compatibility-policy
        (project-error-code-from
         (lambda ()
-          (load-realization (source "(interaction-compatibility \"modern-no-delay\")"))))))))
+          ;; Migration checkpoint: the former profile-wide spelling is not an
+          ;; implicit all-interactions compatibility selection.
+          (load-realization (source "(interaction-compatibility modern-no-delay)")))))
+      (is-equal
+       :empty-realization-interaction-compatibility-instances
+       (project-error-code-from
+        (lambda ()
+          (load-realization
+           (source "(interaction-compatibility modern-no-delay (instances))")))))
+      (is-equal
+       :duplicate-realization-interaction-compatibility-instance
+       (project-error-code-from
+        (lambda ()
+          (load-realization
+           (source "(interaction-compatibility modern-no-delay (instances one ONE))")))))
+      (is-equal
+       :invalid-realization-interaction-compatibility-policy
+       (project-error-code-from
+        (lambda ()
+          (load-realization
+           (source "(interaction-compatibility \"modern-no-delay\" (instances one))"))))))))

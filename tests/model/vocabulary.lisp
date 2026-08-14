@@ -161,17 +161,23 @@
      (ivory-key.model:make-realization-profile
       "not-a-vocabulary" :pipeline '("backend-a") :vocabulary "backend-a"))))
 
-(deftest realization-interaction-compatibility-policy-is-closed-and-unselected-by-default
-  "The bounded V1 Manna/Kanata choice is typed, opt-in, and not generic IR."
+(deftest realization-interaction-compatibility-policy-is-closed-scoped-and-unselected-by-default
+  "The bounded V1 Manna/Kanata choice is typed, scoped, and not generic IR."
   (dolist (mode '(:modern-no-delay :kanata-1-12-buffered))
     (let ((policy
             (ivory-key.model::make-realization-interaction-compatibility-policy
-             mode)))
+             mode '("second-instance" "first-instance"))))
       (is (typep policy
                  'ivory-key.model::realization-interaction-compatibility-policy))
       (is-equal mode
                 (ivory-key.model::realization-interaction-compatibility-policy-mode
                  policy))
+      ;; Applicability is a set.  Canonical ordering preserves deterministic
+      ;; inspection without making declaration order candidate priority.
+      (is-equal '("first-instance" "second-instance")
+                (mapcar #'ivory-key.model:identifier-name
+                        (ivory-key.model::realization-interaction-compatibility-policy-interactions
+                         policy)))
       (is (eq policy
               (ivory-key.model::validate-realization-interaction-compatibility-policy
                policy)))
@@ -192,13 +198,42 @@
    :unsupported-realization-interaction-compatibility-mode
    (lambda ()
      (ivory-key.model::make-realization-interaction-compatibility-policy
-      :generic-tap-hold)))
+      :generic-tap-hold '("target"))))
   (vocabulary-signals-code
    :unsupported-realization-interaction-compatibility-mode
    (lambda ()
      (ivory-key.model::validate-realization-interaction-compatibility-policy
       (make-instance 'ivory-key.model::realization-interaction-compatibility-policy
-                     :mode :generic-tap-hold))))
+                     :mode :generic-tap-hold :interactions
+                     (list (ivory-key.model:make-identifier "target"))))))
+  (vocabulary-signals-code
+   :empty-realization-interaction-compatibility-instances
+   (lambda ()
+     (ivory-key.model::make-realization-interaction-compatibility-policy
+      :modern-no-delay nil)))
+  (vocabulary-signals-code
+   :duplicate-realization-interaction-compatibility-instance
+   (lambda ()
+     (ivory-key.model::make-realization-interaction-compatibility-policy
+      :modern-no-delay '("target" "TARGET"))))
+  ;; Public MAKE-INSTANCE can bypass the canonical constructor.  Validation
+  ;; must reject that alternate representation rather than leave inspection
+  ;; metadata dependent on declaration order.
+  (vocabulary-signals-code
+   :noncanonical-realization-interaction-compatibility-instances
+   (lambda ()
+     (ivory-key.model::validate-realization-interaction-compatibility-policy
+      (make-instance 'ivory-key.model::realization-interaction-compatibility-policy
+                     :mode :modern-no-delay
+                     :interactions
+                     (list (ivory-key.model:make-identifier "z-target")
+                           (ivory-key.model:make-identifier "a-target"))))))
+  (vocabulary-signals-code
+   :invalid-realization-interaction-compatibility-instance
+   (lambda ()
+     (ivory-key.model::validate-realization-interaction-compatibility-policy
+      (make-instance 'ivory-key.model::realization-interaction-compatibility-policy
+                     :mode :modern-no-delay :interactions '("target")))))
   (vocabulary-signals-code
    :invalid-realization-interaction-compatibility-policy
    (lambda ()

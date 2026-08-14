@@ -279,6 +279,7 @@
    #:make-realization-interaction-compatibility-policy
    #:validate-realization-interaction-compatibility-policy
    #:realization-interaction-compatibility-policy-mode
+   #:realization-interaction-compatibility-policy-interactions
    #:realization-selector-policy #:make-realization-selector-policy
    #:validate-realization-selector-policy
    #:realization-selector-policy-static-types

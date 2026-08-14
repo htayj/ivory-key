@@ -845,31 +845,56 @@ backend emitters select grammar only after compiler completeness checks.
 
 This is intentionally a realization choice rather than interaction syntax: it
 does not add a generic timing taxonomy or permit backend action text in a
-project source file.  Its absence is retained as NIL, meaning explicitly
-unselected rather than a default compatibility route.
+project source file.  Its nonempty INSTANCES set names concrete interaction
+instances, so the selected route cannot leak onto unrelated timed interactions.
+Its absence is retained as NIL, meaning explicitly unselected rather than a
+default compatibility route.
 "
-  (let ((children
-          (%form-children context form 2 2
-                          "INTERACTION-COMPATIBILITY declaration")))
-    (ivory-key.model::make-realization-interaction-compatibility-policy
-     (let* ((mode-node (second children))
-            (name
-              (progn
-                (unless (and (syntax-atom-p mode-node)
-                             (eq (syntax-atom-kind mode-node) :identifier))
-                  (%fail context
-                         :invalid-realization-interaction-compatibility-policy
-                         "INTERACTION-COMPATIBILITY mode must be an Ivory Key identifier."))
-                (syntax-atom-value mode-node)))
-            (choice
-              (assoc name
-                     '(("modern-no-delay" . :modern-no-delay)
-                       ("kanata-1-12-buffered" . :kanata-1-12-buffered))
-                     :test #'string=)))
-       (unless choice
-         (%fail context :unknown-realization-interaction-compatibility-mode
-                "INTERACTION-COMPATIBILITY has unsupported mode ~A." name))
-       (cdr choice)))))
+  (unless (typep form 'syntax-list)
+    (%fail context :invalid-realization-interaction-compatibility-policy
+           "INTERACTION-COMPATIBILITY must be a list."))
+  (let ((children (syntax-list-children form)))
+    (unless (= (length children) 3)
+      ;; The former two-atom spelling was profile-wide.  It is deliberately
+      ;; rejected rather than treated as an implicit all-interactions set.
+      (%fail context :invalid-realization-interaction-compatibility-policy
+             "INTERACTION-COMPATIBILITY requires one mode and one nonempty INSTANCES clause."))
+    (let* ((mode-node (second children))
+           (name
+             (progn
+               (unless (and (syntax-atom-p mode-node)
+                            (eq (syntax-atom-kind mode-node) :identifier))
+                 (%fail context
+                        :invalid-realization-interaction-compatibility-policy
+                        "INTERACTION-COMPATIBILITY mode must be an Ivory Key identifier."))
+               (syntax-atom-value mode-node)))
+           (choice
+             (assoc name
+                    '(("modern-no-delay" . :modern-no-delay)
+                      ("kanata-1-12-buffered" . :kanata-1-12-buffered))
+                    :test #'string=))
+           (instances-form (third children)))
+      (unless choice
+        (%fail context :unknown-realization-interaction-compatibility-mode
+               "INTERACTION-COMPATIBILITY has unsupported mode ~A." name))
+      (unless (%named-form-p instances-form "instances")
+        (%fail context :invalid-realization-interaction-compatibility-policy
+               "INTERACTION-COMPATIBILITY requires an INSTANCES clause."))
+      (let ((instance-nodes (cdr (syntax-list-children instances-form))))
+        (when (null instance-nodes)
+          (%fail context :empty-realization-interaction-compatibility-instances
+                 "INTERACTION-COMPATIBILITY INSTANCES must not be empty."))
+        (ivory-key.model::make-realization-interaction-compatibility-policy
+         (cdr choice)
+         (mapcar
+          (lambda (node)
+            (unless (and (typep node 'syntax-atom)
+                         (eq (syntax-atom-kind node) :identifier))
+              (%fail context
+                     :invalid-realization-interaction-compatibility-instance
+                     "INTERACTION-COMPATIBILITY instance must be an Ivory Key identifier."))
+            (syntax-atom-value node))
+          instance-nodes))))))
 
 (defun %decode-realization (definition output-vocabularies)
   (let* ((context (%make-project-context (project-definition-path definition)

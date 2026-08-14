@@ -107,6 +107,51 @@ exists and can be matched to its source evidence.
     (otherwise
      "The interaction compatibility policy is not a closed V1 Manna/Kanata route.")))
 
+(defun %kanata-interaction-identifier (interaction)
+  "Return INTERACTION's source identifier without coercing host symbols.
+
+Compiler-originated requests carry normalized interactions, while focused
+backend callers may supply source identifier strings.  Other host values stay
+unrecognized: treating an arbitrary symbol/plist as an intended Manna instance
+would reintroduce the profile-wide applicability leak.
+"
+  (cond
+    ((typep interaction 'ivory-key.model:normalized-interaction)
+     (ivory-key.model:normalized-interaction-name interaction))
+    ((typep interaction 'ivory-key.model:identifier) interaction)
+    ((stringp interaction)
+     (handler-case
+         (ivory-key.model:make-identifier interaction)
+       (error () nil)))
+    (t nil)))
+
+(defun %kanata-interaction-compatibility-target-p (policy interaction)
+  "Whether POLICY explicitly names INTERACTION without coercing host symbols."
+  (let ((identifier (%kanata-interaction-identifier interaction)))
+    (and identifier
+         (ivory-key.model:identifier-member-p
+          identifier
+          (ivory-key.model::realization-interaction-compatibility-policy-interactions
+           policy)))))
+
+(defun %kanata-unmatched-interaction-compatibility-targets (policy interactions)
+  "Return canonical POLICY targets absent from this direct lowering request.
+
+The compiler normally validates these source identities against normalized
+interactions.  This backend boundary repeats the essential fail-closed check
+for programmatic requests: metadata cannot silently disappear merely because a
+caller supplied no matching interaction entries.
+"
+  (remove-if
+   (lambda (target)
+     (some (lambda (interaction)
+             (let ((identifier (%kanata-interaction-identifier interaction)))
+               (and identifier
+                    (ivory-key.model:identifier= target identifier))))
+           interactions))
+   (ivory-key.model::realization-interaction-compatibility-policy-interactions
+    policy)))
+
 (defun %kanata-source-rows (request mappings)
   "Return canonical (POSITION . SOURCE) rows for one generated config.
 
@@ -206,25 +251,35 @@ atom/action before text emission.
         ;; metadata merely because no source decoder was involved.
         (ivory-key.model::validate-realization-interaction-compatibility-policy
          interaction-compatibility-policy))
-      (cond
-        ((and interactions interaction-compatibility-policy)
-         (let ((detail
-                 (%kanata-interaction-compatibility-refusal-detail
-                  interaction-compatibility-policy)))
-           (push (make-realization-result
-                  :interaction-compatibility-policy :unsupported :detail detail)
-                 results)
-           (dolist (interaction interactions)
-             (push (make-realization-result interaction :unsupported :detail detail)
-                   results))))
-        (interactions
-         ;; NIL does not select a Manna compatibility route.  Preserve the
-         ;; generic interaction refusal for unrelated layouts and requests.
-         (dolist (interaction interactions)
-           (push (make-realization-result
-                  interaction :unsupported
-                  :detail "Generic interaction lowering requires an explicit Kanata template.")
-                 results))))
+      ;; A policy is an obligation on each named source interaction, not
+      ;; decoration for whatever entries happened to reach this backend.  Keep
+      ;; static-only or partial programmatic requests non-emittable when they
+      ;; omit an intended policy target.
+      (when interaction-compatibility-policy
+        (dolist (target
+                 (%kanata-unmatched-interaction-compatibility-targets
+                  interaction-compatibility-policy interactions))
+          (push
+           (make-realization-result
+            (ivory-key.model:identifier-name target) :unsupported
+            :detail
+            (format nil "Selected interaction compatibility policy names ~A, but this lowering request has no matching interaction."
+                    (ivory-key.model:identifier-name target)))
+           results)))
+      (dolist (interaction interactions)
+        (push
+         (make-realization-result
+          interaction :unsupported
+          :detail
+          (if (and interaction-compatibility-policy
+                   (%kanata-interaction-compatibility-target-p
+                    interaction-compatibility-policy interaction))
+              (%kanata-interaction-compatibility-refusal-detail
+               interaction-compatibility-policy)
+              ;; NIL, an explicitly unlisted interaction, or an unrecognizable
+              ;; programmatic value retains the target-generic refusal.
+              "Generic interaction lowering requires an explicit Kanata template."))
+         results))
     ;; The typed carrier/selector policy is deliberately not a raw Kanata
     ;; action template.  Until lifecycle and source-consumption behavior are
     ;; lowered by a closed action IR, keep the policy as an explicit refusal.

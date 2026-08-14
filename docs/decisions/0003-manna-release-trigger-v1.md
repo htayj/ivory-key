@@ -69,21 +69,32 @@ capture patterns are outside this proposal.
 
 ## Candidate source and reference implementation
 
-`tests/model/interaction-template-decoder.lisp` contains the explicit
-source-decoded candidate fixture. Its `manna-release-trigger-v1` template has
-the literal 200/200 pair; the only second template has literal 250/250. Both
-expand into the three candidates above, with explicit priority and
-`:effect-start on-commit` on the two held candidates. A separate function
-template uses the same triad with an owner-scoped `hold-axis-state` effect.
-These are ordinary interaction templates, not a newly privileged source form.
+`tests/model/interaction-template-decoder.lisp` contains an explicit,
+table-driven source-decoded 14+2 candidate fixture: all fourteen primary rows
+plus the Delete/Enter alternate selectors. Each generated closed interaction
+spells its literal target-neutral tap, semantic modifier or axis hold, and
+200/200 timeout; only `a` spells 250/250. Every row has the three candidates
+above, the same explicit priority, and `:effect-start on-commit` on both held
+candidates. These are ordinary interaction forms, not a newly privileged
+source form or an active Manna profile.
 
 `tests/simulation/compile.lisp` then compiles those normalized interactions
-through the reference machine. It covers tap, deadline hold, captured foreign
-release, early owner-up tap fallback, immutable capture position/down index,
-deadline-before-equal-time physical release, supplied foreign-event order with
-no synthetic replay, the 250/250 boundary, and first/final owner function
-lifetime. The fixture is intentionally not the checked-in Manna layout and
-does not materialize any frozen alias or device placement.
+through the reference machine. It covers every row's literal tap and deadline
+hold, captured foreign release, early owner-up tap fallback, immutable capture
+position/down index, deadline-before-equal-time physical release, supplied
+foreign-event order with no synthetic replay, the 250/250 boundary, all five
+semantic modifier families' first/final-owner release, both case owners, both
+function-owner release orders, and the script/plane selector axes. The fixture
+is intentionally outside the checked-in Manna layout: it neither selects these
+rows nor assigns a device placement, backend spelling, or realization.
+
+The whole-layout fixture also uses one proposed timed interaction as another's
+observed foreign input.  The foreign candidate is armed by its own physical
+down and, after the outer owner releases, later taps on its own up; the outer
+uncommitted foreign-release candidate is cancelled with its owner's tap.  This
+proves the no-delay/unowned disposition without assigning a policy to the
+different prefix where a shared foreign up would make two disjoint candidates
+eligible simultaneously; that ordering remains unselected.
 
 This evidence establishes the bounded abstract contract only. Current
 backends have no exact lowering proof for this interaction, so this ADR still
@@ -171,21 +182,22 @@ larger lifecycle and scheduler contract. The proposed policy is deliberately
 limited to the two source-observed equal timer pairs and one direct captured
 foreign-release sequence.
 
-### Materialize all fourteen aliases immediately
+### Materialize the 14+2 inventory in the active Manna layout immediately
 
-Rejected. The candidate source/simulator fixture is now stronger than an ADR
-alone, but it is not the fourteen source-derived instances, a selected
-realization, a lowerer, or an event-level backend proof. The aliases remain
-explicit migration refusals until the acceptance conditions below are met.
+Rejected. The candidate source/simulator fixture now has all sixteen
+source-derived abstract instances, but it is not an active layout selection, a
+selected realization, a lowerer, or an event-level backend proof. The aliases
+remain explicit migration refusals until the acceptance conditions below are
+met.
 
 ## Migration consequences if accepted
 
 Acceptance would authorize a later, separately reviewed Manna slice to encode
-only the fourteen primary `tap-hold-release` rows documented in the evidence
-audit: their exact physical positions, literal taps, literal holds, and the
-two equal deadline pairs. It would not select the older chorded variants,
-invent modifier meanings, decide `<LSGT>` placement, or establish a 360 game
-overlay policy.
+the fourteen primary `tap-hold-release` rows and the Delete/Enter alternate
+selector rows documented in the evidence audit: reviewed physical positions,
+literal target-neutral taps, literal semantic holds, and the two equal deadline
+pairs. It would not select the older chorded variants, invent modifier
+meanings, decide `<LSGT>` placement, or establish a 360 game overlay policy.
 
 That future slice must retain target-neutral tap/hold identities. A backend
 may lower it only after proving the policy's ordering, owner release, foreign
@@ -205,15 +217,15 @@ This ADR remains Proposed until all of the following occur:
 - the existing closed source/model representation continues to validate the
   finite capture form and reject capture in alternatives, repetition, nesting,
   reference-before-bind, and rebind cases;
-- the fixture-level inspection evidence is extended to all selected aliases,
-  preserving capture position/down-event index, candidate priority, and
-  equal-time ordering;
-- whole-layout traces cover every selected instance. The candidate fixture
-  already covers deadline-before-physical ordering, tap versus hold commitment,
-  immutable foreign capture, no synthetic replay, early-`up P` tap fallback,
-  owner release, and first/final function owners; it does not substitute for
-  a complete Manna trace, conflicting-axis review, or source-row projection;
-  and
+- the fixture-level inspection evidence is extended from its current complete
+  14+2 inventory to every selected composition instance, preserving capture
+  position/down-event index, candidate priority, and equal-time ordering;
+- whole-layout traces cover every selected composition instance. The candidate
+  fixture already covers every 14+2 tap/deadline row, no-delay foreign input,
+  immutable foreign capture, early-`up P` tap fallback, all semantic modifier
+  families, case, function, script, and plane owner lifetime; it does not
+  substitute for a complete Manna trace, conflicting-axis review, or
+  source-row/device projection; and
 - each selected backend has an exact lowering proof and generated-artifact
   review, or explicitly refuses the interaction before emission.
 

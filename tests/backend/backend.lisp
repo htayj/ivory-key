@@ -171,10 +171,9 @@
      (backend-test-request :interactions '(generic-tap-hold)))))
 
 (deftest backend-kanata-interaction-compatibility-is-narrow-and-fails-closed
-  "Only selected Manna/Kanata modes affect the generic interaction refusal."
+  "Only policy-named Manna/Kanata instances receive mode-specific refusals."
   (let ((backend (ivory-key.backend:make-kanata-backend)))
-    ;; NIL remains the existing target-generic refusal.  It neither assigns a
-    ;; Manna compatibility mode nor adds a policy realization result.
+    ;; NIL remains the existing target-generic refusal.
     (let* ((plan (ivory-key.backend:lower-request
                   backend (backend-test-request :interactions '(ordinary-tap-hold))))
            (results (ivory-key.backend::kanata-plan-realizations plan))
@@ -191,39 +190,88 @@
                (:kanata-1-12-buffered . "buffered policy lacks")))
       (let* ((policy
                (ivory-key.model::make-realization-interaction-compatibility-policy
-                (car case)))
+                (car case) '("manna-tap-hold")))
+             (plan
+               (ivory-key.backend:lower-request
+                backend
+                (backend-test-request
+                 :interactions '("manna-tap-hold" "ordinary-tap-hold")
+                 :metadata (list :interaction-compatibility-policy policy))))
+             (results (ivory-key.backend::kanata-plan-realizations plan))
+             (selected
+               (find "manna-tap-hold" results :test #'string=
+                     :key #'ivory-key.backend:realization-feature))
+             (unlisted
+               (find "ordinary-tap-hold" results :test #'string=
+                     :key #'ivory-key.backend:realization-feature)))
+        (is selected)
+        (is unlisted)
+        (is-equal :unsupported
+                  (ivory-key.backend:realization-grade selected))
+        (is-equal :unsupported
+                  (ivory-key.backend:realization-grade unlisted))
+        (is (search (cdr case)
+                    (ivory-key.backend:realization-detail selected)))
+        (is (search "Generic interaction lowering"
+                    (ivory-key.backend:realization-detail unlisted)))
+        ;; An inspectable plan is still non-emittable, so neither mode can
+        ;; accidentally become a parseable Kanata action claim.
+        (signals error
+          (ivory-key.backend:emit-plan-to-string backend plan)))
+      ;; A raw host symbol is not coerced/interned into an intended source
+      ;; instance.  It remains target-generic even when its spelling matches.
+      (let* ((policy
+               (ivory-key.model::make-realization-interaction-compatibility-policy
+                (car case) '("manna-tap-hold")))
              (plan
                (ivory-key.backend:lower-request
                 backend
                 (backend-test-request
                  :interactions '(manna-tap-hold)
                  :metadata (list :interaction-compatibility-policy policy))))
+             (result
+               (find-if
+                (lambda (candidate)
+                  (search "Generic interaction lowering"
+                          (ivory-key.backend:realization-detail candidate)))
+                (ivory-key.backend::kanata-plan-realizations plan))))
+        (is (search "Generic interaction lowering"
+                    (ivory-key.backend:realization-detail result))))
+      ;; A selected target absent from the direct request cannot be ignored.
+      ;; In particular, a static-only request must not emit a Kanata artifact
+      ;; merely because no interaction happened to be carried into its IR.
+      (let* ((policy
+               (ivory-key.model::make-realization-interaction-compatibility-policy
+                (car case) '("z-missing-target" "a-missing-target")))
+             (plan
+               (ivory-key.backend:lower-request
+                backend
+                (backend-test-request
+                 :entries (list (backend-test-entry))
+                 :metadata (list :interaction-compatibility-policy policy))))
              (results (ivory-key.backend::kanata-plan-realizations plan))
-             (policy-result
-               (find :interaction-compatibility-policy results
-                     :key #'ivory-key.backend:realization-feature))
-             (interaction
-               (find 'manna-tap-hold results
-                     :key #'ivory-key.backend:realization-feature)))
-        (is policy-result)
-        (is interaction)
-        (is-equal :unsupported
-                  (ivory-key.backend:realization-grade policy-result))
-        (is-equal :unsupported
-                  (ivory-key.backend:realization-grade interaction))
-        (is (search (cdr case)
-                    (ivory-key.backend:realization-detail policy-result)))
-        (is-equal (ivory-key.backend:realization-detail policy-result)
-                  (ivory-key.backend:realization-detail interaction))
-        ;; An inspectable plan is still non-emittable, so neither mode can
-        ;; accidentally become a parseable Kanata action claim.
+             (missing-results
+               (remove-if-not
+                (lambda (result)
+                  (member (ivory-key.backend:realization-feature result)
+                          '("a-missing-target" "z-missing-target")
+                          :test #'string=))
+                results)))
+        (is-equal '("a-missing-target" "z-missing-target")
+                  (mapcar #'ivory-key.backend:realization-feature missing-results))
+        (is (every (lambda (result)
+                     (and (eq :unsupported
+                              (ivory-key.backend:realization-grade result))
+                          (search "no matching interaction"
+                                  (ivory-key.backend:realization-detail result))))
+                   missing-results))
         (signals error
           (ivory-key.backend:emit-plan-to-string backend plan))))
     (signals error
       (ivory-key.backend:lower-request
        backend
        (backend-test-request
-        :interactions '(invalid-policy)
+        :interactions '("invalid-policy")
         :metadata
         (list :interaction-compatibility-policy "kanata-1-12-buffered"))))))
 

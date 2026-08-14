@@ -119,6 +119,100 @@
 (defparameter +frozen-primary-tap-hold-policy+
   '("process-unmapped-keysyes" "concurrent-tap-holdyes"))
 
+(defun abstract-modern-release-trigger-inventory ()
+  "Load the one test-owned abstract inventory without copying a third table.
+
+The migration script remains separately tagged because its frozen source root
+is machine-local.  The abstract fixture itself belongs to the normal ASDF test
+system, so this bridge compares the frozen rows to the exact source fixture
+rather than retyping a second target-neutral inventory here.
+"
+  (asdf:load-asd (repository-file "ivory-key.asd"))
+  (asdf:load-system "ivory-key/tests")
+  (let* ((package (or (find-package :ivory-key.tests)
+                      (error "The Ivory Key test package did not load.")))
+         (symbol (find-symbol "+MANNA-RELEASE-TRIGGER-V1-INVENTORY+" package)))
+    (unless (and symbol (boundp symbol))
+      (error "The abstract modern release-trigger inventory is unavailable."))
+    (symbol-value symbol)))
+
+(defun frozen-primary-logical-position (token)
+  "Translate only the frozen source tokens used by the 14+2 evidence rows."
+  (or (cdr (assoc token
+                  '((";" . "semicolon")
+                    ("esc" . "escape")
+                    ("'" . "apostrophe")
+                    ("bspc" . "backspace")
+                    ("spc" . "space")
+                    ("del" . "delete")
+                    ("ent" . "enter"))
+                  :test #'string=))
+      token))
+
+(defun frozen-primary-target-neutral-tap (position)
+  "Derive the fixture tap name from its normalized frozen logical position."
+  (if (string= position "pgdn") "page-down" position))
+
+(defun frozen-primary-hold-semantics (hold)
+  "Translate the frozen raw holder spelling to the closed abstract semantics."
+  (or (cdr (assoc hold
+                  '(("lshift" . (:axis "case" "shifted"))
+                    ("lctl" . (:modifier "control"))
+                    ("lalt" . (:modifier "meta"))
+                    ("lmet" . (:modifier "super"))
+                    ("rmet" . (:modifier "hyper"))
+                    ("ralt" . (:modifier "alt"))
+                    ("(layer-while-held fun)" . (:axis "function" "active"))
+                    ("@gr" . (:axis "script" "greek"))
+                    ("@top" . (:axis "plane" "top")))
+                  :test #'string=))
+      (error "Frozen 14+2 holder ~S has no closed abstract semantic mapping." hold)))
+
+(defun frozen-primary-to-abstract-release-trigger-evidence-p ()
+  "Prove the frozen 14+2 aliases/timeouts are the abstract fixture inventory.
+
+Only the test fixture owns target-neutral positions/taps.  This bridge checks
+the shared source facts--alias identity, equal timing pair, and semantic hold
+family--without turning the migration script into another behavior table.
+"
+  (let ((frozen (append +frozen-primary-tap-hold-rows+
+                        +frozen-primary-selector-tap-hold-rows+))
+        (abstract (abstract-modern-release-trigger-inventory)))
+    (unless (= (length frozen) (length abstract) 16)
+      (error "Frozen and abstract release-trigger inventories must both be 14+2."))
+    (loop for frozen-row in frozen
+          for abstract-row in abstract do
+            (destructuring-bind (family alias position hold tap-repress hold-time)
+                frozen-row
+              (destructuring-bind (instance abstract-alias abstract-position tap timeout kind
+                                   identity &optional state)
+                  abstract-row
+                (declare (ignore instance))
+                (let* ((logical-position (frozen-primary-logical-position position))
+                       (expected-tap (frozen-primary-target-neutral-tap logical-position))
+                       (semantics (frozen-primary-hold-semantics hold)))
+                (unless (string= alias abstract-alias)
+                  (error "Abstract release-trigger fixture alias ~A does not match frozen ~A."
+                         abstract-alias alias))
+                (unless (string= logical-position abstract-position)
+                  (error "Abstract release-trigger fixture position ~A does not match frozen ~A."
+                         abstract-position logical-position))
+                (unless (string= expected-tap tap)
+                  (error "Abstract release-trigger fixture tap ~A does not match frozen ~A."
+                         tap expected-tap))
+                (unless (and (= tap-repress hold-time) (= timeout tap-repress))
+                  (error "Abstract release-trigger fixture timing for @~A is not frozen ~D/~D."
+                         alias tap-repress hold-time))
+                (unless (string= family identity)
+                  (error "Abstract release-trigger fixture identity ~A does not match frozen family ~A."
+                         identity family))
+                (unless (and (eq kind (first semantics))
+                             (string= identity (second semantics))
+                             (equal state (third semantics)))
+                  (error "Abstract release-trigger fixture hold for @~A does not match frozen ~A."
+                         alias hold))))))
+    t))
+
 (defparameter +frozen-primary-kanata-files+
   '("kanata/kinesis.advantage2.layered.kanata.kbd"
     "kanata/kinesis.advantage360.layered.kanata.kbd"))
@@ -376,6 +470,7 @@ raw rows are considered evidence."
                     verification)
       (error "Verification did not report the expected truth-table digest: ~A" verification))
     (frozen-primary-tap-hold-evidence-p root)
+    (frozen-primary-to-abstract-release-trigger-evidence-p)
     (frozen-direct-case-xkb-evidence-p root)
     (unless (string= first-render second-render)
       (error "Truth-table rendering is not deterministic."))

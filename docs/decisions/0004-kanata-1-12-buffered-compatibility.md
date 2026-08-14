@@ -15,13 +15,17 @@ pin Kanata 1.12, so this is **not** a source-era equivalence claim.
 This records one future, non-default policy identity:
 
 ```lisp
-(interaction-compatibility kanata-1-12-buffered)
+(interaction-compatibility kanata-1-12-buffered
+  (instances tap-hold-case-f tap-hold-case-j))
 ```
 
 The spelling is a closed project/realization-policy reference; it is not an
 interaction clause, backend action, or embedded Kanata form.  It is absent
 from every current realization.  An absent compatibility policy remains
-unselected, and this decision does not add a default.
+unselected, and this decision does not add a default.  The required nonempty
+`instances` set prevents this Manna-specific policy from silently governing an
+unrelated interaction in the same composition.  Unlisted interactions retain
+their ordinary generic refusal.
 
 No `.ivory` profile is checked in for this policy yet.  The current source
 model can recognize the finite captured foreign press/release pattern, but it
@@ -138,7 +142,7 @@ closed rather than silently behaving as the modern no-delay route.
 ## Consequences and acceptance gates
 
 If selected later, a realization must name
-`(interaction-compatibility kanata-1-12-buffered)` explicitly.  It must be a
+`kanata-1-12-buffered` and its concrete interaction instances explicitly.  It must be a
 separate policy route from `manna-release-trigger-v1`; no compatibility mode
 may inherit from or silently replace the other.  The selected realization
 remains unlowerable until each pipeline stage proves the same pending-input

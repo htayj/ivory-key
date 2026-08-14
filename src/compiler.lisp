@@ -632,34 +632,57 @@ both paths construct the one public MODEL policy value.
     (%stage-error :decode :invalid-realization-interaction-compatibility-policy
                   "INTERACTION-COMPATIBILITY must be a list."))
   (let ((children (ivory-key.syntax:syntax-list-children node)))
-    (unless (= (length children) 2)
+    (unless (= (length children) 3)
+      ;; The old two-atom form was profile-wide.  Reject it rather than
+      ;; silently applying a Manna route to every normalized interaction.
       (%stage-error :decode :invalid-realization-interaction-compatibility-policy
-                    "INTERACTION-COMPATIBILITY requires exactly one mode."))
+                    "INTERACTION-COMPATIBILITY requires one mode and one nonempty INSTANCES clause."))
     (handler-case
-        (ivory-key.model::make-realization-interaction-compatibility-policy
-         (let* ((mode-node (second children))
-                ;; Keep this clause's public error vocabulary independent of
-                ;; SELECTOR-POLICY: malformed compatibility modes are not
-                ;; selector-policy errors.
-                (name
-                  (progn
-                    (unless (and (ivory-key.syntax:syntax-atom-p mode-node)
-                                 (eq (ivory-key.syntax:syntax-atom-kind mode-node)
-                                     :identifier))
-                      (%stage-error
-                       :decode :invalid-realization-interaction-compatibility-policy
-                       "INTERACTION-COMPATIBILITY mode must be an Ivory Key identifier."))
-                    (ivory-key.syntax:syntax-atom-value mode-node)))
-                (choice
-                  (assoc name
-                         '(("modern-no-delay" . :modern-no-delay)
-                           ("kanata-1-12-buffered" . :kanata-1-12-buffered))
-                         :test #'string=)))
-           (unless choice
-             (%stage-error
-              :decode :unknown-realization-interaction-compatibility-mode
-              "INTERACTION-COMPATIBILITY has unsupported mode ~S." name))
-           (cdr choice)))
+        (let* ((mode-node (second children))
+               ;; Keep this clause's public error vocabulary independent of
+               ;; SELECTOR-POLICY: malformed compatibility modes are not
+               ;; selector-policy errors.
+               (name
+                 (progn
+                   (unless (and (ivory-key.syntax:syntax-atom-p mode-node)
+                                (eq (ivory-key.syntax:syntax-atom-kind mode-node)
+                                    :identifier))
+                     (%stage-error
+                      :decode :invalid-realization-interaction-compatibility-policy
+                      "INTERACTION-COMPATIBILITY mode must be an Ivory Key identifier."))
+                   (ivory-key.syntax:syntax-atom-value mode-node)))
+               (choice
+                 (assoc name
+                        '(("modern-no-delay" . :modern-no-delay)
+                          ("kanata-1-12-buffered" . :kanata-1-12-buffered))
+                        :test #'string=))
+               (instances-form (third children)))
+          (unless choice
+            (%stage-error
+             :decode :unknown-realization-interaction-compatibility-mode
+             "INTERACTION-COMPATIBILITY has unsupported mode ~S." name))
+          (unless (and (ivory-key.syntax:syntax-list-p instances-form)
+                       (string= (or (%compiler-syntax-form-name instances-form) "")
+                                "instances"))
+            (%stage-error :decode :invalid-realization-interaction-compatibility-policy
+                          "INTERACTION-COMPATIBILITY requires an INSTANCES clause."))
+          (let ((instances
+                  (cdr (ivory-key.syntax:syntax-list-children instances-form))))
+            (when (null instances)
+              (%stage-error :decode :empty-realization-interaction-compatibility-instances
+                            "INTERACTION-COMPATIBILITY INSTANCES must not be empty."))
+            (ivory-key.model::make-realization-interaction-compatibility-policy
+             (cdr choice)
+             (mapcar
+              (lambda (instance)
+                (unless (and (ivory-key.syntax:syntax-atom-p instance)
+                             (eq (ivory-key.syntax:syntax-atom-kind instance)
+                                 :identifier))
+                  (%stage-error
+                   :decode :invalid-realization-interaction-compatibility-instance
+                   "INTERACTION-COMPATIBILITY instance must be an Ivory Key identifier."))
+                (ivory-key.syntax:syntax-atom-value instance))
+              instances))))
       (ivory-key.model:semantic-error (condition)
         (%stage-error :decode (ivory-key.model:semantic-error-code condition)
                       "Could not decode interaction compatibility policy: ~A"
@@ -1191,6 +1214,52 @@ the independent Kanata refusal.
                 :libxkbcommon-depressed-group-two-with-visible-level-three))
            (otherwise nil)))))
 
+(defun %interaction-compatibility-policy-target-p (policy interaction)
+  "Whether POLICY explicitly names normalized INTERACTION as one intended route."
+  (and policy
+       (ivory-key.model:identifier-member-p
+        (ivory-key.model:normalized-interaction-name interaction)
+        (ivory-key.model::realization-interaction-compatibility-policy-interactions
+         policy))))
+
+(defun %interaction-compatibility-policy-refusal (policy)
+  "Return the selected route's stable refusal code and detail.
+
+The caller must have established that one concrete normalized interaction is a
+member of POLICY.  This helper intentionally names no generic interaction.
+"
+  (case (ivory-key.model::realization-interaction-compatibility-policy-mode policy)
+    (:modern-no-delay
+     (values :unsupported-kanata-modern-no-delay-interaction-policy
+             "Kanata 1.12 buffers/replays pending foreign events, so its generic action is not exact for this selected modern no-delay interaction."))
+    (:kanata-1-12-buffered
+     (values :unimplemented-kanata-1-12-buffered-interaction-policy
+             "This selected Kanata 1.12 buffer/replay interaction lacks a closed ownership, cancellation, and ordered-replay action IR."))
+    ;; The typed model validator makes this defensive branch unreachable for
+    ;; ordinary source/model values.  Preserve a stable refusal if a caller
+    ;; mutates an identity-bearing object after validation.
+    (otherwise
+     (values :invalid-interaction-compatibility-policy
+             "The interaction compatibility policy is not one closed V1 Manna/Kanata route."))))
+
+(defun %interaction-compatibility-policy-unknown-target-issues (policy interactions)
+  "Return deterministic refusals for POLICY targets absent from INTERACTIONS."
+  (let ((issues nil))
+    (when policy
+      (dolist (target
+               (ivory-key.model::realization-interaction-compatibility-policy-interactions
+                policy))
+        (unless (find target interactions
+                      :test #'ivory-key.model:identifier=
+                      :key #'ivory-key.model:normalized-interaction-name)
+          (push
+           (%make-compiler-fidelity-issue
+            (ivory-key.model:identifier-name target)
+            :unknown-realization-interaction-compatibility-interaction
+            "The selected interaction compatibility policy names no normalized interaction instance with this identity.")
+           issues))))
+    (nreverse issues)))
+
 (defun analyze-normalized-layout
     (normalized placement &key vocabulary selector-policy
                            interaction-compatibility-policy)
@@ -1265,32 +1334,13 @@ compile gate.
              :semantic-modifiers :unsupported-semantic-modifiers
              "The bootstrap pipeline has no modifier allocation or consumed-modifier plan.")
             issues))
-    ;; This narrow V1 policy is not a generic interaction taxonomy.  An
-    ;; absent policy leaves every interaction on its established generic
-    ;; refusal path.  Only an explicit Manna/Kanata selection adds its own
-    ;; mode-specific blocker; it still does not invent the missing typed
-    ;; Kanata action IR.
-    (when (and interactions interaction-compatibility-policy)
-      (let ((mode
-              (ivory-key.model::realization-interaction-compatibility-policy-mode
-               interaction-compatibility-policy)))
-        (push
-         (%make-compiler-fidelity-issue
-          :interaction-compatibility-policy
-          (cond ((eq mode :modern-no-delay)
-                 :unsupported-kanata-modern-no-delay-interaction-policy)
-                ((eq mode :kanata-1-12-buffered)
-                 :unimplemented-kanata-1-12-buffered-interaction-policy)
-                ;; Validation above makes this unreachable for conventional
-                ;; source/model values, but retain a stable analysis refusal
-                ;; if an identity-bearing object changes concurrently.
-                (t :invalid-interaction-compatibility-policy))
-          (cond ((eq mode :modern-no-delay)
-                 "Kanata 1.12 buffers/replays pending foreign events, so its generic action is not exact for the selected modern no-delay route.")
-                ((eq mode :kanata-1-12-buffered)
-                 "The selected Kanata 1.12 buffer/replay route lacks a closed ownership, cancellation, and ordered-replay action IR.")
-                (t "The interaction compatibility policy is not one closed V1 Manna/Kanata route.")))
-         issues)))
+    ;; This narrow V1 policy is not a generic interaction taxonomy.  Every
+    ;; explicitly named target must exist after normalization; each unnamed
+    ;; interaction remains on the established generic refusal path.
+    (dolist (issue
+             (%interaction-compatibility-policy-unknown-target-issues
+              interaction-compatibility-policy interactions))
+      (push issue issues))
     (dolist (interaction interactions)
       ;; Participants are physical inputs even if their behavior is mediated
       ;; by a timed interaction rather than an ordinary binding.  Do not let
@@ -1301,12 +1351,18 @@ compile gate.
               (%push-fidelity-issue-once
                (%coverage-fidelity-issue placement participant :require-mapping t)
                issues)))
-      (push (%make-compiler-fidelity-issue
-             (ivory-key.model:identifier-name
-              (ivory-key.model:normalized-interaction-name interaction))
-             :unsupported-timed-interaction
-             "Generic timed interactions require an explicit Kanata template lowering.")
-            issues))
+      (multiple-value-bind (code detail)
+          (if (%interaction-compatibility-policy-target-p
+               interaction-compatibility-policy interaction)
+              (%interaction-compatibility-policy-refusal
+               interaction-compatibility-policy)
+              (values :unsupported-timed-interaction
+                      "Generic timed interactions require an explicit Kanata template lowering."))
+        (push (%make-compiler-fidelity-issue
+               (ivory-key.model:identifier-name
+                (ivory-key.model:normalized-interaction-name interaction))
+               code detail)
+              issues)))
     ;; Product selectors describe meaning, not a default XKB modifier/group
     ;; arrangement.  The one observed XKB policy recognizes exactly its three
     ;; named binary axes; other axes and all final XKB+Kanata emission remain
@@ -1698,14 +1754,19 @@ modifiers, named symbols, commands, or interactions.
         (format stream "  none~%"))))
 
 (defun %write-interaction-compatibility-inspection (stream policy)
-  "Write the closed V1 route selection without implying an action lowering."
+  "Write the closed V1 route and canonical target set without action lowering."
   (format stream "Interaction compatibility selection~%")
   (if policy
-      (format stream "  ~A (selected; no Kanata action IR is implied)~%"
-              (string-downcase
-               (symbol-name
-                (ivory-key.model::realization-interaction-compatibility-policy-mode
-                 policy))))
+      (progn
+        (format stream "  ~A (selected; no Kanata action IR is implied)~%"
+                (string-downcase
+                 (symbol-name
+                  (ivory-key.model::realization-interaction-compatibility-policy-mode
+                   policy))))
+        (format stream "  instances: ~{~A~^ ~}~%"
+                (mapcar #'ivory-key.model:identifier-name
+                        (ivory-key.model::realization-interaction-compatibility-policy-interactions
+                         policy))))
       (format stream "  unselected (no compatibility default)~%")))
 
 (defun %write-planner-inspection (stream plan refusal)
@@ -1831,13 +1892,16 @@ plans, artifact text, contract data, or output paths.
   (format stream "  metadata: only closed backend fields are shown~%")
   (let ((metadata (ivory-key.backend:lowering-request-metadata request)))
     (let ((policy (getf metadata :interaction-compatibility-policy)))
-      (format stream "    interaction compatibility: ~A~%"
-              (if policy
+      (if policy
+          (format stream "    interaction compatibility: ~A for ~{~A~^ ~}~%"
                   (string-downcase
                    (symbol-name
                     (ivory-key.model::realization-interaction-compatibility-policy-mode
                      policy)))
-                  "unselected")))
+                  (mapcar #'ivory-key.model:identifier-name
+                          (ivory-key.model::realization-interaction-compatibility-policy-interactions
+                           policy)))
+          (format stream "    interaction compatibility: unselected~%")))
     (dolist (record (or (getf metadata :input-coverage) nil))
       (format stream "    coverage ~A: ~A~%"
               (getf record :position)
