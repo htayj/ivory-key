@@ -36,9 +36,14 @@ sbcl --script tools/manna-truth-table.lisp diff \
 `diff` first performs the same commit/hash verification.  It then generates a
 closed report for all 52 static tables (416 cells, including 158 literal
 `NoSymbol` cells), all 29 primary function outputs on each device, and the
-four direct held selectors/case holders.  It refuses to print a successful
-report if a table, physical placement, carrier, function output, selector, or
-fixture count is not accounted for.  The report has one explicit row for every
+four direct held selectors/case holders.  It also parses the active primary
+aliases and selected layers as text-only structure: Advantage 2 has 49 aliases
+and 68 `defsrc` positions across complete `normal`/`fun` layers, while
+Advantage 360 has 57 aliases and 72 positions across complete
+`normal`/`game`/`fun` layers.  It refuses to print a successful report if a
+table, physical placement, carrier, function output, selector, alias,
+layer-coverage, or fixture count is not accounted for.  The report has one
+explicit row for every
 remaining difference: the unplaced `<LSGT>` table, the Menu/Caps inactive
 device variance, 14 primary and two alternate-selector tap-holds, inactive
 historical Shift aliases, the eight Advantage-360-only game aliases, and the

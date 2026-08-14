@@ -16,12 +16,15 @@ Do not begin integration unless all of these are true:
    permitting an unreviewed lossy grade.
 3. The frozen migration comparison and both Lisp test systems pass from the
    exact commit being integrated.
-4. `ivory-key validate-build BUILD-DIRECTORY` accepts the generated XKB and
+4. `ivory-key preflight-build BUILD-DIRECTORY` passes: it verifies the
+   generated contract, fixed artifact inventory, digests, and relocatable
+   provenance without invoking a validator or touching a service or device.
+5. `ivory-key validate-build BUILD-DIRECTORY` accepts the generated XKB and
    Kanata artifacts with the installed target tools.
-5. A reviewer has compared `manifest.json`, `allocations.json`,
+6. A reviewer has compared `manifest.json`, `allocations.json`,
    `source-map.json`, `REPORT.md`, and both backend artifacts with the frozen
    baseline and accepted every stated difference.
-6. The current live configuration, service state, and input-device identity
+7. The current live configuration, service state, and input-device identity
    have been recorded read-only, and their restoration commands have been
    tested on the selected host.
 
@@ -35,6 +38,7 @@ direnv exec . ./bin/ivory-key compile \
   --project manna-cadet-project.ivory \
   --composition manna-cadet-linux \
   --output BUILD-DIRECTORY
+direnv exec . ./bin/ivory-key preflight-build BUILD-DIRECTORY
 direnv exec . ./bin/ivory-key validate-build BUILD-DIRECTORY
 ```
 
@@ -42,6 +46,11 @@ Record the Ivory Key commit, project composition, Guix manifest commit, build
 directory hash inventory, validator versions, and validator output in the
 integration record.  A fresh regeneration must be byte-identical before any
 installation step.
+
+`preflight-build` is deliberately narrower than either backend validation or
+live proof.  It verifies only the published build directory currently named by
+the caller; it neither proves Manna semantics nor grants installation,
+activation, restart, dotfile, or input-injection authority.
 
 ## Installation transaction
 

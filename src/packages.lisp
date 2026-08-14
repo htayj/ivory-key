@@ -319,7 +319,11 @@
    #:simulation-result-outputs #:simulation-result-latches #:simulation-result-axes
    #:simulation-result-active-effects #:simulation-result-candidates
    #:simulate-events #:simulation-error #:malformed-event-stream
-   #:simulation-ambiguity
+   #:simulation-ambiguity #:simulation-latch-reservation-conflict
+   #:simulation-latch-reservation-conflict-axis
+   #:simulation-latch-reservation-conflict-generation
+   #:simulation-latch-reservation-conflict-existing-candidate
+   #:simulation-latch-reservation-conflict-requested-candidate
    ;; Declarative-model adapter.
    #:model-simulation-compilation-error
    #:model-simulation-compilation-error-feature
@@ -466,7 +470,8 @@
    #:source-hash-record #:make-source-hash-record
    #:source-hash-record-path #:source-hash-record-sha256
    #:build-contract #:make-build-contract
-   #:write-build-contract-files #:build-contract-report-string))
+   #:write-build-contract-files #:build-contract-report-string
+   #:preflight-build-contract-directory))
 
 (defpackage #:ivory-key.cli
   (:use #:cl #:ivory-key.conditions #:ivory-key.source #:ivory-key.syntax)
@@ -480,7 +485,7 @@
    #:compile-layout-source #:dump-normalized-layout
    #:compile-project-source #:explain-project-source
    #:level-report-string #:simulate-layout-events
-   #:validate-build-directory))
+   #:preflight-build-directory #:validate-build-directory))
 
 (defpackage #:ivory-key.migration
   (:use #:cl #:ivory-key.source)

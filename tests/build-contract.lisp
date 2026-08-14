@@ -295,3 +295,67 @@
                                 ("same-source" . "two.ivory"))
      :input-coverage nil
      :pipeline-result (build-contract-test-pipeline))))
+
+(deftest build-contract-preflight-verifies-a-published-build-without-writing
+  (with-build-contract-test-directory (directory)
+    (let* ((pipeline (build-contract-test-pipeline))
+           (artifacts-before nil)
+           (contract-before nil))
+      (build-contract-test-write directory pipeline)
+      (setf artifacts-before
+            (mapcar (lambda (name)
+                      (cons name (uiop:read-file-string (merge-pathnames name directory))))
+                    '("keymap.xkb" "layout.kbd" "source-map.json" "allocations.json"))
+            contract-before
+            (uiop:read-file-string (merge-pathnames "manifest.json" directory)))
+      (let ((result
+              (ivory-key.build-contract:preflight-build-contract-directory directory)))
+        (is-equal 5 (getf result :schema-version))
+        (is-equal '("keymap.xkb" "layout.kbd")
+                  (mapcar (lambda (artifact) (getf artifact :path))
+                          (getf result :artifacts)))
+        (is-equal 4 (getf result :mapping-count))
+        (is-equal 0 (getf result :allocation-count))
+        (is-equal :absent (getf result :validation-evidence)))
+      ;; Preflight is an observation: all published bytes remain untouched.
+      (dolist (entry artifacts-before)
+        (is-equal (cdr entry)
+                  (uiop:read-file-string (merge-pathnames (car entry) directory))))
+      (is-equal contract-before
+                (uiop:read-file-string (merge-pathnames "manifest.json" directory))))))
+
+(deftest build-contract-preflight-refuses-tampering-and-host-reader-syntax
+  (with-build-contract-test-directory (directory)
+    (let ((pipeline (build-contract-test-pipeline)))
+      (build-contract-test-write directory pipeline)
+      (with-open-file (stream (merge-pathnames "keymap.xkb" directory)
+                              :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+        (write-string "tampered" stream))
+      (signals error
+        (ivory-key.build-contract:preflight-build-contract-directory directory)))
+  (with-build-contract-test-directory (directory)
+    (let ((pipeline (build-contract-test-pipeline)))
+      (build-contract-test-write directory pipeline)
+      ;; This is not JSON.  The restricted decoder must reject it as data;
+      ;; it must never hand the generated file to the host Lisp reader.
+      (with-open-file (stream (merge-pathnames "manifest.json" directory)
+                              :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+        (write-string "#.(error \"host reader must not run\")" stream))
+      (signals error
+        (ivory-key.build-contract:preflight-build-contract-directory directory))))))
+
+(deftest build-contract-preflight-requires-relocatable-allocation-origins
+  (with-build-contract-test-directory (directory)
+    (let* ((source-name "/private/checkout/layout.ivory")
+           (pipeline
+             (build-contract-provenance-pipeline
+              (build-contract-provenance-origin source-name)))
+           (contract (build-contract-provenance-contract pipeline source-name)))
+      (ivory-key.backend:write-pipeline-result pipeline directory)
+      (ivory-key.build-contract:write-build-contract-files contract directory)
+      (let ((result
+              (ivory-key.build-contract:preflight-build-contract-directory directory)))
+        (is-equal 2 (getf result :mapping-count))
+        (is-equal 1 (getf result :allocation-count))))))

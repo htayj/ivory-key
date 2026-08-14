@@ -93,6 +93,12 @@ in the model. Latches are consumed only by a committed candidate that consults
 their axis. A rejected candidate, or a key that does not consult that axis,
 leaves the latch intact.
 
+One captured latch generation has one pending candidate-set reservation.  The
+reference machine refuses a second independent snapshot with
+`simulation-latch-reservation-conflict` before either set can commit; cases
+from the same interaction and anchor remain the single arbitrated set.  This
+is a fail-closed V1 rule, not replay or an inferred cross-interaction priority.
+
 The executable `context-is` predicate compares its axis against that same
 dependency-scoped anchor snapshot. A captured latch shadows the ordinary axis
 value, and a committing contextual candidate consumes only the matching latch

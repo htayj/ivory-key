@@ -453,6 +453,94 @@
       (error "Malformed frozen form ~S." marker))
     tokens))
 
+(defun primary-alias-names (source relative)
+  "Return every active one-line defalias name without evaluating Kanata text.
+
+The frozen primary files keep each active alias definition on one source line.
+Comments are removed before inspection, so the historical commented Tr/Tu
+examples cannot become active evidence by accident.  A non-empty unrecognized
+line is rejected rather than silently omitted from the coverage inventory.
+"
+  (let ((names nil)
+        (form (named-parenthesized-form source "(defalias")))
+    (dolist (line (line-list form))
+      (let ((compact (compact-source-line line)))
+        (cond ((or (string= compact "")
+                   (string-prefix-p "(defalias" compact)
+                   (string= compact ")")))
+              (t
+               (let ((separator (position #\( compact)))
+                 (unless (and separator (plusp separator))
+                   (error "Frozen source ~A has an unclassified defalias line ~A."
+                          relative line))
+                 (let ((name (subseq compact 0 separator)))
+                   (when (member name names :test #'string=)
+                     (error "Frozen source ~A declares duplicate alias ~A."
+                            relative name))
+                   (push name names)))))))
+    (nreverse names)))
+
+(defun sorted-strings (strings)
+  (sort (copy-list strings) #'string<))
+
+(defun primary-alias-classification-rows ()
+  "The closed disposition of every active alias in the frozen primary files."
+  (append
+   (mapcar (lambda (row) (list (first row) "timing-refusal"))
+           +unresolved-primary-tap-holds+)
+   (mapcar (lambda (row) (list (first row) "timing-refusal"))
+           +unresolved-selector-tap-holds+)
+   (mapcar (lambda (row) (list (first row) "direct-selector"))
+           '(("gr") ("top")))
+   (mapcar (lambda (row) (list (first row) "function-output"))
+           +function-output-rows+)
+   '(("osft" "inactive-alias") ("csft" "inactive-alias"))
+   (mapcar (lambda (name) (list name "advantage360-game"))
+           +advantage360-game-aliases+)))
+
+(defun alias-classification-rows-for-device (device)
+  (let ((rows (primary-alias-classification-rows)))
+    (if (string= device "Advantage 2")
+        (remove "advantage360-game" rows :key #'second :test #'string=)
+        rows)))
+
+(defun check-primary-alias-classification (source device relative)
+  "Verify that every declared alias has exactly one explicit disposition."
+  (let* ((declared (primary-alias-names source relative))
+         (rows (alias-classification-rows-for-device device))
+         (classified (mapcar #'first rows)))
+    (unless (= (length classified)
+               (length (remove-duplicates classified :test #'string=)))
+      (error "Manna alias classification contains a duplicate identity for ~A."
+             device))
+    (unless (equal (sorted-strings declared) (sorted-strings classified))
+      (error "Manna alias classification for ~A is incomplete or has stale aliases: declared ~S, classified ~S."
+             device (sorted-strings declared) (sorted-strings classified)))
+    rows))
+
+(defun primary-layer-inventory (source device relative)
+  "Return checked primary layer names and their complete defsrc arities.
+
+This is deliberately structural evidence only.  It establishes that every
+active layer has a finite physical-source table, while semantic interpretation
+continues to be controlled by the individual classified rows.
+"
+  (let ((layers (if (string= device "Advantage 2")
+                    '("normal" "fun")
+                    '("normal" "game" "fun")))
+        (source-count (length (source-defsrc-tokens source)))
+        (expected-source-count (if (string= device "Advantage 2") 68 72)))
+    (unless (= source-count expected-source-count)
+      (error "Frozen source ~A has ~D rather than ~D defsrc positions."
+             relative source-count expected-source-count))
+    (mapcar (lambda (name)
+              (let ((actions (source-layer-action-map source name relative)))
+                (unless (= source-count (length actions))
+                  (error "Frozen source ~A layer ~A does not cover defsrc."
+                         relative name))
+                (list name (length actions))))
+            layers)))
+
 (defun source-defsrc-tokens (source)
   (rest (source-form-tokens source "(defsrc" "defsrc")))
 
@@ -693,7 +781,14 @@ claim zero unchecked differences.
          (a2-relative "kanata/kinesis.advantage2.layered.kanata.kbd")
          (a360-relative "kanata/kinesis.advantage360.layered.kanata.kbd")
          (a2-source (uiop:read-file-string (pathname-at root a2-relative)))
-         (a360-source (uiop:read-file-string (pathname-at root a360-relative))))
+         (a360-source (uiop:read-file-string (pathname-at root a360-relative)))
+         (a2-aliases (check-primary-alias-classification
+                      a2-source "Advantage 2" a2-relative))
+         (a360-aliases (check-primary-alias-classification
+                        a360-source "Advantage 360" a360-relative))
+         (a2-layers (primary-layer-inventory a2-source "Advantage 2" a2-relative))
+         (a360-layers (primary-layer-inventory
+                       a360-source "Advantage 360" a360-relative)))
     (checked-static-fixture-p root layout topology advantage2 advantage360)
     (checked-function-fixture-p root layout advantage2 advantage360 vocabulary)
     (checked-direct-selector-fixture-p root layout topology advantage2 advantage360)
@@ -709,6 +804,28 @@ claim zero unchecked differences.
     (format stream "| Function outputs | 29 A2 + 29 360 placements | 29 shared outputs | 2 activators | 0 |~%")
     (format stream "| Direct selectors | 4 A2 + 4 360 observations | 4 abstract held interactions | backend lowering refused | 0 |~%")
     (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 0 active | all classified below | 0 |~%~%")
+    (format stream "| Primary aliases | ~D A2 + ~D 360 declarations | ~D + ~D classified | no implicit alias meaning | 0 |~%~%"
+            (length a2-aliases) (length a360-aliases)
+            (length a2-aliases) (length a360-aliases))
+    (format stream "## Primary alias and layer coverage~%~%")
+    (format stream "| Primary file | defsrc positions | Layers (each complete) | Declared aliases | Unclassified aliases |~%")
+    (format stream "|---|---:|---|---:|---:|~%")
+    (flet ((layer-summary (layers)
+             (format nil "~{`~A` (~D)~^, ~}"
+                     (loop for (name count) in layers
+                           append (list name count)))))
+      (format stream "| Advantage 2 | 68 | ~A | ~D | 0 |~%"
+              (layer-summary a2-layers) (length a2-aliases))
+      (format stream "| Advantage 360 | 72 | ~A | ~D | 0 |~%~%"
+              (layer-summary a360-layers) (length a360-aliases)))
+    (format stream "| Alias scope | Alias | Closed source/fixture disposition |~%")
+    (format stream "|---|---|---|~%")
+    (dolist (row a2-aliases)
+      (format stream "| A2 / 360 | `@~A` | `~A` |~%" (first row) (second row)))
+    (dolist (row a360-aliases)
+      (when (string= "advantage360-game" (second row))
+        (format stream "| 360 only | `@~A` | `~A` |~%" (first row) (second row))))
+    (format stream "~%")
     (format stream "## Static XKB tables and physical disposition~%~%")
     (format stream "| XKB key | Logical position | Cells | A2 / 360 disposition | Classification |~%")
     (format stream "|---|---|---:|---|---|~%")

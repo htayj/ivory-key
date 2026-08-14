@@ -325,6 +325,28 @@ and physical mappings ambiguous.
              (format *standard-output* "  ~A~%" (getf result :output)))))))
     (cond (failed 1) (unavailable 2) (t 0))))
 
+(defun preflight-build-command (arguments)
+  "Verify one emitted build's deterministic contract without side effects."
+  (unless (= (length arguments) 1)
+    (error "preflight-build requires exactly one build directory"))
+  (let ((result (preflight-build-directory (first arguments))))
+    ;; Deliberately print only generated relative identities and digests.  The
+    ;; caller-supplied directory is authority for this read-only invocation,
+    ;; not report data and never becomes part of the preflight result.
+    (format *standard-output* "build-contract: passed~%")
+    (format *standard-output* "schema: ~D~%" (getf result :schema-version))
+    (dolist (artifact (getf result :artifacts))
+      (format *standard-output* "artifact ~A ~A ~A~%"
+              (getf artifact :kind) (getf artifact :path)
+              (getf artifact :sha256)))
+    (format *standard-output* "mappings: ~D~%" (getf result :mapping-count))
+    (format *standard-output* "allocations: ~D~%" (getf result :allocation-count))
+    (format *standard-output* "validation-evidence: ~(~A~)~%"
+            (getf result :validation-evidence))
+    (format *standard-output*
+            "No validators, services, dotfiles, or input devices were touched.~%")
+    0))
+
 (defun normalized-project-layout-for-simulation (project-path composition-name)
   "Load one project once and return its selected normalized layout for simulation.
 
@@ -397,6 +419,7 @@ not a request to lower a backend, prove physical equivalence, or deploy.
   (format stream "          or --project FILE --composition NAME~%")
   (format stream "  compile [--validate-before-publish] --layout FILE --device FILE --realization FILE --output DIR [--topology FILE]~%")
   (format stream "          or [--validate-before-publish] --project FILE --composition NAME --output DIR~%")
+  (format stream "  preflight-build DIR  Read-only generated-contract and digest check~%")
   (format stream "  validate-build DIR  Run optional XKB/Kanata validators~%"))
 
 (defun main (&optional (arguments (uiop:command-line-arguments)))
@@ -414,6 +437,7 @@ not a request to lower a backend, prove physical equivalence, or deploy.
               ((string= command "simulate") (simulate-command rest))
               ((string= command "explain") (explain-command rest))
               ((string= command "compile") (compile-command rest))
+              ((string= command "preflight-build") (preflight-build-command rest))
               ((string= command "validate-build") (validate-build-command rest))
               ((or (string= command "help") (string= command "--help"))
                (print-usage)

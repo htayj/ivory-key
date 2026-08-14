@@ -21,6 +21,23 @@
                      (simulation-ambiguity-left condition)
                      (simulation-ambiguity-right condition)))))
 
+(define-condition simulation-latch-reservation-conflict (simulation-error)
+  ((axis :initarg :axis :reader simulation-latch-reservation-conflict-axis)
+   (generation :initarg :generation
+               :reader simulation-latch-reservation-conflict-generation)
+   (existing-candidate :initarg :existing-candidate
+                       :reader simulation-latch-reservation-conflict-existing-candidate)
+   (requested-candidate :initarg :requested-candidate
+                        :reader simulation-latch-reservation-conflict-requested-candidate))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "Latch ~S generation ~D is already reserved by pending candidate ~S; candidate ~S cannot also capture it."
+             (simulation-latch-reservation-conflict-axis condition)
+             (simulation-latch-reservation-conflict-generation condition)
+             (simulation-latch-reservation-conflict-existing-candidate condition)
+             (simulation-latch-reservation-conflict-requested-candidate condition)))))
+
 (define-condition unproved-simulation-arbitration (simulation-error)
   ((arbitration :initarg :arbitration
                 :reader unproved-simulation-arbitration-kind))
@@ -591,6 +608,50 @@ release; intermediate releases only reduce ownership."
            (sim-case-consulted-latches (simulation-candidate-case candidate)))
    :test #'equal))
 
+(defun candidate-reservation-scope= (left right)
+  "Whether LEFT and RIGHT are alternatives from one anchor-time candidate set.
+
+All cases of one interaction started by one physical anchor compete through the
+existing arbitration rule, so they may share one latch snapshot.  A distinct
+interaction or a later anchor is independently pending and must not observe
+the same latch generation without an explicit reservation/arbitration policy.
+"
+  (and (eq (simulation-candidate-interaction left)
+           (simulation-candidate-interaction right))
+       (= (simulation-candidate-anchor-index left)
+          (simulation-candidate-anchor-index right))))
+
+(defun candidate-latch-snapshot-for-axis (candidate axis)
+  (assoc axis (simulation-candidate-latch-snapshot candidate) :test #'equal))
+
+(defun assert-candidate-latch-reservations (machine candidate)
+  "Refuse independent pending consumers of one captured latch generation.
+
+This is deliberately a pre-commit check.  Comparing generations only at
+consumption prevents a double delete, but still lets two independent candidate
+sets observe and act on the same latch snapshot.  Version 1 instead fails
+closed before the second snapshot becomes viable.
+"
+  (dolist (snapshot (simulation-candidate-latch-snapshot candidate))
+    (destructuring-bind (axis value generation) snapshot
+      (declare (ignore value))
+      (let ((existing
+              (find-if
+               (lambda (other)
+                 (let ((other-snapshot
+                         (candidate-latch-snapshot-for-axis other axis)))
+                   (and (not (eq other candidate))
+                        (eq (simulation-candidate-status other) :viable)
+                        (not (candidate-reservation-scope= other candidate))
+                        other-snapshot
+                        (= generation (third other-snapshot)))))
+               (simulator-candidates machine))))
+        (when existing
+          (error 'simulation-latch-reservation-conflict
+                 :axis axis :generation generation
+                 :existing-candidate existing :requested-candidate candidate)))))
+  candidate)
+
 (defun start-candidate (machine interaction case anchor-index)
   (let* ((id (incf (simulator-next-candidate-id machine)))
          (candidate (%make-simulation-candidate
@@ -609,6 +670,10 @@ release; intermediate releases only reduce ownership."
                                 (deadline-time-for-candidate machine candidate pattern))
                               (candidate-all-deadline-patterns case))))
     (push candidate (simulator-candidates machine))
+    ;; A latch snapshot is an observation with semantic consequences, not a
+    ;; best-effort cache.  Check its exclusive pending-consumer boundary before
+    ;; the candidate can reach pattern evaluation or commitment.
+    (assert-candidate-latch-reservations machine candidate)
     (trace-entry machine :candidate-start :interaction interaction :case case
                  :candidate candidate
                  :details (list :anchor-index anchor-index

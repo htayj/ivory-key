@@ -43,6 +43,78 @@ state capabilities and generate its own artifacts, but it cannot turn an
 unresolved Manna timing rule, command meaning, or overlay policy into a Manna
 equivalence claim.
 
+## Phase 7 audit ledger
+
+The following ledger separates work that can be made more mechanically
+reviewable from a semantic choice that only an owner can make.  A refusal is a
+current, deliberate V1 disposition; it is not missing evidence that this
+document is permitted to fill in by inference.
+
+### Closed source-inventory gap
+
+The frozen `diff` report now parses every active primary `defalias` declaration
+and every selected `deflayer` structurally, without evaluating Kanata text.  It
+requires a one-to-one disposition for every declared alias and requires each
+selected layer to cover the complete physical `defsrc` table:
+
+| Primary file | `defsrc` positions | Complete layers | Declared/classified aliases |
+|---|---:|---|---:|
+| Advantage 2 | 68 | `normal`, `fun` | 49 / 49 |
+| Advantage 360 | 72 | `normal`, `game`, `fun` | 57 / 57 |
+
+The resulting closed classes are 16 timing refusals, two direct selectors,
+29 function outputs, two inactive historical aliases, and eight
+Advantage-360-only game aliases.  A new alias, duplicate classification,
+omitted alias, malformed alias line, `defsrc`-arity change, or incomplete
+selected layer fails the report before it can print `Unchecked differences: 0`.
+This closes the primary-alias/layer inventory gap; it does not assign semantics
+to a refused class.
+
+### Remaining evidence and tooling work
+
+| PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
+|---|---|---|---|
+| §13.1 frozen inventory of the selected layered sources | five primary hashes, static-table digest, all primary aliases/layers above, exact carriers and function positions | mechanically hash and structurally inventory the two documented chorded files and cross-check mnemonic placements; neither task selects their behavior | implementable review tooling |
+| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, 29 function rows per device, four immediate holders, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
+| §13.3 complete physical placement | 51 placed static XKB tables, four immediate direct holders/selectors, and the mode-key position on both devices | obtain additional device/event evidence for the residual common controls and A2 `lrld`; no direct primary `defsrc` provenance exists for `<LSGT>` | requires new evidence, not a topology guess |
+| §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths | encode complete timed, overlay, selector-visibility, and multi-owner traces only after choosing the foreign-event treatment | blocked by semantic choices |
+| §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
+| historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
+
+### Explicit semantic/profile choices still required
+
+The V1 defaults in [ADR 0002](decisions/0002-v1-policy-defaults.md) already
+answer the general §16 questions by refusing unsupported behavior.  They must
+not be relabeled as open implementation work.  The following are the remaining
+Manna-specific selections or revisions needed before the relevant source rows
+can become active migration behavior:
+
+| Source area | Current fail-closed disposition | Owner decision required for activation |
+|---|---|---|
+| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and 200/200 timings (250/250 only for `a`) are evidence; all 16 are refused | select a complete commitment, interruption, equal-time, foreign-event, cancellation, and multi-owner policy.  The Kanata-1.12 oracle buffers/reorders pending foreign events, while Proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md) forbids delay/replay; selecting either route is an explicit compatibility choice |
+| five semantic modifiers | target-neutral identities and historical sources are transcribed; their tap-hold activation is refused | select the timed lifecycle and application-visible realization, including any side distinction beyond P-14's source-neutral default |
+| function overlay | all 29 active-table results are transcribed; End/PgDn activation is refused | select function hold commitment, first/last-owner overlay lifetime, patch interaction, and an exact lowerer |
+| direct Greek and Top selectors | immediate abstract held lifecycles are transcribed | select/prove application-visible group/modifier behavior and backend lifetime/lowering; Top-plus-Greek remains a Group-2 boundary |
+| Advantage-360 game layer | source aliases and layer are classified, while the selected common profile excludes it | select a separate 360 profile with its own overlay, timing, and interaction policy, or preserve its exclusion |
+| older chorded files | P-04 makes them regression-only | select a distinct profile and establish arbitration/timing before any chord becomes active |
+| `shift-latch` comment and inactive `osft`/`csft` aliases | comment-only latch is excluded; inactive aliases have no normal-layer use | provide executable source evidence and a complete interaction policy before adding either behavior |
+
+The literal static `NoSymbol` result is not an owner choice: it is already the
+explicit abstract `none` result.  Likewise, command and symbol identity names
+are recorded through the realization vocabulary; their historical transport
+does not itself prove application-level command equivalence.
+
+### Supplemental live-test context, not an oracle
+
+The later dotfiles planning document at commit `31aba7b`,
+`dotfiles/sway-plan.md`, names Kanata 1.12.0 and proposes `wev` checks for
+modifier gestures and Delete/Enter selectors.  It records intended checks and
+expectations, not captured event-level output, a frozen executable pin, or a
+historical test result.  It is therefore version/context evidence only.  The
+separate [Kanata-1.12 oracle](kanata-1.12-oracle.md) adds narrowly scoped
+source-state-machine evidence, but neither document proves the historical
+runtime or selects the delayed-foreign-event compatibility route.
+
 ## Source variants
 
 | Material | Evidence | Classification | Consequence |

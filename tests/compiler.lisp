@@ -212,6 +212,40 @@
            layout :topology-path topology :device-path device
            :realization-path realization :output-directory output))))))
 
+(deftest compiler-cli-preflight-build-is-read-only-and-refuses-a-tampered-contract
+  (with-compiler-test-directory (directory)
+    (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (realization (compiler-test-write directory "realization.ivory"
+                                             +compiler-test-realization+))
+           (output (merge-pathnames "build/" directory)))
+      (ivory-key.cli:compile-layout-source
+       layout :topology-path topology :device-path device
+       :realization-path realization :output-directory output)
+      (let ((manifest-before
+              (uiop:read-file-string (merge-pathnames "manifest.json" output))))
+        (multiple-value-bind (status standard-output error-output)
+            (compiler-cli-command-output
+             (list "preflight-build" (namestring output)))
+          (is-equal 0 status)
+          (is (search "build-contract: passed" standard-output))
+          (is (search "No validators, services, dotfiles, or input devices were touched."
+                      standard-output))
+          (is-equal "" error-output))
+        (is-equal manifest-before
+                  (uiop:read-file-string (merge-pathnames "manifest.json" output))))
+      (with-open-file (stream (merge-pathnames "layout.kbd" output)
+                              :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+        (write-string "tampered" stream))
+      (multiple-value-bind (status standard-output error-output)
+          (compiler-cli-command-output
+           (list "preflight-build" (namestring output)))
+        (is-equal 1 status)
+        (is-equal "" standard-output)
+        (is (plusp (length error-output)))))))
+
 (deftest compiler-device-coverage-is-explicit-for-completeness-and-lowering
   ;; A structurally complete topology may contain an unused, intentionally
   ;; unreachable position.  It is retained in the successful build contract.

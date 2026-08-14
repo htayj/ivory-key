@@ -2677,7 +2677,20 @@ This function neither mutates the build nor contacts a device.
                 (t (multiple-value-bind (success output arguments)
                        (ivory-key.backend:validate-artifact backend artifact)
                      (list :kind kind :status (if success :passed :failed)
-                           :path artifact :output output :arguments arguments)))))))
+                       :path artifact :output output :arguments arguments)))))))
+
+(defun preflight-build-directory (directory)
+  "Read-only generated-build integrity preflight for controlled integration.
+
+Unlike VALIDATE-BUILD-DIRECTORY, this invokes no external validator.  It checks
+the generated contract's fixed artifact inventory, hashes, and relocatable
+provenance records through BUILD-CONTRACT's non-evaluating decoder.  It cannot
+install, activate, reload, or otherwise contact a keyboard/service/device.
+"
+  (handler-case
+      (ivory-key.build-contract:preflight-build-contract-directory directory)
+    (error (condition)
+      (%stage-error :preflight-build :invalid-generated-build-contract "~A" condition))))
 
 (defun %validation-program-available-p (backend)
   (let ((program (ivory-key.backend:capability-validation-program

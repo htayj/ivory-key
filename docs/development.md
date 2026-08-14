@@ -50,3 +50,18 @@ source checkout:
 direnv exec . sbcl --script tests/migration/manna-truth-table.lisp \
   /home/tay/src/dotfiles/keyboard/manna-cadet
 ```
+
+The Kanata 1.12 state-machine oracle is more environmental still: it requires
+the exact hash-pinned upstream source archive, the hash-frozen Manna checkout,
+and a Rust nightly toolchain.  It neither belongs to ASDF nor touches a live
+input device:
+
+```sh
+KANATA_CARGO_TOOLCHAIN=nightly \
+  tests/external/kanata-1.12-manna-oracle.sh \
+  PATH-TO-kanata-1.12.0.tar.gz \
+  PATH-TO-FROZEN-MANNA-ROOT
+```
+
+See [the oracle contract and decision boundary](kanata-1.12-oracle.md) before
+treating its version-specific evidence as a compatibility claim.

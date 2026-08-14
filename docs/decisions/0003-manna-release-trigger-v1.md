@@ -22,6 +22,22 @@ evidence that the policy is historically equivalent to Kanata.
 The notation below describes the proposed model only; it is not newly accepted
 surface syntax.
 
+## Post-proposal Kanata 1.12 evidence
+
+The separately tagged [Kanata 1.12 oracle](../kanata-1.12-oracle.md) now gives
+us a hash-pinned, source-state-machine trace for the current runtime family.
+It confirms the equal-deadline tap/hold boundary, foreign-release hold,
+same-modifier final-owner release, and final-owner function-layer lifetime.
+
+It also demonstrates that Kanata 1.12 delays a pending foreign key until the
+tap-hold owner resolves. That directly differs from this proposal's deliberate
+"observed and unowned; never buffered, delayed, or replayed" rule. Therefore
+the new evidence does not silently accept this ADR or turn it into a Kanata
+compatibility claim. It sharpens the choice: accept this as an intentionally
+modern no-delay policy whose Kanata lowering remains refused, or specify a
+separate versioned compatibility profile with explicit buffering and ordered
+release semantics.
+
 ## Proposed policy
 
 For a tap-hold physical position `P`, hold deadline `H`, and tap deadline `R`,

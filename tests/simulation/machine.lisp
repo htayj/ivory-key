@@ -257,6 +257,76 @@
                   (mapcar #'ivory-key.simulate::simulation-trace-entry-kind trace)))
      "only committed candidate may consume latch")))
 
+(defun make-latch-reserving-interaction (name position)
+  (ivory-key.simulate::make-sim-interaction
+   :name name :participants (list position) :consulted-latches '(:shift-latch)
+   :cases
+   (list
+    (ivory-key.simulate::make-sim-case
+     :name :release
+     :pattern (ivory-key.simulate::sequence-pattern
+               (ivory-key.simulate::down-pattern position)
+               (ivory-key.simulate::up-pattern position))
+     :actions (list (ivory-key.simulate::emit-action name))))))
+
+(defun test-concurrent-latch-consumers-refused-before-commit ()
+  (let ((first (make-latch-reserving-interaction :first :a))
+        (second (make-latch-reserving-interaction :second :b))
+        (conflict nil))
+    (handler-case
+        (ivory-key.simulate::simulate-events
+         (list first second)
+         (list (sim-event 0 :down :a) (sim-event 1 :down :b))
+         :latches '((:shift-latch . :latched)))
+      (ivory-key.simulate:simulation-latch-reservation-conflict (condition)
+        (setf conflict condition)))
+    (simulation-assert conflict
+                       "independently pending consumers must fail closed at snapshot time")
+    (simulation-assert-equal :shift-latch
+                             (ivory-key.simulate:simulation-latch-reservation-conflict-axis
+                              conflict)
+                             "the conflict identifies the consulted latch axis")
+    (simulation-assert-equal 1
+                             (ivory-key.simulate:simulation-latch-reservation-conflict-generation
+                              conflict)
+                             "the conflict identifies the captured latch generation")
+    (simulation-assert
+     (not (eq (ivory-key.simulate:simulation-latch-reservation-conflict-existing-candidate
+               conflict)
+              (ivory-key.simulate:simulation-latch-reservation-conflict-requested-candidate
+               conflict)))
+     "the conflict identifies distinct pending candidate sets")))
+
+(defun test-one-candidate-set-may-share-one-latch-snapshot ()
+  (let* ((interaction
+           (ivory-key.simulate::make-sim-interaction
+            :name :one-set :participants '(:a) :consulted-latches '(:shift-latch)
+            :cases
+            (list
+             (ivory-key.simulate::make-sim-case
+              :name :tap :priority 1
+              :pattern (ivory-key.simulate::sequence-pattern
+                        (ivory-key.simulate::down-pattern :a)
+                        (ivory-key.simulate::up-pattern :a))
+              :actions (list (ivory-key.simulate::emit-action :tap)))
+             (ivory-key.simulate::make-sim-case
+              :name :hold :priority 2
+              :pattern (ivory-key.simulate::deadline-pattern 100
+                                                              :after-position :a
+                                                              :while-down :a)
+              :actions (list (ivory-key.simulate::emit-action :hold))))))
+         (result
+           (ivory-key.simulate::simulate-events
+            (list interaction)
+            (list (sim-event 0 :down :a) (sim-event 10 :up :a))
+            :latches '((:shift-latch . :latched)))))
+    (simulation-assert-equal '(:tap)
+                             (ivory-key.simulate::simulation-result-outputs result)
+                             "arbitrated alternatives from one anchor remain allowed")
+    (simulation-assert-equal nil
+                             (ivory-key.simulate::simulation-result-latches result)
+                             "the winning alternative consumes the shared snapshot once")))
+
 (defun test-reversible-effect-lifecycle ()
   (let* ((effect (ivory-key.simulate::make-sim-effect
                   :name :meta-held
@@ -509,6 +579,12 @@
 
 (deftest simulation-cancellation-and-latch-nonconsumption
   (test-cancellation-and-latch-nonconsumption))
+
+(deftest simulation-concurrent-latch-consumers-refused-before-commit
+  (test-concurrent-latch-consumers-refused-before-commit))
+
+(deftest simulation-one-candidate-set-may-share-one-latch-snapshot
+  (test-one-candidate-set-may-share-one-latch-snapshot))
 
 (deftest simulation-reversible-effect-lifecycle
   (test-reversible-effect-lifecycle))

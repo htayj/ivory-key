@@ -315,6 +315,13 @@ consulted it and still holds the same captured generation.  Rejected,
 cancelled, losing, or non-consulting candidates never consume it.  A candidate
 may consequently consume a latch and set a replacement latch atomically.
 
+One anchor-time candidate set may snapshot a latch generation.  Before a
+second, independently pending candidate set can snapshot that same generation,
+the reference machine signals `simulation-latch-reservation-conflict`.  Cases
+started from the same interaction and physical anchor remain one candidate set
+and use their declared arbitration; a distinct interaction or later anchor is
+refused rather than given an implicit reservation, replay, or winner rule.
+
 **P-OWNERSHIP-01 — committed participant events.**  On commitment, the winner
 claims every physical `down` and `up` for its declared participants from its
 anchor through the current event prefix.  A committed winner cancels every

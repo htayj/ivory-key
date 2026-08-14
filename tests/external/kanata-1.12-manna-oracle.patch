@@ -1,0 +1,94 @@
+--- a/src/tests/sim_tests/tap_hold_tests.rs
++++ b/src/tests/sim_tests/tap_hold_tests.rs
+@@ -1279,3 +1279,91 @@
+         result
+     );
+ }
++#[test]
++fn ivory_key_manna_release_oracle() {
++    let cfg = "
++      (defcfg concurrent-tap-hold yes process-unmapped-keys yes)
++      (defsrc a s d b)
++      (deflayer base @a @s @d b)
++      (defalias
++        a (tap-hold-release 200 200 x lctl)
++        s (tap-hold-release 200 200 y lctl)
++        d (tap-hold-release 250 250 z lalt))
++    ";
++    for (events, expected) in [
++        ("d:a t:199 u:a t:10", "t:199ms dn:X t:6ms up:X"),
++        ("d:a t:200 u:a t:10", "t:199ms dn:LCtrl t:1ms up:LCtrl"),
++        ("d:d t:249 u:d t:10", "t:249ms dn:Z t:6ms up:Z"),
++        ("d:d t:250 u:d t:10", "t:249ms dn:LAlt t:1ms up:LAlt"),
++        ("d:a t:50 d:b t:50 u:b t:50 u:a t:10",
++         "t:100ms dn:LCtrl t:6ms dn:B t:1ms up:B t:43ms up:LCtrl"),
++        ("d:a t:50 d:b t:10 u:a t:10 u:b t:10",
++         "t:60ms dn:X t:6ms dn:B t:1ms up:X t:3ms up:B"),
++        ("d:a t:10 d:s t:200 u:a t:20 u:s t:10",
++         "t:199ms dn:LCtrl t:31ms up:LCtrl"),
++        ("d:a t:10 d:s t:200 u:s t:20 u:a t:10",
++         "t:199ms dn:LCtrl t:31ms up:LCtrl"),
++    ] {
++        assert_eq!(expected, simulate(cfg, events).to_ascii());
++    }
++}
++
++#[test]
++fn ivory_key_manna_function_owner_oracle() {
++    let cfg = "
++      (defcfg concurrent-tap-hold yes process-unmapped-keys yes)
++      (defsrc a s b)
++      (deflayer base @a @s b)
++      (deflayer fun @a @s c)
++      (defalias
++        a (tap-hold-release 200 200 x (layer-while-held fun))
++        s (tap-hold-release 200 200 y (layer-while-held fun)))
++    ";
++    for events in [
++        "d:a t:10 d:s t:200 d:b t:10 u:b t:10 u:a t:10 d:b t:10 u:b t:10 u:s t:10 d:b t:10 u:b t:10",
++        "d:a t:10 d:s t:200 d:b t:10 u:b t:10 u:s t:10 d:b t:10 u:b t:10 u:a t:10 d:b t:10 u:b t:10",
++    ] {
++        assert_eq!(
++            "t:210ms dn:C t:10ms up:C t:20ms dn:C t:10ms up:C t:20ms dn:B t:10ms up:B",
++            simulate(cfg, events).to_ascii()
++        );
++    }
++}
++
++#[test]
++fn ivory_key_actual_advantage2_oracle() {
++    let cfg = include_str!("../../../cfg_samples/ivory-key-manna.kbd");
++    for (events, expected) in [
++        ("d:f t:199 u:f t:10", "t:199ms dn:F t:6ms up:F"),
++        ("d:f t:200 u:f t:10", "t:199ms dn:LShift t:1ms up:LShift"),
++        ("d:f t:50 d:b t:50 u:b t:50 u:f t:10",
++         "t:100ms dn:LShift t:6ms dn:B t:1ms up:B t:43ms up:LShift"),
++        ("d:f t:50 d:b t:10 u:f t:10 u:b t:10",
++         "t:60ms dn:F t:6ms dn:B t:1ms up:F t:3ms up:B"),
++        ("d:f t:10 d:j t:200 u:f t:20 u:j t:10",
++         "t:199ms dn:LShift t:31ms up:LShift"),
++        ("d:end t:10 d:pgdn t:200 d:q t:10 u:q t:10 u:end t:10 d:q t:10 u:q t:10 u:pgdn t:10 d:q t:10 u:q t:10",
++         "t:210ms out-code:185;Press t:10ms out-code:185;Release t:20ms out-code:185;Press t:10ms out-code:185;Release t:20ms dn:Q t:10ms up:Q"),
++    ] {
++        assert_eq!(expected, simulate(cfg, events).to_ascii());
++    }
++}
++
++#[test]
++fn ivory_key_actual_advantage2_modifier_pairs() {
++    let cfg = include_str!("../../../cfg_samples/ivory-key-manna.kbd");
++    for (events, expected) in [
++        ("d:d t:10 d:k t:200 u:d t:20 u:k t:10",
++         "t:199ms dn:LCtrl t:31ms up:LCtrl"),
++        ("d:s t:10 d:l t:200 u:s t:20 u:l t:10",
++         "t:199ms dn:LAlt t:31ms up:LAlt"),
++        ("d:a t:10 d:; t:250 u:a t:20 u:; t:10",
++         "t:249ms dn:LGui t:31ms up:LGui"),
++        ("d:esc t:10 d:' t:200 u:esc t:20 u:' t:10",
++         "t:199ms dn:RGui t:31ms up:RGui"),
++        ("d:bspc t:10 d:spc t:200 u:bspc t:20 u:spc t:10",
++         "t:199ms dn:RAlt t:31ms up:RAlt"),
++    ] {
++        assert_eq!(expected, simulate(cfg, events).to_ascii());
++    }
++}

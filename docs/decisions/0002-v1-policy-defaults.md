@@ -218,16 +218,17 @@ reservation/arbitration rule that chooses one consumer before either behavior
 can observe the latch.
 
 This is deliberately stricter than merely avoiding a double deletion.  The
-current machine preserves a generation check, but it does not establish a
-general source-level reservation protocol for two non-overlapping candidates
-that captured the same latch before either commits.  This decision makes that
-unsettled case fail closed; it does not claim existing static validation catches
-every possible trace.
+reference machine now treats a latch snapshot as a pending candidate-set
+reservation: before a second independent candidate set can capture the same
+axis/generation, it signals `simulation-latch-reservation-conflict`.  Cases
+from the same interaction and physical anchor remain one candidate set and
+use their declared arbitration.  This is a runtime fail-closed check; it does
+not claim static validation can decide every possible future event trace.
 
 **Evidence.**  Candidate snapshots retain latch generation; only a committed
-candidate consumes a matching current generation, before actions.  The model
-and current tests prove committed-only consumption and non-consumption on
-cancellation, not a general concurrent-consumer resolution policy.
+candidate consumes a matching current generation, before actions.  Focused
+simulator coverage proves cancellation non-consumption and refusal of two
+independent pending consumers before either can commit.
 
 ### P-10 — context-observation time
 

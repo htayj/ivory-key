@@ -71,7 +71,12 @@ two frozen primary devices with the checked-in 52-table static transcription,
 29-row function table/carrier vocabulary, and four direct selectors. Its
 `Unchecked differences: 0` result means all remaining differences are named
 as exact transcription, device variance, or refusal; it is not a migration or
-equivalence verdict.
+equivalence verdict.  It also fails closed unless all active primary aliases
+are classified exactly once (49 for Advantage 2 and 57 for Advantage 360) and
+every selected primary layer covers its `defsrc` table (68 and 72 physical
+positions respectively).  The evidence audit's Phase 7 ledger separates this
+closed inventory proof from the remaining owner policy choices and from
+historical evidence that still needs a frozen-runtime capture.
 
 ## Work still required before a migration claim
 
@@ -93,6 +98,14 @@ equivalence verdict.
    refusal through policy/evidence and re-run it with no unreviewed change;
    only then consider a separately authorized dotfiles integration and
    disposable-device/live-input validation with a rollback path.
+
+The planned Sway migration document that names Kanata 1.12.0 is supplemental
+context only: its `wev` steps are proposed checks, not captured Manna event
+traces or a frozen historical runtime oracle.  A separate source-archive-
+checked Kanata-1.12 state-machine oracle records bounded current behavior, but
+reveals pending foreign-event buffering that differs from the proposed modern
+no-replay route.  Neither source selects a Manna compatibility policy or
+closes the timing, selector, or modifier equivalence gaps above.
 
 Until all of those steps are complete, Manna Cadet remains the active external
 configuration and Ivory Key remains a non-deploying implementation effort.
