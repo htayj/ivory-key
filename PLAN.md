@@ -90,7 +90,7 @@ The project will keep four concepts separate.
 ### 3.1 Abstract layout
 
 The abstract layout defines semantic positions, context axes, modifier names,
-bindings, overlays, combos, and temporal behaviors. It may say that holding a
+bindings, overlays, and timed interactions. It may say that holding a
 position selects Greek, that tapping another emits Backspace while holding it
 asserts Alt, that a latched `shift-latch` axis changes the next shift key into
 a latching shift, or that a two-position combo invokes `stop-output`. It may
@@ -228,49 +228,72 @@ not a claim that overlays and axes are fundamentally unrelated kinds of state.
 Overlay precedence, transparency, simultaneous activation, and base
 inheritance are explicit and validated for ambiguity and cycles.
 
-### 4.5 Compositional temporal and compound behavior
+### 4.5 Unified timed interactions
 
-Every branch of a compound behavior contains another complete behavior, not
-merely a leaf output. In particular, the tap branch of a tap-hold key can
-consult the full product of all axes relevant to that tap, while the hold
-branch asserts a modifier or performs another compound behavior. A home-row
-key therefore need not duplicate its tap-hold wrapper once per product state.
+Tap, hold, combo, tap dance, roll, sequence, and one-shot are not independent
+semantic primitives. They are common patterns over the same timed event
+stream. Every press of a logical position creates an interval beginning at its
+down event and ending at its up event. An **interaction** recognizes temporal
+and contextual relationships among one or more such intervals and produces a
+complete behavior.
 
-The first language version will include:
+An interaction declares:
 
-- `tap-hold`, with separate tap and hold behaviors;
-- momentary, latched, locked, toggled, and switched context-axis states;
-- simultaneous actions and ordered sequences;
-- combos over sets of logical positions;
-- explicit combo windows and resolution/release policies;
-- one-shot behavior;
-- repeat behavior;
-- macros as ordered semantic outputs.
+- participant positions and the wider event scope it observes;
+- a finite pattern over down events, up events, deadlines, and context state;
+- an explicit point at which a candidate interpretation commits;
+- effects on entry, at milestones or commitment, while active, on exit, and on
+  cancellation;
+- explicit arbitration when its event prefix overlaps another interaction.
 
-Behavior composition must remain finite and statically inspectable. Version 1
-supports named, parameterized, acyclic behavior templates for factoring common
-patterns such as shift keys, but does not evaluate arbitrary Common Lisp or
-require a Turing-complete configuration language.
+The pattern algebra includes ordered sequence, unordered conjunction,
+alternation, duration ranges, deadlines, overlap, bounded proximity, absence
+of an event between two boundaries, finite repetition, and named captures.
+This can distinguish `A-down B-down A-up B-up` from
+`A-down B-down B-up A-up`, recognize an isolated A release with no intervening
+foreign press, or divide one press into less-than-one-second,
+one-to-two-second, and at-least-two-second cases.
 
-Timing can be a literal duration or a symbolic policy such as `home-row`. A
-layout may define a portable default policy; a device or realization may
-override it explicitly. Backend-specific names such as
-`tap-hold-release` are lowering choices derived from the abstract resolution
-policy, not language primitives.
+Effects have a lifecycle because not every keyboard action is an irreversible
+output. Emitting a character occurs only at commitment. Held modifiers and
+axis states can instead have paired enter/exit effects and may transition at a
+deadline. If a one-second candidate could later become a two-second candidate,
+the source must choose to delay the first output, make the results cumulative,
+or use explicitly reversible enter/exit effects. Ivory Key never invents an
+implicit rollback for output already delivered to an application.
 
-Because tap-hold delays an output decision, the behavior must say when context
-is observed. The version 1 default is to capture the relevant context-axis
-values at the initial key press for the tap branch. Thus pressing Greek,
-pressing a tap-hold letter, releasing Greek, and then releasing the letter
-still produces the Greek tap value. A construct may request another
-well-defined observation policy only if the simulator and realization contract
-can express it explicitly.
+Candidate matching and commitment are distinct. The recognizer may retain
+several viable interpretations of an event prefix; only a committed candidate
+claims its participant events, consumes consulted latches, and emits
+irreversible output. Absence predicates cannot commit until their closing
+boundary, and longest-match policies can therefore add latency. Overlapping
+candidates require declared priority, a declared longest-match policy with a
+deadline, or another deterministic arbitration rule. Validation rejects a
+trace on which incompatible candidates can commit ambiguously.
 
-The event semantics must define press, release, timeout, interruption by
-another press, interruption by another release, combo arbitration, patch
-precedence, context capture, latch consumption, and cancellation. These rules
-will be executable in the reference simulator before backend generation is
-considered trustworthy.
+The first language version keeps this model finite and statically inspectable:
+finite participants, finitely many clocks, bounded repetition, declarative
+predicates, and named acyclic interaction/behavior templates. It does not
+evaluate arbitrary Common Lisp or provide a Turing-complete configuration
+language. The normalized interaction IR compiles to a finite timed event
+transducer used by the reference simulator.
+
+`tap`, `hold`, `tap-hold`, `combo`, `tap-dance`, and similar friendly forms may
+remain in the standard library, but only as declarative templates that expand
+into interactions. Backend names such as `tap-hold-release` are lowering
+choices, not language primitives.
+
+An interaction explicitly states when it observes context. The version 1
+default is to capture relevant context-axis values at the anchor down event.
+Thus pressing Greek, pressing a delayed letter, releasing Greek, and then
+releasing the letter still produces its Greek value. Another observation
+policy is permitted only when the simulator and realization contract can
+express it precisely.
+
+The event semantics must define matching, deadlines, commitment, participant
+ownership, cancellation, effect entry/exit, arbitration, patch precedence,
+context capture, and latch consumption. These rules will be executable in the
+reference simulator before backend generation is considered trustworthy.
 
 ### 4.6 Latch consumption and the `shift-latch` axis
 
@@ -299,12 +322,14 @@ The sequence `LATCHLATCH GREEK T` first latches `shift-latch=latch`; the Greek
 binding consults that axis and consequently latches `script=greek`; T then
 emits Greek tau and consumes the script latch.
 
-A latched axis value is consumed by the first committed behavior selection
-that consults that axis, not necessarily by the next physical key. In
+A latched axis value is consumed by the first committed interaction
+interpretation that consults that axis, not necessarily by the next physical
+key. In
 `LATCHLATCH A GREEK T`, an ordinary A that does not consult `shift-latch` does
-not consume it. Speculative lookup and a compound branch that is later rejected
-also do not consume a latch. The normative event semantics must define exactly
-when a selection commits, especially for tap-hold keys and combos.
+not consume it. Speculative matching and a candidate that is later rejected or
+cancelled also do not consume a latch. The normative event semantics must
+define exactly when an interaction commits, especially when several candidates
+share an event prefix.
 
 ## 5. Source language, version 1
 
@@ -367,9 +392,20 @@ semantic shape is fixed by this plan:
     (at (plain   greek top)  (inherit (plain roman top)))
     (at (shifted greek top)  none))
 
-  (binding a
-    (tap-hold
-      (:tap
+  (interaction a-home-row
+    (:participants a)
+    (:observe any-position)
+    (:context-at (down a))
+
+    (case tap
+      (:match
+        (and
+          (sequence (down a) (up a))
+          (duration a :less-than home-row)
+          (without (down (other-than a))
+            :between (down a) (up a))))
+      (:commit (up a))
+      (:do
         (by-level
           ((plain   roman base) (unicode "a"))
           ((shifted roman base) (unicode "A"))
@@ -378,11 +414,17 @@ semantic shape is fixed by this plan:
           ((plain   roman top)  (named-symbol up-tack))
           ((shifted roman top)  none)
           ((plain   greek top)  (inherit (plain roman top)))
-          ((shifted greek top)  none)))
-      (:hold (hold-modifier super))
-      (:timing home-row)
-      (:resolve after-other-release)
-      (:selection-time press)))
+          ((shifted greek top)  none))))
+
+    (case hold
+      (:match
+        (either
+          (deadline home-row :after (down a) :while-down a)
+          (sequence (down a) (down (other-than a)))))
+      (:commit when-matched)
+      (:while (hold-modifier super)))
+
+    (:arbitration (priority hold tap)))
 
   (binding latch-latch
     (on-tap
@@ -403,22 +445,30 @@ semantic shape is fixed by this plan:
     (tap-hold-shift-key
       (named-key delete) script greek thumb))
 
-  (combo stop-output
-    (:positions i o)
-    (:window (milliseconds 45))
-    (:resolve first-release)
-    (:action (command stop-output))))
+  (interaction stop-output
+    (:participants i o)
+    (:match
+      (and
+        (all (down i) (down o))
+        (within (milliseconds 45) (down i) (down o))))
+    (:commit (first (up i) (up o)))
+    (:do (command stop-output))))
 ```
 
 `named-symbol` is an abstract symbol identity for historical/non-Unicode
 keyboard symbols; its registry entry must document identity and intended
 display. It is not an XKB keysym escape hatch.
 
-The `a` binding demonstrates that a tap-hold tap branch retains the complete
-axis-sensitive output table. The `shift-latch` example demonstrates that an
-axis may select the behavior of another selector key without contributing to
-ordinary symbol-level enumeration. The shown spelling remains subject to the
-Phase 0 language RFC; the dependency and consumption semantics are required.
+The `a-home-row` interaction demonstrates that one timed candidate retains the
+complete axis-sensitive output table while another candidate provides a
+reversible held effect. `stop-output` demonstrates that a conventional combo
+is merely a multi-participant interaction. The `tap-hold` and `on-tap` forms in
+the shift-key example are standard-library templates expanding to the same
+interaction IR, not additional semantic machinery. The `shift-latch` example
+demonstrates that an axis may select another selector key's behavior without
+contributing to ordinary symbol-level enumeration. The shown spelling remains
+subject to the Phase 0 language RFC; the interaction, dependency, commitment,
+and consumption semantics are required.
 
 ### 5.3 Modules and composition
 
@@ -428,9 +478,9 @@ paths, parent traversal outside a root, duplicate definitions, and import
 cycles. Imports do not execute code.
 
 Composition must be named and deterministic. It may extend a layout, apply an
-overlay, define or instantiate an acyclic parameterized behavior template, or
-instantiate a layout on a compatible topology. It may not depend on load order
-to redefine an existing binding silently.
+overlay, define or instantiate an acyclic parameterized behavior or interaction
+template, or instantiate a layout on a compatible topology. It may not depend
+on load order to redefine an existing binding silently.
 
 ### 5.4 Canonical formatter
 
@@ -475,11 +525,13 @@ src/
   model/layout.lisp
   model/topology.lisp
   model/behavior.lisp
+  model/interaction.lisp
   model/realization.lisp
   resolve.lisp
   validate.lisp
   normalize.lisp
   simulate/events.lisp
+  simulate/patterns.lisp
   simulate/machine.lisp
   backend/protocol.lisp
   backend/resources.lisp
@@ -537,13 +589,13 @@ diagnostics; it does not mutate the parsed source model in place.
    positions, policies, and inheritance.
 4. **Semantic validation:** enforce uniqueness, acyclic composition,
    well-formed dependency-scoped axis spaces, complete or explicit binding
-   fallback, finite behavior-template expansion, valid combos, and
-   deterministic temporal rules.
+   fallback, finite template expansion, bounded interaction patterns, valid
+   clocks and effect lifecycles, and deterministic commitment/arbitration.
 5. **Normalization:** expand relevant axis products, behavioral selections,
-   patch precedence, aliases, templates, inheritance, and shorthand into a
-   canonical abstract IR without target assumptions.
-6. **Reference simulation:** compile behaviors into the abstract event machine
-   used as the semantic oracle.
+   patch precedence, aliases, templates, inheritance, and interaction
+   shorthand into a canonical abstract IR without target assumptions.
+6. **Reference simulation:** compile normalized interactions into the abstract
+   timed event transducer used as the semantic oracle.
 7. **Capability planning:** compare normalized requirements with the selected
    realization pipeline, allocate finite backend resources, and classify every
    feature as exact, emulated, lossy, or unsupported.
@@ -568,15 +620,16 @@ large conditional in the compiler. Capabilities include:
 - maximum native levels/groups, or unbounded where appropriate;
 - usable real and virtual modifier resources;
 - supported context-axis operations, resolution styles, and patch operations;
-- temporal behavior and combo semantics;
+- timed-interaction pattern, clock, lifecycle, and arbitration semantics;
 - Unicode, named-key, and command-output mechanisms;
 - carrier channels exposed to the next pipeline stage;
 - validation commands and platform assumptions.
 
 The pipeline planner owns shared resources. For example, it may decide that
-Kanata implements tap-holds and emits reserved carrier keycodes, while XKB maps
-those carriers to level changes or command symbols. Allocation must be
-deterministic, collision-checked, and visible in the report.
+Kanata implements the subset of normalized timed interactions it can express
+and emits reserved carrier keycodes, while XKB maps those carriers to level
+changes or command symbols. Allocation must be deterministic,
+collision-checked, and visible in the report.
 
 The realization result uses four grades:
 
@@ -588,7 +641,7 @@ The realization result uses four grades:
 
 Lossy output requires an explicit profile opt-in naming the diagnostic code.
 Unsupported output fails compilation. No backend may silently drop a level,
-modifier, combo, output, or transition.
+modifier, interaction, output, effect lifecycle, or transition.
 
 ## 9. Initial Kanata + XKB pipeline
 
@@ -597,9 +650,9 @@ modifier, combo, output, or transition.
 The first planner should prefer this split while remaining driven by declared
 capabilities:
 
-- Kanata: physical capture, device placement, tap-hold decisions, combos,
-  overlays that require temporal behavior, and emission of ordinary or
-  allocated carrier keycodes.
+- Kanata: physical capture, device placement, timed interactions it can realize
+  exactly or through an approved emulation, overlays that require temporal
+  behavior, and emission of ordinary or allocated carrier keycodes.
 - XKB: keycode-to-symbol translation, natively representable level selection,
   groups where chosen by the profile, semantic modifier exposure to clients,
   and private carrier-to-command mappings where necessary.
@@ -686,8 +739,9 @@ ivory-key validate-build DIR
 
 Diagnostics have stable codes, severity, primary source span, related spans,
 and a concise repair hint. Examples include duplicate identifiers, unknown
-positions, incomplete level tables, ambiguous combo resolution, inheritance
-cycles, exhausted carriers, modifier-slot conflicts, and unapproved loss.
+positions, incomplete level tables, ambiguous interaction commitment,
+unbounded patterns, invalid effect lifecycles, inheritance cycles, exhausted
+carriers, modifier-slot conflicts, and unapproved loss.
 
 `explain` runs capability planning without emission and prints where every
 abstract feature will live. It is the primary way to inspect kludges before
@@ -722,8 +776,12 @@ raised; they are not semantic limits on level or modifier counts.
   axes follow their declared precedence and diagnose unresolved ambiguity.
 - Explicit restricted products, fallbacks, transparency, and inheritance are
   deterministic and cycle-checked.
-- Named behavior templates expand finitely, reject recursive cycles, and
-  preserve source spans through instantiation.
+- Named behavior and interaction templates expand finitely, reject recursive
+  cycles, and preserve source spans through instantiation.
+- Every normalized interaction uses finite participants and clocks, bounded
+  repetition, and statically analyzable event predicates.
+- Pattern overlap analysis rejects incompatible candidates that can commit on
+  the same trace without explicit arbitration.
 - Canonical IR is independent of hash-table iteration order and source import
   order where semantics are equivalent.
 
@@ -734,17 +792,26 @@ state after every event. Cover:
 
 - simple symbols at every level tuple;
 - simultaneous semantic modifiers with every relevant product-axis state;
-- a tap-hold key whose tap branch selects all eight Manna Cadet product states;
+- an interaction whose release candidate selects all eight Manna Cadet product
+  states and whose held candidate has a paired enter/exit effect;
 - context captured at initial press even when a selector is released before a
-  delayed tap commits;
-- tap versus hold at boundary times;
+  delayed interaction commits;
+- duration regions below one second, from one to two seconds, and from two
+  seconds onward, including exact deadline boundaries;
+- isolated release with no intervening foreign down event;
 - interruption on another press and on another release;
-- overlapping combos and explicit priority;
+- `A-down B-down A-up B-up` and `A-down B-down B-up A-up` selecting distinct
+  actions;
+- unordered overlap, rolling interactions, and explicit candidate priority;
+- delayed irreversible output versus cumulative output versus reversible
+  enter/exit effects;
+- longest-match latency, losing-candidate cancellation, and event replay or
+  ownership at commitment;
 - overlay activation, transparency, latch, lock, and cancellation;
 - `LATCHLATCH GREEK T` emits tau through two successive latch consumptions;
 - `LATCHLATCH A GREEK T` proves a key that does not consult `shift-latch` does
   not consume it;
-- speculative or rejected tap-hold/combo branches do not consume axis latches;
+- speculative or rejected interaction candidates do not consume axis latches;
 - sequences, one-shots, repeat, and macro ordering;
 - stuck-state prevention after cancellation and malformed event streams.
 
@@ -783,7 +850,8 @@ simulator. Every emulated or lossy feature gets a targeted differential test.
 Live deployment remains opt-in and later. It must use a disposable or clearly
 identified input device first, verify the virtual device, capture observed
 events, test all eight Manna Cadet levels and all five semantic modifiers, test
-tap-holds and combos, and retain a rollback path to the existing configuration.
+representative single- and multi-participant timed interactions, and retain a
+rollback path to the existing configuration.
 
 ## 13. Manna Cadet migration
 
@@ -821,8 +889,9 @@ profiles, two layout variants, or one deprecated compatibility fixture.
 Deliver `docs/language.md`, `docs/semantics.md`, the baseline inventory script,
 and small hand-written syntax examples including Manna Cadet and a twenty-level
 layout. Resolve naming, axis dependency and latch-consumption rules, patch
-precedence, inheritance, combo arbitration, context capture, and tap-hold event
-semantics before implementation spreads across backends.
+precedence, inheritance, the timed-pattern algebra, commitment, effect
+lifecycles, arbitration, participant ownership, and context capture before
+implementation spreads across backends.
 
 Exit when every construct in the representative fragment has normative syntax
 and event semantics and the baseline inventory is reviewable.
@@ -846,8 +915,9 @@ pass without using Common Lisp reader evaluation.
 ### Phase 3: semantic model and normalizer
 
 Implement topology, context axes and resolution styles, modifiers, outputs,
-bindings, overlays, finite parameterized behavior templates, temporal
-behaviors, name resolution, validation, and canonical abstract IR.
+bindings, overlays, finite parameterized behavior and interaction templates,
+timed patterns, effect lifecycles, name resolution, validation, and canonical
+abstract IR.
 
 Exit when the eight-state, twenty-state, dependency-scoped `shift-latch`, and
 over-sixty-four-modifier fixtures pass and all incomplete, cyclic, or ambiguous
@@ -855,10 +925,13 @@ constructs fail explicitly.
 
 ### Phase 4: reference event simulator
 
-Implement the normative state machine and trace format before backend lowering.
+Implement timed-pattern matching, candidate sets, clocks, commitment,
+arbitration, effect entry/exit/cancellation, participant ownership, and the
+normative trace format before backend lowering.
 
-Exit when the temporal behavior matrix passes and simulator traces identify the
-source binding and state transition responsible for every output.
+Exit when the temporal interaction matrix passes and simulator traces identify
+the source pattern, candidate transition, commit point, and effect responsible
+for every output or held state.
 
 ### Phase 5: backend protocol and capability planner
 
@@ -877,8 +950,8 @@ validation hooks.
 
 Exit when focused golden tests pass, generated configs pass installed tool
 checks, and differential tests cover representative levels, modifiers,
-tap-holds with axis-sensitive branches, overlays, latch consumption, and
-combos.
+single- and multi-participant interactions, multi-stage durations, exact event
+orders, overlays, and latch consumption.
 
 ### Phase 7: full Manna Cadet migration
 
@@ -919,11 +992,23 @@ because one backend happens to spell something differently.
   global product of every declared axis.
 - The first declared product axis varies fastest in canonical level ordering.
 - Semantic modifiers are not context selectors.
-- Every compound-behavior branch contains a complete behavior; a tap-hold tap
-  branch may consult the full relevant axis product.
-- Tap branches capture relevant context at initial press by default.
-- A latched axis is consumed by the first committed behavior selection that
-  consults it, not simply by the next physical key.
+- Tap, hold, combo, tap dance, roll, and sequence are templates over one
+  unified timed-interaction model, not separate semantic primitives.
+- A logical-position press is an interval bounded by down and up events;
+  patterns relate interval endpoints, deadlines, absence, overlap, repetition,
+  and context.
+- Every interaction candidate produces a complete behavior and may consult the
+  full relevant axis product.
+- Relevant context is captured at the interaction's anchor down event by
+  default.
+- Matching is speculative; only explicit commitment claims participant events,
+  consumes consulted latches, and permits irreversible output.
+- Active held effects use explicit enter/exit/cancel lifecycles. Ivory Key does
+  not implicitly retract output already delivered to an application.
+- Pattern repetition, participant sets, and clocks are finite; ambiguous
+  commitment without declared arbitration is invalid.
+- A latched axis is consumed by the first committed interaction that consults
+  it, not simply by the next physical key.
 - `shift-latch` is an ordinary behavioral axis defined by the layout, not a
   schema-specific key primitive.
 - Abstract commands and symbols require documented realization mappings.
@@ -947,13 +1032,21 @@ remaining semantic questions without changing the architectural boundaries:
   device-specific profile;
 - whether the older chorded files remain supported variants or only regression
   evidence;
-- the exact commit point and conflict rules when several pending behaviors
+- the exact default arbitration policies, if any, beyond rejecting ambiguous
+  interactions;
+- whether losing candidates replay unclaimed events to a lower-priority
+  interaction or all ownership is decided within one candidate set;
+- the precise allowed absence predicates, clock bounds, and bounded-repetition
+  limits for version 1;
+- whether milestone output may be declared cumulative, or version 1 should
+  allow only commit-time output plus reversible enter/exit effects;
+- the exact commit point and conflict rules when several pending interactions
   consult the same latched axis;
 - whether any constructs need a context-observation time other than the default
   initial-press snapshot;
 - the exact precedence and simultaneous-activation rules for patch axes;
-- the normative priority rules for a key participating in both tap-hold and a
-  combo;
+- the normative interaction-candidate priorities for the current Manna Cadet
+  home-row, thumb, and chorded behaviors;
 - which timing values are layout defaults versus device/profile overrides;
 - the application-visible distinction, if any, between left/right sources of
   the five semantic modifiers.

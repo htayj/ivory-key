@@ -145,7 +145,8 @@ styles built on the same context-axis model:
 An axis state can be:
 
 - held momentarily;
-- latched until the next committed behavior selection that consults it;
+- latched until the next committed interaction interpretation that consults
+  it;
 - locked;
 - unlocked;
 - toggled or cycled.
@@ -256,9 +257,9 @@ Bindings may produce:
 
 They do not produce XKB keysyms or Kanata tokens directly.
 
-Repeated patterns can be factored into named, parameterized behavior templates.
-These templates are declarative, finite, and acyclic; they are not arbitrary
-Common Lisp functions evaluated from the configuration.
+Repeated patterns can be factored into named, parameterized behavior and
+interaction templates. These templates are declarative, finite, and acyclic;
+they are not arbitrary Common Lisp functions evaluated from the configuration.
 
 A historical command is represented semantically:
 
@@ -292,37 +293,67 @@ For example:
 This says exactly what happens at Top+Greek. It avoids encoding accidental gaps
 from the current XKB file as deliberate keyboard semantics.
 
-## 8. Tap-hold and other temporal behavior
+## 8. Timed interactions unify tap, hold, and combo
 
-A key can describe abstract tap-hold behavior:
+Every press of a logical position forms an interval:
 
-```lisp
-(binding left-thumb-main
-  (tap-hold
-    (:tap  (named-key backspace))
-    (:hold (hold-modifier alt))
-    (:timing home-row)
-    (:resolve after-other-release)))
+```text
+A-down ---------------- A-up
 ```
 
-This expresses:
+Ivory Key treats tap, hold, combo, tap dance, roll, sequence, and one-shot as
+recognizable patterns over these intervals. They are not separate kinds of
+keyboard machinery. An **interaction** says which positions participate, what
+events and context it observes, what temporal pattern must occur, when that
+interpretation commits, what effects it has, and how it competes with other
+possible interpretations.
 
-- tapping emits Backspace;
-- holding asserts semantic Alt;
-- timing comes from the `home-row` policy;
-- interruption is resolved after another key is released.
-
-It does not say `tap-hold-release 200 200 ...`, because that is Kanata syntax.
-
-### Axis-sensitive tap behavior
-
-The tap branch can itself consult the complete product of all axes relevant to
-the tap:
+The core event vocabulary contains logical-position down and up events,
+deadlines, and context observations. The pattern algebra includes forms such
+as:
 
 ```lisp
-(binding a-position
-  (tap-hold
-    (:tap
+(sequence pattern ...)
+(all pattern ...)
+(either pattern ...)
+(duration position :at-least time :less-than time)
+(deadline time :after event :while-down position)
+(within time event ...)
+(overlap position ...)
+(without event :between start end)
+(repeat pattern :at-most count)
+```
+
+`sequence` constrains total event order; `all` requires its members without
+inventing an order; `and` combines temporal and contextual constraints over the
+same candidate. These distinctions let a layout say exactly how much ordering
+matters instead of treating every multi-key interaction as simultaneous.
+
+Named captures allow a reusable pattern to refer to participants without
+hard-coding their positions. Repetition, participant sets, and clocks remain
+finite so the compiler can analyze the pattern and construct a timed state
+machine.
+
+### A complete axis-sensitive interaction
+
+One candidate can select all eight product states while another provides a
+held effect:
+
+```lisp
+(interaction a-home-row
+  (:participants a)
+  (:observe any-position)
+  (:context-at (down a))
+
+  (case tap
+    (:match
+      (and
+        (sequence (down a) (up a))
+        (duration a :less-than home-row)
+        (without (down (other-than a))
+          :between (down a) (up a))))
+    (:commit (up a))
+    (:do
       (by-level
         ((plain   roman base) (unicode "a"))
         ((shifted roman base) (unicode "A"))
@@ -331,26 +362,157 @@ the tap:
         ((plain   roman top)  (named-symbol up-tack))
         ((shifted roman top)  none)
         ((plain   greek top)  (inherit (plain roman top)))
-        ((shifted greek top)  none)))
-    (:hold
-      (hold-modifier super))
-    (:timing home-row)
-    (:selection-time press)))
+        ((shifted greek top)  none))))
+
+  (case hold
+    (:match
+      (either
+        (deadline home-row :after (down a) :while-down a)
+        (sequence (down a) (down (other-than a)))))
+    (:commit when-matched)
+    (:while (hold-modifier super)))
+
+  (:arbitration (priority hold tap)))
 ```
 
-The tap-hold wrapper is written once. Its tap behavior retains all eight Manna
-Cadet product states, while its hold behavior asserts Super.
+The output-producing candidate captures the relevant axes at A-down by
+default. Pressing Greek, pressing A, releasing Greek, and then releasing A
+therefore still selects A's Greek value. Its full level table is not lost just
+because the same position participates in a timed interaction.
 
-Because tap-hold delays the output decision, the default is to capture relevant
-context-axis values at the initial key press. Pressing Greek, pressing this
-key, releasing Greek, and then releasing this key still produces the Greek tap
-value. Any different observation time must be requested explicitly and must be
-supported by the simulator and realization contract.
+The spelling is illustrative and remains subject to the language RFC. The
+semantic requirements—complete candidate behaviors, explicit context capture,
+commitment, and effect lifetime—are the important part.
+
+### One-second and two-second holds
+
+Duration regions can classify the completed interval:
+
+```lisp
+(interaction staged-hold
+  (:participants a)
+
+  (case short
+    (:match (duration a :less-than (seconds 1)))
+    (:commit (up a))
+    (:do short-action))
+
+  (case medium
+    (:match
+      (duration a
+        :at-least (seconds 1)
+        :less-than (seconds 2)))
+    (:commit (up a))
+    (:do one-second-action))
+
+  (case long
+    (:match
+      (deadline (seconds 2) :after (down a) :while-down a))
+    (:commit (deadline (seconds 2) :after (down a)))
+    (:do two-second-action)))
+```
+
+This example waits to classify shorter cases. For a modifier or axis state that
+must be active while the key remains down, an interaction instead uses paired
+lifecycle effects:
+
+```lisp
+(interaction staged-modifier
+  (:participants a)
+
+  (phase medium
+    (:enter (deadline (seconds 1) :after (down a)))
+    (:exit
+      (either
+        (up a)
+        (deadline (seconds 2) :after (down a))))
+    (:while (hold-modifier meta)))
+
+  (phase long
+    (:enter (deadline (seconds 2) :after (down a)))
+    (:exit (up a))
+    (:while (hold-modifier hyper))))
+```
+
+This distinction is essential. Once a character or command has been delivered
+to an application, Ivory Key generally cannot take it back. If a one-second
+interpretation may later become a two-second interpretation, the source must
+choose one of three honest semantics:
+
+- delay irreversible output until the interpretation commits;
+- declare that the one- and two-second results are cumulative;
+- use reversible enter/exit effects and transition between them.
+
+There is no implicit rollback of emitted output.
+
+### Absence, overlap, and exact release order
+
+“A release with no other key pressed while A was down” is an absence pattern:
+
+```lisp
+(and
+  (sequence (down a) (up a))
+  (without (down (other-than a))
+    :between (down a) (up a)))
+```
+
+Absence can only be proven when its closing boundary occurs, so this pattern
+cannot commit before A-up.
+
+Multi-position interactions can distinguish exact traces:
+
+```lisp
+(interaction ab-release-order
+  (:participants a b)
+
+  (case a-first
+    (:match
+      (sequence (down a) (down b) (up a) (up b)))
+    (:commit (up b))
+    (:do action-a-first))
+
+  (case b-first
+    (:match
+      (sequence (down a) (down b) (up b) (up a)))
+    (:commit (up a))
+    (:do action-b-first)))
+```
+
+An ordinary unordered combo is simply a less restrictive interaction requiring
+that all participant intervals overlap and that their down events fall within
+a window. Rolls, nested holds, overlap-duration actions, and tap dances are
+other patterns over the same event vocabulary.
+
+### Candidate commitment and arbitration
+
+After A-down, several candidates may still be viable: an A release, an A hold,
+an A+B interaction, or the start of A+B+C. Matching is therefore speculative.
+An interaction explicitly declares when a candidate commits:
+
+```lisp
+(:commit (up a))
+(:commit (deadline (seconds 2) :after (down a)))
+(:commit when-unambiguous)
+```
+
+Only a committed candidate:
+
+- claims its participant events;
+- consumes context-axis latches that it consulted;
+- emits irreversible output;
+- defeats incompatible candidates.
+
+Rejected or cancelled candidates do none of those things. Overlapping
+candidates require explicit priority, a longest-match policy with a deadline,
+or another deterministic rule. If incompatible candidates can commit on the
+same trace and no arbitration resolves them, the layout is invalid. Longest
+match and absence predicates can introduce latency, which the compiler reports
+rather than hiding.
 
 ### The `shift-latch` behavioral axis
 
-`LATCHLATCH` does not need a special schema primitive. It can latch an ordinary
-behavioral axis whose state is consulted by shift-key definitions:
+`LATCHLATCH` still needs no special schema primitive. Its tap shorthand expands
+to an interaction that latches an ordinary behavioral axis:
 
 ```lisp
 (axis shift-latch
@@ -376,65 +538,45 @@ The sequence is:
 
 ```text
 LATCHLATCH
+    → commit interaction
     → latch shift-latch=latch
 
 GREEK
-    → consult shift-latch
+    → committed interpretation consults shift-latch
     → latch script=greek
     → consume the shift-latch latch
 
 T
-    → consult script
+    → committed interpretation consults script
     → emit τ
     → consume the script latch
 ```
 
-A latched axis is consumed by the first committed behavior selection that
-consults it, not necessarily by the next physical key. In
-`LATCHLATCH A GREEK T`, an A binding that does not consult `shift-latch` leaves
-the latch intact for Greek. Speculative resolution and a tap-hold or combo
-branch that is later rejected do not consume it.
+In `LATCHLATCH A GREEK T`, an A interaction that does not consult
+`shift-latch` leaves the latch intact for Greek. Speculative and rejected
+candidates do not consume it.
 
-Ivory Key defines its own event semantics for:
+## 9. Friendly forms are interaction templates
 
-- press and release;
-- timeouts;
-- interruption by another press;
-- interruption by another release;
-- combo arbitration;
-- context capture and committed selection;
-- selective latch consumption;
-- cancellation;
-- one-shots;
-- sequences and macros;
-- patch/overlay changes.
-
-This is necessary because two backends can use similar-looking terminology
-while behaving differently at timing boundaries.
-
-## 9. Combos are logical-position relationships
-
-A combo is defined over logical positions:
+Ivory Key can retain readable forms such as:
 
 ```lisp
-(combo stop-output
-  (:positions i o)
-  (:window (milliseconds 45))
-  (:resolve first-release)
-  (:action (command stop-output)))
+(tap ...)
+(hold ...)
+(tap-hold ...)
+(combo ...)
+(tap-dance ...)
 ```
 
-The physical device determines which switches are `i` and `o`. The realization
-determines whether the combo runs in Kanata, QMK, or somewhere else.
+These are finite, declarative standard-library templates that expand into the
+same interaction IR. They add no private resolution rules. A user can employ
+the concise form for a conventional behavior and the full interaction syntax
+when timing, ordering, absence, or effect lifecycles matter.
 
-The abstract semantics define what happens when:
-
-- one participant is released early;
-- another combo overlaps;
-- a combo participant also has tap-hold behavior;
-- the timing window expires.
-
-Those rules must be settled before trusting generated configurations.
+The physical device still determines which switches produce the logical
+participant positions. A realization still decides whether Kanata, QMK, XKB,
+or a combination implements the normalized timed interaction. Backend forms
+such as Kanata's `tap-hold-release` never define Ivory Key semantics.
 
 ## 10. The reference simulator is the semantic authority
 
@@ -449,8 +591,9 @@ Given events such as:
 90 ms:  release left-thumb-main
 ```
 
-it computes semantic outputs and state transitions according to Ivory Key's
-rules.
+it reports viable candidates, deadlines, commitments, cancellations, effect
+lifecycles, consumed context, semantic outputs, and final state according to
+Ivory Key's rules.
 
 This simulator, not Kanata or XKB, defines correct behavior.
 
@@ -494,8 +637,7 @@ physical keyboard
       v
 Kanata
   - physical placement
-  - tap-holds
-  - combos
+  - timed interactions it can realize
   - fun/game overlays
   - carrier keycodes
       |
@@ -545,8 +687,8 @@ The planned pipeline is:
 3. Resolve names and imports.
 4. Validate the semantics.
 5. Normalize shorthand, relevant product coordinates, behavioral selections,
-   patch precedence, and finite behavior templates.
-6. Build the reference event machine.
+   patch precedence, and finite behavior/interaction templates.
+6. Compile interaction patterns into the reference timed event transducer.
 7. Compare requirements with backend capabilities.
 8. Allocate modifiers, groups, carriers, and commands.
 9. Lower into backend-specific IRs.
@@ -589,12 +731,12 @@ Lisp structure.
 
 The planned implementation uses:
 
-- **CLOS objects** for layouts, topologies, context axes, behaviors, behavior
-  templates, profiles, and backends;
+- **CLOS objects** for layouts, topologies, context axes, behaviors,
+  interactions, patterns, templates, profiles, and backends;
+- **structures** for source spans, normalized level tuples, timestamped events,
+  clocks, and simulator candidate state;
 - **generic functions** for backend capability queries, planning, lowering,
   and emission;
-- **structures** for small value objects such as source spans and normalized
-  level tuples;
 - **conditions** for structured diagnostics;
 - **ASDF** for the compiler, CLI, and test systems;
 - **UIOP** for portable filesystem and external-process boundaries.
