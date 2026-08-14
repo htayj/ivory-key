@@ -95,7 +95,7 @@ can become active migration behavior:
 | fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and 200/200 timings (250/250 only for `a`) are evidence; all 16 are refused | select a complete commitment, interruption, equal-time, foreign-event, cancellation, and multi-owner policy.  The Kanata-1.12 oracle buffers/reorders pending foreign events, while Proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md) forbids delay/replay; selecting either route is an explicit compatibility choice |
 | five semantic modifiers | target-neutral identities and historical sources are transcribed; their tap-hold activation is refused | select the timed lifecycle and application-visible realization, including any side distinction beyond P-14's source-neutral default |
 | function overlay | all 29 active-table results are transcribed; End/PgDn activation is refused | select function hold commitment, first/last-owner overlay lifetime, patch interaction, and an exact lowerer |
-| direct Greek and Top selectors | immediate abstract held lifecycles are transcribed | select/prove application-visible group/modifier behavior and backend lifetime/lowering; Top-plus-Greek remains a Group-2 boundary |
+| direct Greek and Top selectors | immediate abstract held lifecycles are transcribed; the selected generated-XKB carrier map has a separately probed libxkbcommon state sub-contract | select Kanata carrier/lifetime lowering and any historical/client/live-equivalence claim; the generated sub-contract is not frozen-source equivalence |
 | Advantage-360 game layer | source aliases and layer are classified, while the selected common profile excludes it | select a separate 360 profile with its own overlay, timing, and interaction policy, or preserve its exclusion |
 | older chorded files | P-04 makes them regression-only | select a distinct profile and establish arbitration/timing before any chord becomes active |
 | `shift-latch` comment and inactive `osft`/`csft` aliases | comment-only latch is excluded; inactive aliases have no normal-layer use | provide executable source evidence and a complete interaction policy before adding either behavior |
@@ -171,30 +171,36 @@ observed Top symbol in the Greek+Top columns because that is the literal
 two-level XKB source table.
 
 The separately tagged, read-only
-`tests/external/manna-xkb-group2-state.lisp` probe now checks the hash-addressed
-frozen source inputs before compiling its checked-in XKB keymap with
-libxkbcommon. It proves that `AD01` preserves the four-level Group 1 and
-two-level Group 2 tables; `LVL3` and `LVL5` each make layout serialization
-effective/depressed group index 1, with no effective modifier bit, and release
-returns group index 0. It also proves that Shift is effective but consumed for
-`AD01` in Group 2, selects its literal `NoSymbol`, and is removed by both
-libxkbcommon consumed-modifier APIs.
+`tests/external/manna-xkb-group2-state.lisp` probe preserves two distinct
+claims. Its hash-pinned frozen mode compiles the checked-in keymap with its
+source include directory. Under Guix xkeyboard-config 2.44 and
+libxkbcommon/xkbcli 1.11.0, `evdev+aliases(qwerty)` has no `ZEHA`, so this
+mode proves only the frozen
+`AD01` Group 1/Group 2 shape, LVL3/LVL5 depressed Group2 serialization, and
+consumed Shift in Group2. It cannot prove a frozen Greek or Greek+Top event.
+This host's xkeyboard-config 2.48-1 with libxkbcommon 1.13.2 supplies
+ZEHA=93; that xkeyboard-config include-data difference is recorded, not
+substituted for the pinned Guix observation.
 
-That probe also finds no `ZEHA` key in the compiled map: the frozen keymap
-uses standard `evdev+aliases(qwerty)` keycodes, while the frozen symbols file
-refers to `<ZEHA>`. Therefore no Greek key event—and hence no Greek+Top event
-combination or Mod5 consumed/effective observation—can be proven from this
-compiled map. The probe intentionally does not inject a synthetic modifier
-state or invent an event-code bridge.
+The probe's separate generated-map mode emits Ivory Key's closed typed carrier
+allocation: Linux 84 is `<LVL3>=92` and Linux 85 is `<ZEHA>=93`, with no
+generated LVL5 selector. For both accepted Group 1 type forms it proves via
+libxkbcommon that ZEHA alone selects and consumes Group1 Level3; Group2 is
+depressed and serialized; held ZEHA remains effective/unconsumed for a Group2
+key; and Group2 Shift is consumed. It covers ZEHA down/up and ZEHA+LVL3 in
+both press orders. This is an exact selected **generated XKB state
+sub-contract**, not an assertion that frozen Kanata delivers code 85 this way,
+that a client/compositor observes the same semantics, or that Manna migration
+is equivalent.
 
 Thus the only settled `NoSymbol` decision is output absence at those literal
 source cells.  The following remain unresolved operational questions, not
 alternate meanings for a `none` cell:
 
 - how a complete realization maps the frozen Kanata code 85/`ZEHA` source
-  spelling to an XKB event, then combines that Greek state with Top;
+  spelling to the selected generated XKB event path;
 - how clients receive or interpret group serialization and consumed selector
-  state beyond libxkbcommon's key-state APIs; and
+  state beyond the selected libxkbcommon key-state APIs; and
 - how a later backend represents the same absent output without XKB fallback.
 
 ## Modifiers and selectors
@@ -207,8 +213,8 @@ alternate meanings for a `none` cell:
 | `hyper` | XKB `Mod2` maps `<RWIN>`; `esc` and apostrophe aliases hold `rmet` | identity transcribed; tap-hold commitment unresolved |
 | `alt` | XKB `Mod3` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` | identity transcribed; tap-hold commitment unresolved |
 | `case` | `<LFSH>` and `<RTSH>` map to `Shift_L` / `Shift_R`; both primary normal layers leave `lshift` / `rshift` unchanged | two exact immediate owner-scoped holders set `case=shifted`; the home-row `f` / `j` tap-holds remain unresolved |
-| `script` / Greek | symbols source spells `<ZEHA>` as Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact abstract immediate held `script → greek` interaction, with release to `roman`; the checked frozen compiled XKB map has no `ZEHA` key, so the source-carrier bridge and `del` tap-hold remain unresolved |
-| `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact abstract immediate held `plane → top` interaction, with release to `base`; the frozen-map probe observes Group-2 serialization for `LVL3`/`LVL5`, but Enter tap-hold, carrier bridging, and application-visible group policy remain unresolved |
+| `script` / Greek | symbols source spells `<ZEHA>` as Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact abstract immediate held `script → greek` interaction; selected generated XKB proves its own ZEHA state contract, while frozen carrier bridging, `del` tap-hold, and client/live equivalence remain unresolved |
+| `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact abstract immediate held `plane → top`; selected generated XKB proves its LVL3 Group2 contract, while frozen LVL5 remains outside it and Enter tap-hold/carrier/client/lifetime equivalence remain unresolved |
 | Caps Lock / Menu slot | A2 source has `menu`; 360 source has `caps` at the same logical location | inactive result is device-specific and not placed in the common layout; active function result is transcribed as `mode-key → alt-mode` |
 
 The XKB comment's modifier-slot description is evidence of the historical
@@ -364,8 +370,8 @@ these 29 function outputs; the layout itself remains free of backend data.
 | `roman-one` through `roman-four` | 218–221 | `U2160`–`U2163` |
 | `finger-left`, `thumb-up`, `thumb-down`, `finger-right`, `repeat` | 222–226 | `U261A`, `U1F44D`, `U1F44E`, `U261B`, `UE00E` |
 | `end` | 240 | `UE00D` |
-| Top selector | 84 | source spelling `Mode_switch` / group action via `<LVL3>`; frozen-map state probe observes the `LVL3` group transition |
-| Greek selector | 85 | source spelling `ISO_Level3_Shift` via `<ZEHA>`; frozen-map state probe finds no `ZEHA` key in the standard compiled keymap |
+| Top selector | 84 | source spelling `Mode_switch` / group action via `<LVL3>`; selected generated map fixes `<LVL3>=92`; frozen LVL5 evidence is not selected |
+| Greek selector | 85 | source spelling `ISO_Level3_Shift` via `<ZEHA>`; selected generated map fixes `<ZEHA>=93`, while frozen Guix `evdev` still lacks that key name |
 
 The identity names in the layout come from the source aliases and mnemonic
 evidence.  They do **not** establish that the older XKB comment's suggested
@@ -407,8 +413,9 @@ hash-verified frozen checkout for the complete review artifact.  The report's
 only non-exact classes are deliberate: unplaced `<LSGT>`, the device-specific
 inactive mode-key result, 16 selected tap-hold paths whose lifecycle is still
 unselected, two inactive historical Shift aliases, the eight Advantage-360
-game aliases, and the Group-2/selector-lowering boundary.  The latter remains
-a compiler refusal even for the four direct semantic interactions.
+game aliases, and the selector-to-Kanata/lifetime boundary.  The generated
+XKB state sub-contract is exact; the combined compiler still refuses the
+absent Kanata selector action plan even for the four direct interactions.
 
 The compiler can inspect a deterministic partial lowering: 51 placed static
 tables, all 29 function carriers, their 29 XKB `I(N+8)` carrier key entries,

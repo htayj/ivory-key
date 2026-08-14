@@ -13,9 +13,65 @@
                  :physical-code (list :xkb xkb-code :kanata kanata-code)
                  :outputs (list :xkb xkb-outputs :kanata kanata-outputs)))
 
-(defun backend-test-request (&key (name "test-layout") entries interactions)
+(defun backend-test-request (&key (name "test-layout") entries interactions
+                                  modifiers metadata)
   (make-instance 'ivory-key.backend:lowering-request
-                 :name name :entries entries :interactions interactions))
+                 :name name :entries entries :interactions interactions
+                 :modifiers modifiers :metadata metadata))
+
+(defun backend-test-selector-context (case script plane)
+  (ivory-key.model:make-context-tuple
+   (list (cons "case" case) (cons "script" script) (cons "plane" plane))))
+
+(defun backend-test-observed-selector-policy
+    (&key (group-one-type :four-level-alphabetic))
+  (ivory-key.model:make-realization-selector-policy
+   (list (ivory-key.model:make-realization-static-type
+          "q" group-one-type :two-level))
+   (list
+    (ivory-key.model:make-realization-context-selector
+     "case" "shifted" :shift :consumed :core-shift)
+    (ivory-key.model:make-realization-context-selector
+     "script" "greek" :level-three :consumed :consumed-level-three)
+    (ivory-key.model:make-realization-context-selector
+     "plane" "top" :group-two :group-action
+     :libxkbcommon-depressed-group-two-with-visible-level-three))
+   (list
+    (ivory-key.model:make-realization-direct-carrier
+     "greek" "script" "greek" 85 :zeha)
+    (ivory-key.model:make-realization-direct-carrier
+     "top" "plane" "top" 84 :lvl3))))
+
+(defun backend-test-observed-selector-entry
+    (&key (position "q") (xkb-code "AD01")
+          (outputs '("q" "Q" "Greek_theta" "Greek_THETA"
+                     "upcaret" "NoSymbol" "upcaret" "NoSymbol")))
+  (make-instance
+   'ivory-key.backend:key-entry
+   :position position
+   :physical-code (list :xkb xkb-code)
+   :outputs (list :xkb outputs)
+   :sources
+   (mapcar (lambda (states)
+             (ivory-key.backend:make-key-entry-source
+              (apply #'backend-test-selector-context states)))
+           '(("plain" "roman" "base")
+             ("shifted" "roman" "base")
+             ("plain" "greek" "base")
+             ("shifted" "greek" "base")
+             ("plain" "roman" "top")
+             ("shifted" "roman" "top")
+             ("plain" "greek" "top")
+             ("shifted" "greek" "top")))))
+
+(defun backend-test-observed-selector-request
+    (&key entries (group-one-type :four-level-alphabetic))
+  (backend-test-request
+   :name "observed-selectors"
+   :entries (or entries (list (backend-test-observed-selector-entry)))
+   :metadata
+   (list :selector-policy
+         (backend-test-observed-selector-policy :group-one-type group-one-type))))
 
 (defun pipeline-artifact-of-kind (result kind)
   (find kind (ivory-key.backend:pipeline-result-artifacts result)
@@ -158,3 +214,77 @@
          :entries
          (list (backend-test-entry
                 :xkb-outputs '("a" "A" "b" "B" "c" "C" "d" "D" "e")))))))))
+
+(deftest backend-xkb-emits-the-closed-observed-group-two-carriers-and-tables
+  (let* ((backend (ivory-key.backend:make-xkb-backend))
+         (plan (ivory-key.backend:lower-request
+                backend (backend-test-observed-selector-request)))
+         (text (ivory-key.backend:emit-plan-to-string backend plan)))
+    (is (some (lambda (result)
+                (and (eq (ivory-key.backend:realization-feature result)
+                         :selector-policy)
+                     (eq (ivory-key.backend:realization-grade result) :exact)))
+              (ivory-key.backend:xkb-plan-realizations plan)))
+    ;; These are separate carrier identities.  ZEHA must never be emitted as
+    ;; an alias of LVL3/LVL5, which would overwrite one selector's state.
+    (is (search "<LVL3> = 92;" text))
+    (is (search "<ZEHA> = 93;" text))
+    (is (search "type[Group1]=\"FOUR_LEVEL_ALPHABETIC\", symbols[Group1]=[ q, Q, Greek_theta, Greek_THETA ], type[Group2]=\"TWO_LEVEL\", symbols[Group2]=[ upcaret, NoSymbol ]" text))
+    ;; pc+us normally maps LVL3 to Mod5.  The explicit None map must precede
+    ;; the separate ZEHA/Mod5 carrier map, so Group2 does not consume Level3.
+    (let ((none (search "modifier_map None { <LVL3> };" text))
+          (mod5 (search "modifier_map Mod5 { <ZEHA> };" text)))
+      (is none)
+      (is mod5)
+      (is (< none mod5)))
+    ;; The closed model admits both source-evidenced Group1 table types.  The
+    ;; external libxkbcommon probe executes both; this focused test preserves
+    ;; deterministic type spelling at the emitter boundary.
+    (let ((four-level
+            (ivory-key.backend:emit-plan-to-string
+             backend
+             (ivory-key.backend:lower-request
+              backend
+              (backend-test-observed-selector-request
+               :group-one-type :four-level)))))
+      (is (search "type[Group1]=\"FOUR_LEVEL\"" four-level)))))
+
+(deftest backend-xkb-observed-group-two-refuses-incomplete-or-colliding-tables
+  (let ((backend (ivory-key.backend:make-xkb-backend)))
+    ;; Group2 has two levels only: changing the Level3 bit in that group is a
+    ;; mismatch rather than a reason to silently emit an eight-level table.
+    (signals error
+      (ivory-key.backend:lower-request
+       backend
+       (backend-test-observed-selector-request
+        :entries
+        (list (backend-test-observed-selector-entry
+               :outputs '("q" "Q" "Greek_theta" "Greek_THETA"
+                          "upcaret" "NoSymbol" "different" "NoSymbol"))))))
+    ;; Eight outputs without their normalized source contexts cannot be
+    ;; guessed as a selector table or fall through to generic EIGHT_LEVEL.
+    (signals error
+      (ivory-key.backend:lower-request
+       backend
+       (backend-test-observed-selector-request
+        :entries
+        (list (backend-test-entry
+               :xkb-outputs '("q" "Q" "Greek_theta" "Greek_THETA"
+                              "upcaret" "NoSymbol" "upcaret" "NoSymbol"))))))
+    ;; A partial policy cannot let a second eight-context table fall through
+    ;; to generic EIGHT_LEVEL emission without the three carrier selectors.
+    (signals error
+      (ivory-key.backend:lower-request
+       backend
+       (backend-test-observed-selector-request
+        :entries
+        (list (backend-test-observed-selector-entry)
+              (backend-test-observed-selector-entry
+               :position "w" :xkb-code "AD02")))))
+    (signals error
+      (ivory-key.backend:lower-request
+       backend
+       (backend-test-observed-selector-request
+        :entries
+        (list (backend-test-observed-selector-entry)
+              (backend-test-entry :position "carrier-collision" :xkb-code "ZEHA")))))))

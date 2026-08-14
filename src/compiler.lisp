@@ -582,6 +582,8 @@ both paths construct the one public MODEL policy value.
                      (sixth children)
                      '(("core-shift" . :core-shift)
                        ("consumed-level-three" . :consumed-level-three)
+                       ("libxkbcommon-depressed-group-two-with-visible-level-three"
+                        . :libxkbcommon-depressed-group-two-with-visible-level-three)
                        ("unproved-group-two" . :unproved-group-two))
                      "SELECTOR client semantics")) selectors))
             ((string= (or (%compiler-syntax-form-name clause) "") "carrier")
@@ -1071,6 +1073,54 @@ refusal; this function never synthesizes a tap-hold, layer switch, or timing.
             (sort allocations #'< :key (lambda (row) (getf row :carrier)))
             issues)))
 
+(defun %selector-policy-has-client-semantics-p (policy control semantics)
+  (let ((selectors
+          (remove-if-not
+           (lambda (selector)
+             (and (eq (ivory-key.model:realization-selector-control selector)
+                      control)
+                  (eq (ivory-key.model:realization-selector-client-semantics selector)
+                      semantics)))
+           (ivory-key.model:realization-selector-policy-selectors policy))))
+    (= (length selectors) 1)))
+
+(defun %observed-xkb-selector-policy-p (policy)
+  "Whether POLICY names exactly the separately-proven XKB selector boundary.
+
+This is intentionally not a generic product-axis capability.  The backend
+still checks carrier ownership, table shape, and emitted XKB details.  Here it
+only lets inspection identify the one closed three-control policy and retain
+the independent Kanata refusal.
+"
+  (and policy
+       (= (length (ivory-key.model:realization-selector-policy-selectors policy)) 3)
+       (%selector-policy-has-client-semantics-p policy :shift :core-shift)
+       (%selector-policy-has-client-semantics-p policy :level-three
+                                                :consumed-level-three)
+       (%selector-policy-has-client-semantics-p
+        policy :group-two
+        :libxkbcommon-depressed-group-two-with-visible-level-three)))
+
+(defun %observed-xkb-selector-axis-p (policy axis)
+  "Whether AXIS is one binary member of the closed observed selector policy."
+  (let ((selector
+          (ivory-key.model:realization-policy-selector-for-axis
+           policy (ivory-key.model:axis-name axis))))
+    (and selector
+         (ivory-key.model:axis-state-p
+          axis (ivory-key.model:realization-selector-state selector))
+         (case (ivory-key.model:realization-selector-control selector)
+           (:shift
+            (eq (ivory-key.model:realization-selector-client-semantics selector)
+                :core-shift))
+           (:level-three
+            (eq (ivory-key.model:realization-selector-client-semantics selector)
+                :consumed-level-three))
+           (:group-two
+            (eq (ivory-key.model:realization-selector-client-semantics selector)
+                :libxkbcommon-depressed-group-two-with-visible-level-three))
+           (otherwise nil)))))
+
 (defun analyze-normalized-layout (normalized placement &key vocabulary selector-policy)
   "Return an inspectable lowering proposal and every blocking fidelity issue.
 
@@ -1090,15 +1140,20 @@ compile gate.
           (%stage-error :lower (ivory-key.model:semantic-error-code condition)
                         "Invalid selector policy: ~A"
                         (ivory-key.model:semantic-error-message condition)))))
-    ;; A policy may describe only source-derived carrier/type resources; it is
-    ;; not itself proof of the XKB client's group/modifier consumption rules.
-    ;; Preserve it on the inspectable request while keeping an explicit gate
-    ;; until the backend-specific realization proves that observable boundary.
+    ;; The evidence-named three-control policy is proven only for the emitted
+    ;; XKB map/state boundary.  It clears the generic XKB selector diagnostic,
+    ;; but never selects the still-absent Kanata action/lifetime lowering.
+    ;; All other policy values remain inspection-only refusals.
     (when selector-policy
-      (push (%make-compiler-fidelity-issue
-             :selector-policy :unproved-native-selector-client-semantics
-             "The typed selector policy is available for inspection, but native XKB group/modifier client semantics are not yet proven for exact emission.")
-            issues))
+      (if (%observed-xkb-selector-policy-p selector-policy)
+          (push (%make-compiler-fidelity-issue
+                 :selector-policy :unsupported-kanata-selector-action-plan
+                 "The observed XKB selector state has no proved Kanata carrier/lifetime lowering.")
+                issues)
+          (push (%make-compiler-fidelity-issue
+                 :selector-policy :unproved-native-selector-client-semantics
+                 "The typed selector policy is available for inspection, but native XKB group/modifier client semantics are not yet proven for exact emission.")
+                issues)))
     (unless (string= (%layout-topology-name normalized)
                      (compiler-placement-topology placement))
       (push (%make-compiler-fidelity-issue
@@ -1144,11 +1199,13 @@ compile gate.
              "Generic timed interactions require an explicit Kanata template lowering.")
             issues))
     ;; Product selectors describe meaning, not a default XKB modifier/group
-    ;; arrangement.  Preserve the table data below, but refuse final emission
-    ;; until a profile allocates every selector and proves its client-visible
-    ;; modifier behavior.
+    ;; arrangement.  The one observed XKB policy recognizes exactly its three
+    ;; named binary axes; other axes and all final XKB+Kanata emission remain
+    ;; refused below.
     (dolist (axis (ivory-key.model:normalized-layout-axes normalized))
-      (when (eq (ivory-key.model:axis-resolution axis) :product)
+      (when (and (eq (ivory-key.model:axis-resolution axis) :product)
+                 (not (and (%observed-xkb-selector-policy-p selector-policy)
+                           (%observed-xkb-selector-axis-p selector-policy axis))))
         (push (%make-compiler-fidelity-issue
                (ivory-key.model:identifier-name (ivory-key.model:axis-name axis))
                :unsupported-context-selection

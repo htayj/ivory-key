@@ -82,7 +82,9 @@ prove a carrier/pass-through stage without inventing a backend token here.
   '(:consumed :group-action))
 
 (defparameter +realization-selector-client-semantics+
-  '(:core-shift :consumed-level-three :unproved-group-two))
+  '(:core-shift :consumed-level-three
+    :libxkbcommon-depressed-group-two-with-visible-level-three
+    :unproved-group-two))
 
 (defparameter +realization-carrier-xkb-keys+
   '(:zeha :lvl3))
@@ -102,8 +104,9 @@ prove a carrier/pass-through stage without inventing a backend token here.
    (consumption :initarg :consumption
                 :reader realization-selector-consumption)
    ;; This names the *observable client boundary*, not merely the XKB action
-   ;; mechanism above.  The only Group2 value currently admitted is explicit
-   ;; refusal: no profile may silently turn SetGroup into an exact claim.
+   ;; mechanism above.  Group2 has one explicit refusal and one separately
+   ;; evidence-named generated-XKB state contract; no profile may silently
+   ;; turn SetGroup into an exact claim.
    (client-semantics :initarg :client-semantics
                      :reader realization-selector-client-semantics)))
 
@@ -168,7 +171,9 @@ TYPE is a closed Group1 keyword, currently :FOUR-LEVEL or
               (and (eq control :level-three)
                    (eq client-semantics :consumed-level-three))
               (and (eq control :group-two)
-                   (eq client-semantics :unproved-group-two)))
+                   (member client-semantics
+                           '(:libxkbcommon-depressed-group-two-with-visible-level-three
+                             :unproved-group-two))))
     (%realization-error :incompatible-realization-selector-client-semantics
                         "Selector control ~S is incompatible with client semantics ~S."
                         control client-semantics))

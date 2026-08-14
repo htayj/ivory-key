@@ -1,14 +1,14 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;;;
-;;;; Tagged, read-only frozen-Manna XKB state probe; not an ASDF component.
+;;;; Tagged generated-XKB selector state probe; not an ASDF component.
 ;;;;
 ;;;; Invoke from the Ivory Key checkout root:
 ;;;;   sbcl --script tests/external/manna-xkb-group2-state.lisp MANNA-ROOT
 ;;;;
-;;;; This validates the hash-addressed frozen Manna inputs, then asks
-;;;; libxkbcommon to compile the frozen XKB keymap and inspect its key/state
-;;;; API behavior. It does not invoke Kanata, create a device, choose a
-;;;; selector policy, or compile Ivory Key input.
+;;;; It verifies the hash-addressed frozen Manna review inputs, then creates
+;;;; the one closed Ivory Key generated XKB selector map and exercises that
+;;;; emitted artifact through libxkbcommon.  It neither compiles the frozen
+;;;; map as equivalent nor invokes Kanata, a device, or client protocol.
 
 (require "asdf")
 
@@ -18,6 +18,8 @@
 (in-package #:ivory-key.external-manna-xkb-group2-state)
 
 (defparameter +external-validation-tag+ :external-manna-xkb-group2-state)
+
+(defparameter +frozen-validation-tag+ :external-manna-frozen-xkb-group2-state)
 
 (defparameter +frozen-manna-inputs+
   '(("xkb/symbols/spacecadet"
@@ -41,6 +43,17 @@
            (uiop:pathname-parent-directory-pathname external-directory)))
     (uiop:pathname-parent-directory-pathname tests-directory)))
 
+(defun load-ivory-key ()
+  "Load exactly this checkout's core system, excluding the external probe."
+  (let ((root (repository-root)))
+    (asdf:load-asd (merge-pathnames "ivory-key.asd" root))
+    (asdf:load-system "ivory-key")))
+
+;; LOAD reads one form at a time, so make the generated-map packages exist
+;; before it reads the package-qualified forms below.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (load-ivory-key))
+
 (defun source-root (argument)
   "Resolve one existing Manna checkout directory without accepting a default."
   (let ((pathname (uiop:ensure-directory-pathname (pathname argument))))
@@ -49,7 +62,7 @@
     (truename pathname)))
 
 (defun require-frozen-inputs (root)
-  "Reject any checkout whose reviewed source inputs differ in bytes."
+  "Reject any checkout whose reviewed historical source inputs differ in bytes."
   (dolist (entry +frozen-manna-inputs+)
     (destructuring-bind (relative expected) entry
       (let ((pathname (merge-pathnames relative root)))
@@ -73,7 +86,7 @@
 (defun temporary-directory ()
   (let ((directory
           (merge-pathnames
-           (format nil "ivory-key-manna-xkb-group2-state-~A/"
+           (format nil "ivory-key-generated-xkb-selector-state-~A/"
                    (symbol-name (gensym "VALIDATION-")))
            (uiop:temporary-directory))))
     (ensure-directories-exist (merge-pathnames "placeholder" directory))
@@ -95,22 +108,122 @@
     (uiop:run-program arguments :output :string :error-output :output)
     binary))
 
+(defun generated-selector-context (case script plane)
+  (ivory-key.model:make-context-tuple
+   (list (cons "case" case) (cons "script" script) (cons "plane" plane))))
+
+(defun generated-selector-policy (&key (group-one-type :four-level-alphabetic))
+  "Return the sole typed policy whose emitted state boundary is probed here."
+  (ivory-key.model:make-realization-selector-policy
+   (list (ivory-key.model:make-realization-static-type
+          "q" group-one-type :two-level))
+   (list
+    (ivory-key.model:make-realization-context-selector
+     "case" "shifted" :shift :consumed :core-shift)
+    (ivory-key.model:make-realization-context-selector
+     "script" "greek" :level-three :consumed :consumed-level-three)
+    (ivory-key.model:make-realization-context-selector
+     "plane" "top" :group-two :group-action
+     :libxkbcommon-depressed-group-two-with-visible-level-three))
+   (list
+    (ivory-key.model:make-realization-direct-carrier
+     "greek" "script" "greek" 85 :zeha)
+    (ivory-key.model:make-realization-direct-carrier
+     "top" "plane" "top" 84 :lvl3))))
+
+(defun generated-selector-entry ()
+  "One canonical first-axis-varies-fastest table for the emitted-map probe."
+  (make-instance
+   'ivory-key.backend:key-entry
+   :position "q"
+   :physical-code (list :xkb "AD01")
+   :outputs (list :xkb '("q" "Q" "Greek_theta" "Greek_THETA"
+                          "upcaret" "NoSymbol" "upcaret" "NoSymbol"))
+   :sources
+   (mapcar (lambda (states)
+             (ivory-key.backend:make-key-entry-source
+              (apply #'generated-selector-context states)))
+           '(("plain" "roman" "base")
+             ("shifted" "roman" "base")
+             ("plain" "greek" "base")
+             ("shifted" "greek" "base")
+             ("plain" "roman" "top")
+             ("shifted" "roman" "top")
+             ("plain" "greek" "top")
+             ("shifted" "greek" "top")))))
+
+(defun generated-selector-keymap (directory group-one-type)
+  "Emit the closed XKB-only carrier contract after its exact lowerer grade."
+  (let* ((backend (ivory-key.backend:make-xkb-backend))
+         (request
+           (make-instance
+            'ivory-key.backend:lowering-request
+            :name "generated-selector-state"
+            :entries (list (generated-selector-entry))
+            :metadata
+            (list :selector-policy
+                  (generated-selector-policy :group-one-type group-one-type))))
+         (plan (ivory-key.backend:lower-request backend request))
+         (selector-result
+           (find :selector-policy
+                 (ivory-key.backend:xkb-plan-realizations plan)
+                 :key #'ivory-key.backend:realization-feature))
+         (pathname
+           (merge-pathnames
+            (format nil "generated-selector-keymap-~(~A~).xkb" group-one-type)
+            directory)))
+    (unless (and selector-result
+                 (eq (ivory-key.backend:realization-grade selector-result) :exact))
+      (error "Generated selector map was not granted the required exact XKB grade."))
+    (with-open-file (stream pathname :direction :output :if-exists :error
+                                     :if-does-not-exist :create
+                                     :external-format :utf-8)
+      (let ((text (ivory-key.backend:emit-plan-to-string backend plan)))
+        ;; LVL5 remains a frozen-map-only observation.  The selected exact
+        ;; generated boundary allocates just 84/LVL3 and 85/ZEHA.
+        (when (search "<LVL5>" text)
+          (error "Generated selector contract unexpectedly emitted LVL5."))
+        (write-string text stream)))
+    pathname))
+
 (defun run-probe (root)
-  "Run the standalone state probe after its frozen source identity is checked."
+  "Run distinct frozen-map and generated-map state contracts.
+
+The hash gate fixes the source review set.  The frozen mode preserves the
+historical LVL3/LVL5 and absent-ZEHA observation; the generated mode proves
+only the separately selected typed carrier contract.
+"
   (require-frozen-inputs root)
   (let ((directory (temporary-directory)))
     (unwind-protect
          (let* ((binary (compile-probe directory))
-                (keymap (merge-pathnames "xkb/keymap/spacecadet.xkb" root))
-                (include-directory (merge-pathnames "xkb/" root))
-                (output (uiop:run-program
-                         (list (namestring binary) (namestring keymap)
-                               (namestring include-directory))
-                         :output :string :error-output :output)))
-           (unless (search "MANNA-XKB-GROUP2-STATE: PASSED" output)
-             (error "Frozen Manna Group-2 state probe did not pass:~%~A"
-                    output))
-           (format t "EXTERNAL-VALIDATION ~S: PASSED (hash-pinned frozen XKB state boundary inspected through libxkbcommon).~%"
+                (frozen-keymap (merge-pathnames "xkb/keymap/spacecadet.xkb" root))
+                (frozen-includes (merge-pathnames "xkb/" root))
+                (frozen-output
+                  (uiop:run-program
+                   (list (namestring binary) "--frozen"
+                         (namestring frozen-keymap) (namestring frozen-includes))
+                   :output :string :error-output :output))
+                (generated-outputs
+                  (loop for group-one-type in '(:four-level :four-level-alphabetic)
+                        for keymap =
+                          (generated-selector-keymap directory group-one-type)
+                        collect
+                        (cons group-one-type
+                              (uiop:run-program
+                               (list (namestring binary) (namestring keymap))
+                               :output :string :error-output :output)))))
+           (unless (search "FROZEN-MANNA-XKB-GROUP2-STATE: PASSED" frozen-output)
+             (error "Frozen Manna XKB state probe did not pass:~%~A"
+                    frozen-output))
+           (dolist (generated-output generated-outputs)
+             (unless (search "GENERATED-XKB-SELECTOR-STATE: PASSED"
+                             (cdr generated-output))
+               (error "Generated XKB selector state probe did not pass for ~S:~%~A"
+                      (car generated-output) (cdr generated-output))))
+           (format t "EXTERNAL-VALIDATION ~S: PASSED (frozen LVL3/LVL5 state observation retained).~%"
+                   +frozen-validation-tag+)
+           (format t "EXTERNAL-VALIDATION ~S: PASSED (generated FOUR_LEVEL and FOUR_LEVEL_ALPHABETIC XKB/libxkbcommon selector contracts).~%"
                    +external-validation-tag+)
            :passed)
       (when (probe-file directory)

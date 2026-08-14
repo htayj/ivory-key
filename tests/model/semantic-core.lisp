@@ -105,6 +105,26 @@
                 (ivory-key.model::normalized-entry-tuple entry)))
              (ivory-key.model::normalized-binding-entries binding)))))
 
+(deftest model-realization-group-two-client-semantics-is-closed-and-evidence-named
+  (let ((selector
+          (ivory-key.model:make-realization-context-selector
+           "plane" "top" :group-two :group-action
+           :libxkbcommon-depressed-group-two-with-visible-level-three)))
+    (is-equal :libxkbcommon-depressed-group-two-with-visible-level-three
+              (ivory-key.model:realization-selector-client-semantics selector)))
+  ;; The historical source-recording disposition remains distinct and is not
+  ;; promoted just because the new observed XKB state contract exists.
+  (is-equal :unproved-group-two
+            (ivory-key.model:realization-selector-client-semantics
+             (ivory-key.model:make-realization-context-selector
+              "plane" "top" :group-two :group-action :unproved-group-two)))
+  (is-equal
+   :incompatible-realization-selector-client-semantics
+   (model-semantic-error-code-from
+    (lambda ()
+      (ivory-key.model:make-realization-context-selector
+       "plane" "top" :group-two :group-action :consumed-level-three)))))
+
 (deftest model-twenty-state-product
   (let* ((case (ivory-key.model::make-context-axis
                 "case" '("plain" "shifted" "alternate" "titlecase")))

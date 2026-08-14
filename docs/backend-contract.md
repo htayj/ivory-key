@@ -106,7 +106,9 @@ an XKB or Kanata snippet. Its current source clauses are:
   (static-type POSITION four-level|four-level-alphabetic two-level)
   (selector AXIS STATE shift|level-three|group-two
             consumed|group-action
-            core-shift|consumed-level-three|unproved-group-two)
+            core-shift|consumed-level-three|
+            libxkbcommon-depressed-group-two-with-visible-level-three|
+            unproved-group-two)
   (carrier POSITION AXIS STATE 84|85 lvl3|zeha))
 ```
 
@@ -118,16 +120,26 @@ they are not themselves proof that a compiled XKB keymap has a carrier for
 either selector. Programmatic policy objects are revalidated at the compiler
 boundary.
 
-This contract is deliberately inspection-only today. Shift and Level3 can
-name consumed native selectors, but Group2's application-visible behavior is
-represented only by `unproved-group-two`. The compiler and both Linux backends
-therefore grade the whole selector policy unsupported. Supplying a complete-
-looking policy cannot clear exactness until Group2 client state, selector
-consumption, emitted XKB types/compatibility, and Kanata event behavior have
-differential proof. The frozen-map probe below additionally finds that its
-standard `evdev+aliases(qwerty)` keycode component contains no `ZEHA` key, so
-the source's Greek carrier has no direct XKB event transition in that compiled
-map. Semantic tap-holds and generic interactions remain independent refusals.
+`unproved-group-two` remains inspection-only and is graded unsupported. The
+long evidence-named value is narrower: it may grade **only the generated XKB
+sub-contract** exact after all of the following are present: exactly the three
+binary Shift/Level3/Group2 contexts, a static-type declaration covering every
+eight-cell selector table, and the two collision-free carriers `84 →
+<LVL3>=92` and `85 → <ZEHA>=93`. It emits Group 1 as `FOUR_LEVEL` or
+`FOUR_LEVEL_ALPHABETIC`, Group 2 as `TWO_LEVEL`, removes pc's inherited Mod5
+map from `<LVL3>`, and maps only `<ZEHA>` to Mod5. It does not emit or select
+`<LVL5>`; frozen-map LVL5 observations are outside this selected contract.
+
+The separately tagged external probe runs both permitted Group 1 types against
+libxkbcommon. It proves for the **generated artifact** that Group2 is
+depressed/serialized, Group1 Level3 is effective then consumed, Group2 Level3
+is effective and remains client-visible/unconsumed, and Group2 Shift is
+effective then consumed. It covers ZEHA down/up and ZEHA+LVL3 in both press
+orders. This is not historical Manna equivalence, Kanata event proof, client
+protocol proof, compositor proof, or live-device proof. The compiler retains
+an explicit `unsupported-kanata-selector-action-plan` refusal, and the Kanata
+backend independently refuses selector metadata; semantic tap-holds and
+generic interactions remain independent refusals.
 
 ## Current Kanata contract
 
@@ -231,32 +243,31 @@ application-visible unconsumed Shift for a one-level key. The helper is built
 inside the declared Guix environment from `tests/external/xkb-state.c`; it is
 environmental evidence and remains outside the hermetic ASDF suite.
 
-`tests/external/manna-xkb-group2-state.lisp` is a separate, read-only probe of
-the hash-pinned Manna source rather than of an Ivory Key artifact. Run it in
-the declared environment with:
+`tests/external/manna-xkb-group2-state.lisp` is a separately tagged, read-only
+pair of probes. Run it in the declared environment with:
 
 ```sh
 direnv exec . sbcl --script tests/external/manna-xkb-group2-state.lisp \
   /home/tay/src/dotfiles/keyboard/manna-cadet
 ```
 
-It verifies the hash-addressed frozen XKB/primary-Kanata input set, compiles
-the checked-in XKB keymap through libxkbcommon, and uses only keymap/state
-APIs. On the checked Guix inputs it proves that `AD01` retains
-the four-level Group 1 table and the two-level Group 2 table; either `LVL3` or
-`LVL5` changes both effective and depressed layout serialization from group
-index 0 to 1 without adding an effective modifier, and release restores group
-0. In Group 2, Shift is effective for `AD01`, selects `NoSymbol`, and is
-reported consumed by both `xkb_state_mod_index_is_consumed2` and
-`xkb_state_mod_mask_remove_consumed`.
+The first mode verifies the hash-addressed frozen XKB/primary-Kanata inputs,
+compiles the frozen keymap with its source include directory, and uses only
+keymap/state APIs. In the declared Guix environment, where xkeyboard-config
+2.44 with libxkbcommon/xkbcli 1.11.0 has no `ZEHA` in
+`evdev+aliases(qwerty)`, it proves the frozen `AD01`
+four-level Group 1/two-level Group 2 table, LVL3/LVL5 Group2 serialization,
+and consumed Group2 Shift. Therefore that frozen mode cannot observe Greek or
+Greek+Top event state. This host's xkeyboard-config 2.48-1 paired with
+libxkbcommon 1.13.2 supplies `ZEHA=93` through the newer standard `evdev`
+include; that divergent xkeyboard-config data is deliberately not treated as
+evidence for the pinned Guix claim.
 
-The same compilation has no `ZEHA` key name even though Group 1 statically
-contains its Greek levels. Consequently the probe does **not** synthesize a
-Mod5 state and cannot observe a Greek event or Greek+Top event combination.
-It also does not establish how Kanata code 85 becomes an XKB keycode, client
-protocol event delivery, compositor treatment, live-device behavior, or a
-backend realization. Those are explicit refusal boundaries, not missing
-syntax in a policy declaration.
+The second mode emits the closed Ivory Key map then checks its generated state
+contract described above. Explicit `<ZEHA>=93` makes that test independent of
+the host's pre-existing keycode name. Neither mode establishes how frozen
+Kanata code 85 reaches XKB, or client protocol, compositor, live-device, and
+historical migration equivalence. Those remain explicit refusal boundaries.
 
 CLI inspection, explanation, and compilation may instead select a confined
 project composition with `--project PROJECT --composition NAME`; this is an

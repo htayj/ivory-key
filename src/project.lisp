@@ -813,6 +813,8 @@ backend emitters select grammar only after compiler completeness checks.
                      context (sixth children)
                      '(("core-shift" . :core-shift)
                        ("consumed-level-three" . :consumed-level-three)
+                       ("libxkbcommon-depressed-group-two-with-visible-level-three"
+                        . :libxkbcommon-depressed-group-two-with-visible-level-three)
                        ("unproved-group-two" . :unproved-group-two))
                      "SELECTOR client semantics"))
                    selectors)))

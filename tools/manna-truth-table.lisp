@@ -1383,7 +1383,7 @@ claim zero unchecked differences.
     (dolist (alias +advantage360-game-aliases+)
       (format stream "| `@~A` / `game` | Advantage 360 only | `device-variant-refused` | The 360-only game layer is not a common Manna layout fact or selected composition behavior. |~%"
               alias))
-    (format stream "| Group-2 / selector visibility | Linux profile | `selector-lowering-refused` | XKB group/client visibility and exact Kanata/XKB selector lowering remain unproved. |~%")
+    (format stream "| Group-2 / selector visibility | Linux profile | `selector-lowering-refused` | The selected generated-XKB/libxkbcommon state contract is proven; frozen Kanata carrier delivery, Kanata action/lifetime lowering, the combined pipeline, and client/compositor/live-device behavior remain unproved. |~%")
     (format stream "~%Unchecked differences: 0~%")
     t))
 

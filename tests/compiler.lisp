@@ -1424,6 +1424,39 @@ complete carrier table from an invented Manna behavior.
     (carrier top plane top 84 lvl3)))
 ")
 
+(defparameter +compiler-test-observed-xkb-selector-policy+
+  "(ivory-key 1)
+(define-realization observed-xkb-selectors
+  (pipeline kanata xkb)
+  (allow-grades exact emulated)
+  (forbid-shell-actions yes)
+  (selector-policy
+    (static-type q four-level-alphabetic two-level)
+    (selector case shifted shift consumed core-shift)
+    (selector script greek level-three consumed consumed-level-three)
+    (selector plane top group-two group-action libxkbcommon-depressed-group-two-with-visible-level-three)
+    (carrier greek script greek 85 zeha)
+    (carrier top plane top 84 lvl3)))
+")
+
+(defparameter +compiler-test-observed-xkb-selector-layout+
+  "(ivory-key 1)
+(define-layout observed-xkb-selectors
+  (uses-topology one)
+  (axis case (:states plain shifted) (:resolution product))
+  (axis script (:states roman greek) (:resolution product))
+  (axis plane (:states base top) (:resolution product))
+  (binding q
+    (at (plain roman base) (unicode \"q\"))
+    (at (shifted roman base) (unicode \"Q\"))
+    (at (plain greek base) (unicode \"w\"))
+    (at (shifted greek base) (unicode \"W\"))
+    (at (plain roman top) (unicode \"1\"))
+    (at (shifted roman top) (unicode \"2\"))
+    (at (plain greek top) (unicode \"1\"))
+    (at (shifted greek top) (unicode \"2\"))))
+")
+
 (deftest compiler-decodes-a-closed-typed-selector-policy-and-refuses-unproved-native-semantics
   "Policy parsing uses parser node kinds and returns one public model value.
 
@@ -1477,6 +1510,47 @@ or consumed-modifier behavior.
                                (ivory-key.backend:realization-grade result))))
                     (ivory-key.backend:xkb-plan-realizations xkb-plan))))))))
 
+(deftest compiler-retains-the-observed-xkb-selector-subcontract-but-refuses-kanata
+  "The evidence-named value clears only the generic XKB selector issue.
+
+The three complete product axes reach the XKB lowerer for inspection, while
+the unchanged combined pipeline still has an explicit Kanata refusal.
+"
+  (with-compiler-test-directory (directory)
+    (let* ((realization-path
+             (compiler-test-write directory "observed-realization.ivory"
+                                  +compiler-test-observed-xkb-selector-policy+))
+           (layout-path
+             (compiler-test-write directory "observed-layout.ivory"
+                                  +compiler-test-observed-xkb-selector-layout+))
+           (topology-path (compiler-test-write directory "topology.ivory"
+                                               +compiler-test-topology+))
+           (device-path (compiler-test-write directory "device.ivory"
+                                             +compiler-test-device+))
+           (realization (ivory-key.cli::decode-realization-source realization-path))
+           (policy (ivory-key.cli::compiler-realization-selector-policy realization))
+           (unit (ivory-key.cli::load-layout-for-compilation
+                  layout-path :topology-path topology-path))
+           (placement (ivory-key.cli::decode-device-source device-path)))
+      (is-equal
+       :libxkbcommon-depressed-group-two-with-visible-level-three
+       (ivory-key.model:realization-selector-client-semantics
+        (ivory-key.model::realization-policy-selector-for-axis policy "plane")))
+      (multiple-value-bind (request issues)
+          (ivory-key.cli::analyze-normalized-layout
+           (ivory-key.cli::compiler-unit-normalized unit) placement
+           :selector-policy policy)
+        (is-equal '(:unsupported-kanata-selector-action-plan)
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
+        (let ((xkb-plan
+                (ivory-key.backend:lower-request
+                 (ivory-key.backend:make-xkb-backend) request)))
+          (is (some (lambda (result)
+                      (and (eq (ivory-key.backend:realization-feature result)
+                               :selector-policy)
+                           (eq (ivory-key.backend:realization-grade result) :exact)))
+                    (ivory-key.backend:xkb-plan-realizations xkb-plan))))))))
+
 (deftest compiler-selector-policy-rejects-stringly-and-incompatible-carrier-source
   (with-compiler-test-directory (directory)
     (let ((stringly
@@ -1526,6 +1600,27 @@ or consumed-modifier behavior.
                     (ivory-key.model::realization-static-type-group-two-type
                      (ivory-key.model::realization-policy-static-type-for-position
                       policy "q"))))))))
+
+(deftest compiler-project-realization-decoder-keeps-the-observed-group-two-enum-closed
+  "Project composition uses the same closed selector semantics decoder."
+  (with-compiler-test-directory (directory)
+    (let ((project
+            (write-compiler-test-project
+             directory :realization-source +compiler-test-observed-xkb-selector-policy+
+             :composition-source
+             "(ivory-key 1)
+(realize observed-build (:layout direct) (:device test-device) (:profile observed-xkb-selectors))
+")))
+      (multiple-value-bind (unit placement realization)
+          (ivory-key.cli:load-project-composition-for-compilation
+           project "observed-build")
+        (declare (ignore unit placement))
+        (is-equal
+         :libxkbcommon-depressed-group-two-with-visible-level-three
+         (ivory-key.model:realization-selector-client-semantics
+          (ivory-key.model::realization-policy-selector-for-axis
+           (ivory-key.cli::compiler-realization-selector-policy realization)
+           "plane")))))))
 
 (defun compiler-test-staged-validation-evidence (&key (kanata-status "passed"))
   "Synthetic private validator observations; no host tool is invoked in tests."
