@@ -13,9 +13,10 @@
   "Return every checked-in .ivory fixture in deterministic pathname order."
   (let ((root (ivory-key-project-root)))
     (sort
-     (loop for directory-name in '("layouts/" "topologies/" "devices/" "realizations/")
-           append (directory (merge-pathnames "*.ivory"
-                                               (merge-pathnames directory-name root))))
+     (append (list (merge-pathnames "manna-cadet-project.ivory" root))
+             (loop for directory-name in '("layouts/" "topologies/" "devices/" "realizations/")
+                   append (directory (merge-pathnames "*.ivory"
+                                                       (merge-pathnames directory-name root)))))
      #'string< :key #'namestring)))
 
 (defun parse-every-ivory-fixture ()
@@ -75,3 +76,13 @@ rather than a success claim; an installed executable's failure is preserved as
 
 (deftest integration-all-ivory-fixtures-parse
   (is (assert-every-ivory-fixture-parses)))
+
+(deftest integration-manna-project-graph-loads
+  (let* ((entry (merge-pathnames "manna-cadet-project.ivory"
+                                 (ivory-key-project-root)))
+         (project (ivory-key.project:load-project entry))
+         (composition
+           (ivory-key.project:project-composition
+            project "manna-cadet-linux" :errorp t)))
+    (is-equal "manna-cadet-linux"
+              (ivory-key.project:project-realization-composition-name composition))))

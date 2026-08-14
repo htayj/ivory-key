@@ -193,6 +193,161 @@ stage.  It does not plan a backend and cannot write or deploy anything.
                 (%stage-error :normalize :normalizer-failure "~A" condition)))))
       (%make-compiler-unit pathname parsed layout normalized))))
 
+;;; Project composition front end -------------------------------------------
+
+(defun %project-metadata-value (metadata key stage code description)
+  "Read one closed project metadata field without inventing a default.
+
+Project metadata is model data produced by IVORY-KEY.PROJECT, rather than
+concrete source syntax.  The compiler still treats the narrow backend bridge
+metadata as an input boundary: a missing or malformed value is a refusal, not
+a reason to guess a physical spelling or safety policy.
+"
+  (unless (listp metadata)
+    (%stage-error stage code "~A metadata is malformed." description))
+  (let ((marker (gensym "MISSING-METADATA-")))
+    (let ((value (getf metadata key marker)))
+      (if (eq value marker)
+          (%stage-error stage code "~A metadata is missing ~S." description key)
+          value))))
+
+(defun compiler-placement-from-model (device)
+  "Convert project DEVICE placement metadata for the exact bootstrap bridge.
+
+The semantic model deliberately keeps physical inputs opaque.  The project
+loader records the two approved backend spellings under :BACKEND-MAPPINGS;
+this conversion accepts only that already-decoded representation and does not
+parse source or infer carrier codes from the generic placement association
+list.
+"
+  (unless (typep device 'ivory-key.model:device-placement)
+    (%stage-error :decode :invalid-project-device
+                  "Project composition device is not a model device placement."))
+  (let ((mappings
+          (%project-metadata-value
+           (ivory-key.model:placement-metadata device) :backend-mappings
+           :decode :missing-device-backend-mappings
+           (format nil "Device ~A"
+                   (ivory-key.model:identifier-name
+                    (ivory-key.model:placement-name device))))))
+    (unless (listp mappings)
+      (%stage-error :decode :invalid-device-backend-mappings
+                    "Device backend mappings must be a list."))
+    (let ((seen (make-hash-table :test #'equal))
+          (converted nil))
+      (dolist (mapping mappings)
+        (unless (and (consp mapping) (stringp (car mapping))
+                     (listp (cdr mapping)))
+          (%stage-error :decode :invalid-device-backend-mappings
+                        "Device backend mapping ~S is malformed." mapping))
+        (let* ((position (car mapping))
+               (spellings (cdr mapping))
+               (xkb (getf spellings :xkb))
+               (kanata (getf spellings :kanata)))
+          (when (gethash position seen)
+            (%stage-error :decode :duplicate-device-placement
+                          "Device declares backend placement for ~A more than once."
+                          position))
+          (unless (and (= (length spellings) 4)
+                       (stringp xkb) (plusp (length xkb))
+                       (stringp kanata) (plusp (length kanata)))
+            (%stage-error :decode :invalid-device-backend-mappings
+                          "Device backend mapping for ~A needs one non-empty :XKB and :KANATA spelling."
+                          position))
+          (setf (gethash position seen) t)
+          (push (cons position (list :xkb xkb :kanata kanata)) converted)))
+      (%make-compiler-placement
+       (ivory-key.model:identifier-name (ivory-key.model:placement-name device))
+       (ivory-key.model:identifier-name
+        (ivory-key.model:topology-name
+         (ivory-key.model:placement-topology device)))
+       (sort converted #'string< :key #'car)))))
+
+(defun compiler-realization-from-model (realization)
+  "Convert a project realization profile for the exact bootstrap bridge."
+  (unless (typep realization 'ivory-key.model:realization-profile)
+    (%stage-error :decode :invalid-project-realization
+                  "Project composition profile is not a realization profile."))
+  (let ((forbid-shell
+          (%project-metadata-value
+           (ivory-key.model:realization-profile-metadata realization)
+           :forbid-shell-actions :decode :unsafe-realization-policy
+           (format nil "Realization ~A"
+                   (ivory-key.model:identifier-name
+                    (ivory-key.model:realization-profile-name realization))))))
+    (unless (and (stringp forbid-shell) (string= forbid-shell "yes"))
+      (%stage-error :decode :unsafe-realization-policy
+                    "Realization ~A must explicitly forbid shell actions."
+                    (ivory-key.model:identifier-name
+                     (ivory-key.model:realization-profile-name realization))))
+    (let ((pipeline (ivory-key.model:realization-profile-pipeline realization))
+          (grades (ivory-key.model:realization-profile-permitted-losses realization)))
+      (unless (and (listp pipeline) (every #'stringp pipeline)
+                   (listp grades) (every #'stringp grades))
+        (%stage-error :decode :invalid-project-realization
+                      "Realization ~A has malformed pipeline policy."
+                      (ivory-key.model:identifier-name
+                       (ivory-key.model:realization-profile-name realization))))
+      ;; The project loader retains the broader vocabulary needed for future
+      ;; planners.  This direct bridge deliberately recognizes only the same
+      ;; grade vocabulary as its explicit-file decoder; a profile that opts
+      ;; into an unsupported future disposition cannot become an implicit
+      ;; approval for this bootstrap lowering.
+      (dolist (grade grades)
+        (unless (member grade '("exact" "emulated" "lossy") :test #'string=)
+          (%stage-error :decode :unknown-realization-grade
+                        "Realization ~A allows unsupported bootstrap grade ~S."
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:realization-profile-name realization))
+                        grade)))
+      (%make-compiler-realization
+       (ivory-key.model:identifier-name
+        (ivory-key.model:realization-profile-name realization))
+       (copy-list pipeline) (copy-list grades)))))
+
+(defun %project-layout-compiler-unit (project-path layout)
+  "Normalize an already validated project layout without a second source load."
+  (let ((normalized
+          (handler-case
+              ;; LOAD-PROJECT has already decoded, resolved, and validated the
+              ;; selected layout.  Retaining this distinct normalization stage
+              ;; avoids changing the compiler IR while avoiding unsafe reparse.
+              (ivory-key.model:normalize-layout layout :validate nil)
+            (ivory-key.model:semantic-error (condition)
+              (%stage-error :normalize (ivory-key.model:semantic-error-code condition)
+                            "~A" (ivory-key.model:semantic-error-message condition)))
+            (error (condition)
+              (%stage-error :normalize :normalizer-failure "~A" condition)))))
+    (%make-compiler-unit project-path nil layout normalized)))
+
+(defun load-project-composition-for-compilation (project-path composition-name
+                                                   &key source-roots)
+  "Load one named project composition for inspection or exact compilation.
+
+Returns five values: the compiler unit, bootstrap placement, realization,
+composition, and complete project result.  The project loader remains the only
+component that resolves imports and source roots; this bridge consumes only
+its resolved registries and typed composition values.
+"
+  (let* ((project (ivory-key.project:load-project project-path
+                                                   :source-roots source-roots))
+         ;; ERRORP deliberately preserves the project loader's stable unknown
+         ;; definition condition instead of silently selecting another layout.
+         (composition (ivory-key.project:project-composition
+                       project composition-name :errorp t))
+         (layout (ivory-key.project:project-realization-composition-layout
+                  composition))
+         (device (ivory-key.project:project-realization-composition-device
+                  composition))
+         (realization
+           (ivory-key.project:project-realization-composition-realization
+            composition)))
+    (values (%project-layout-compiler-unit project-path layout)
+            (compiler-placement-from-model device)
+            (compiler-realization-from-model realization)
+            composition
+            project)))
+
 ;;; Device and realization envelopes ----------------------------------------
 
 (defun %backend-option (options backend position device-name)
@@ -573,7 +728,11 @@ only simulation as complete layout semantics.
 ;;; Non-destructive build emission ------------------------------------------
 
 (defun %safe-output-directory (pathname)
-  (let* ((directory (uiop:ensure-directory-pathname pathname))
+  (let* ((working-directory
+           (uiop:ensure-directory-pathname (truename (uiop:getcwd))))
+         (directory
+           (uiop:ensure-directory-pathname
+            (uiop:ensure-absolute-pathname pathname working-directory)))
          (components (pathname-directory directory))
          (marker (first components))
          (leaf (car (last components))))
@@ -583,27 +742,168 @@ only simulation as complete layout semantics.
       (%stage-error :emit :unsafe-output-directory
                     "Output directory ~A must name one concrete directory without parent traversal."
                     pathname))
-    (when (probe-file directory)
-      (%stage-error :emit :output-already-exists
-                    "Refusing to overwrite existing output directory ~A." directory))
-    directory))
+    (let ((parent (%parent-directory directory)))
+      ;; Portable Common Lisp has no directory-descriptor or exclusive-MKDIR
+      ;; protocol.  Requiring a pre-existing parent lets us resolve and
+      ;; repeatedly check the observable pathname transitions.  It cannot
+      ;; prove identity after same-spelling replacement, so callers must not
+      ;; use a parent concurrently writable by an untrusted principal.
+      (unless (probe-file parent)
+        (%stage-error :emit :missing-output-parent
+                      "Output parent directory ~A must already exist and be trusted."
+                      parent))
+      (let* ((physical-parent
+               (uiop:ensure-directory-pathname (truename parent)))
+             (target
+               (make-pathname
+                :directory (append (pathname-directory physical-parent)
+                                   (list leaf))
+                :name nil :type nil :defaults physical-parent)))
+        (when (%output-target-exists-p target)
+          (%stage-error :emit :output-already-exists
+                        "Refusing to overwrite existing output directory ~A." target))
+        target))))
 
 (defun %parent-directory (directory)
   (let* ((components (pathname-directory directory))
          (parent-components (butlast components)))
     (make-pathname :directory parent-components :name nil :type nil :defaults directory)))
 
-(defun %fresh-sibling-directory (output-directory)
+(defun %same-physical-pathname-p (left right)
+  (string= (uiop:native-namestring left)
+           (uiop:native-namestring right)))
+
+(defun %verified-output-parent (parent)
+  "Return PARENT's resolved directory path, or fail on detectable changes.
+
+TRUENAME detects a changed symlink target but cannot prove that a directory was
+replaced at the same spelling.  The build-emission API therefore requires its
+parent to be trusted and not concurrently mutable by an untrusted principal.
+"
+  (let ((physical
+          (handler-case
+              (uiop:ensure-directory-pathname (truename parent))
+            (error (condition)
+              (%stage-error :emit :output-parent-changed
+                            "Could not re-verify output parent ~A: ~A"
+                            parent condition)))))
+    (unless (%same-physical-pathname-p parent physical)
+      (%stage-error :emit :output-parent-changed
+                    "Output parent ~A no longer names its verified directory."
+                    parent))
+    physical))
+
+(defun %directory-entry-name (pathname)
+  "Return PATHNAME's final directory entry spelling without following links."
+  (if (uiop:directory-pathname-p pathname)
+      (let ((component (car (last (pathname-directory pathname)))))
+        (and (stringp component) component))
+      (file-namestring pathname)))
+
+(defun %directory-entry-named-p (directory name)
+  "Detect a named entry, including a dangling symlink where DIRECTORY exposes it.
+
+Common Lisp has no portable LSTAT.  DIRECTORY normally exposes dangling links
+on the supported Unix hosts, so this is an additional no-overwrite guard; the
+trusted-parent precondition covers hosts that cannot report such an entry.
+"
+  (handler-case
+      (some (lambda (entry)
+              (string= name (or (%directory-entry-name entry) "")))
+            (directory (merge-pathnames "*" directory)))
+    (error (condition)
+      (%stage-error :emit :unreadable-output-parent
+                    "Could not inspect output parent ~A: ~A" directory condition))))
+
+(defun %output-target-exists-p (target)
+  "Return true if TARGET has a visible filesystem entry, even if dangling."
+  (or (probe-file target)
+      (%directory-entry-named-p (%parent-directory target)
+                                (car (last (pathname-directory target))))))
+
+(defun %path-below-parent-p (pathname parent)
+  "Whether already physical PATHNAME remains below already physical PARENT."
+  (and (uiop:subpathp pathname parent)
+       (not (%same-physical-pathname-p pathname parent))))
+
+(defun %directory-file-names (directory)
+  (sort (mapcar #'file-namestring (uiop:directory-files directory)) #'string<))
+
+(defun %directory-is-empty-p (directory)
+  (and (null (uiop:directory-files directory))
+       (null (uiop:subdirectories directory))))
+
+(defun %temporary-directory-from-reservation (reservation)
+  "Derive a private sibling directory name from UIOP's exclusive random file."
+  (let* ((parent (uiop:pathname-directory-pathname reservation))
+         (name (format nil "~A.build" (file-namestring reservation))))
+    (merge-pathnames (format nil "~A/" name) parent)))
+
+(defun %reserve-fresh-build-directory (output-directory)
+  "Reserve an unpredictable temporary build sibling beneath a trusted parent.
+
+The reservation file is created by UIOP with exclusive temporary-file
+semantics, so unrelated compiler invocations cannot select a predictable
+counter-based directory.  A hostile writer with access to the parent can still
+race portable pathname operations; callers must therefore provide a trusted,
+non-concurrently-mutated parent directory.
+"
   (let* ((parent (%parent-directory output-directory))
+         (verified-parent (%verified-output-parent parent))
          (leaf (car (last (pathname-directory output-directory)))))
-    (ensure-directories-exist (merge-pathnames "placeholder" parent))
-    (loop for counter from 0 below 1000
-          for candidate =
-            (merge-pathnames (format nil ".~A.ivory-key-tmp-~D/" leaf counter) parent)
-          unless (probe-file candidate) return candidate
-          finally (%stage-error :emit :temporary-directory-exhausted
-                                "Could not reserve a fresh temporary sibling for ~A."
-                                output-directory))))
+    (uiop:with-temporary-file
+        (:pathname reservation
+         :directory verified-parent
+         :prefix (format nil ".~A.ivory-key-reservation-" leaf)
+         :suffix ".lock"
+         :keep t)
+      (let ((temporary (%temporary-directory-from-reservation reservation)))
+        (when (probe-file temporary)
+          (%stage-error :emit :temporary-directory-collision
+                        "Refusing occupied temporary build directory ~A."
+                        temporary))
+        (ensure-directories-exist (merge-pathnames "placeholder" temporary))
+        (let ((physical-temporary
+                (handler-case
+                    (uiop:ensure-directory-pathname (truename temporary))
+                  (error (condition)
+                    (%stage-error :emit :unsafe-temporary-directory
+                                  "Could not verify temporary build directory ~A: ~A"
+                                  temporary condition)))))
+          (unless (and (%same-physical-pathname-p verified-parent
+                                                     (%verified-output-parent verified-parent))
+                       (%path-below-parent-p physical-temporary verified-parent)
+                       (%directory-is-empty-p physical-temporary))
+            (%stage-error :emit :unsafe-temporary-directory
+                          "Temporary build directory failed trusted-parent verification."))
+          (values physical-temporary reservation))))))
+
+(defun %expected-build-file-names (pipeline-result &optional marker)
+  (let ((names
+          (append (mapcar #'ivory-key.backend:pipeline-artifact-relative-path
+                          (ivory-key.backend:pipeline-result-artifacts pipeline-result))
+                  (list "REPORT.txt")
+                  (and marker (list marker)))))
+    (unless (= (length names) (length (remove-duplicates names :test #'string=)))
+      (%stage-error :emit :duplicate-artifact-path
+                    "Backend returned duplicate artifact paths."))
+    (sort names #'string<)))
+
+(defun %verify-temporary-build-directory (temporary parent expected-names)
+  (let ((physical
+          (handler-case
+              (uiop:ensure-directory-pathname (truename temporary))
+            (error (condition)
+              (%stage-error :emit :unsafe-temporary-directory
+                            "Temporary build directory changed: ~A" condition)))))
+    (unless (and (%same-physical-pathname-p temporary physical)
+                 (%same-physical-pathname-p parent (%verified-output-parent parent))
+                 (%path-below-parent-p physical parent)
+                 (null (uiop:subdirectories physical))
+                 (equal expected-names (%directory-file-names physical)))
+      (%stage-error :emit :unsafe-temporary-directory
+                    "Temporary build directory contents or parent changed."))
+    physical))
 
 (defun %safe-artifact-relative-path-p (path)
   (and (stringp path)
@@ -621,33 +921,58 @@ only simulation as complete layout semantics.
     (format stream "~%Validation: not run by compile; use validate-build for tool evidence.~%")))
 
 (defun write-new-pipeline-result (pipeline-result output-directory)
-  "Write a new build through a fresh sibling directory, never overwriting.
+  "Write a new build through a reserved sibling directory without overwriting.
 
 The current backend API owns deterministic artifact text but not atomic output
-handling.  This wrapper supplies the latter and deliberately does not invoke
-external validators or deployment machinery.
+handling.  This wrapper verifies each observable pathname transition and
+deliberately does not invoke external validators or deployment machinery.
+Portable Common Lisp cannot make a final directory rename non-replacing against
+a hostile concurrent writer, so OUTPUT-DIRECTORY's existing parent must be
+trusted and not concurrently mutable by an untrusted principal.
 "
   (let* ((target (%safe-output-directory output-directory))
-         (temporary (%fresh-sibling-directory target))
-         (moved nil))
+         (parent (%parent-directory target))
+         (marker ".ivory-key-build-owner")
+         (reservation nil)
+         (temporary nil))
     (dolist (artifact (ivory-key.backend:pipeline-result-artifacts pipeline-result))
       (unless (%safe-artifact-relative-path-p
                (ivory-key.backend:pipeline-artifact-relative-path artifact))
         (%stage-error :emit :unsafe-artifact-path
                       "Backend returned unsafe artifact path ~S."
                       (ivory-key.backend:pipeline-artifact-relative-path artifact))))
+    (multiple-value-setq (temporary reservation)
+      (%reserve-fresh-build-directory target))
     (unwind-protect
          (progn
-           (ivory-key.backend:write-pipeline-result pipeline-result temporary)
-           (%write-report-file pipeline-result temporary)
-           ;; TEMPORARY is a sibling of TARGET, making this a same-filesystem
-           ;; rename on ordinary filesystems.  TARGET was proven absent above.
-           (rename-file temporary target)
-           (setf moved t)
-           target)
-      (unless moved
-        (when (probe-file temporary)
-          (uiop:delete-directory-tree temporary :validate t))))))
+           (let ((owner (merge-pathnames marker temporary)))
+             (with-open-file (stream owner :direction :output
+                                           :if-exists :error
+                                           :if-does-not-exist :create)
+               (write-line "Ivory Key temporary build ownership marker." stream))
+             (ivory-key.backend:write-pipeline-result pipeline-result temporary)
+             (%write-report-file pipeline-result temporary)
+             (%verify-temporary-build-directory
+              temporary parent (%expected-build-file-names pipeline-result marker))
+             (delete-file owner)
+             (%verify-temporary-build-directory
+              temporary parent (%expected-build-file-names pipeline-result))
+             ;; Recheck immediately before RENAME-FILE.  The trusted-parent
+             ;; precondition above is still needed for the remaining host-level
+             ;; race because portable Common Lisp has no no-replace rename.
+             (%verified-output-parent parent)
+             (when (%output-target-exists-p target)
+               (%stage-error :emit :output-already-exists
+                             "Refusing to overwrite newly created output directory ~A."
+                             target))
+             (rename-file temporary target)
+             target))
+      ;; The reservation is a file, so deleting it cannot traverse a directory
+      ;; symlink.  On failure retain the build directory for inspection rather
+      ;; than recursively deleting a pathname that a concurrent writer may have
+      ;; replaced.
+      (when (and reservation (probe-file reservation))
+        (ignore-errors (delete-file reservation))))))
 
 (defun compile-layout-source (layout-path &key topology-path device-path
                                           realization-path output-directory)
@@ -662,12 +987,59 @@ external validators or deployment machinery.
     (write-new-pipeline-result pipeline-result output-directory)
     pipeline-result))
 
+(defun compile-project-source (project-path composition-name &key source-roots
+                                                        output-directory)
+  "Compile one named project composition into a fresh non-deploying build.
+
+PROJECT-PATH is loaded exactly once by the confined project loader.  The
+selected composition supplies its already-resolved layout, device placement,
+and realization profile; no imported source is parsed again by this bridge.
+"
+  (unless output-directory
+    (%stage-error :arguments :missing-compile-input
+                  "Project compile requires a project, composition, and output path."))
+  (multiple-value-bind (unit placement realization)
+      (load-project-composition-for-compilation project-path composition-name
+                                                :source-roots source-roots)
+    (let ((pipeline-result (%compile-unit-to-pipeline unit placement realization)))
+      (write-new-pipeline-result pipeline-result output-directory)
+      pipeline-result)))
+
 (defun explain-layout-source (layout-path &key topology-path device-path realization-path
                                           (stream *standard-output*))
   "Print an exact-or-refused pipeline explanation without emitting artifacts."
   (let* ((unit (load-layout-for-compilation layout-path :topology-path topology-path))
          (placement (decode-device-source device-path))
          (realization (decode-realization-source realization-path)))
+    (%require-compatible-realization realization)
+    (multiple-value-bind (request issues)
+        (analyze-normalized-layout (compiler-unit-normalized unit) placement)
+      (format stream "Ivory Key capability explanation~%")
+      (format stream "Layout: ~A~%Device: ~A~%Realization: ~A~%"
+              (ivory-key.model:identifier-name
+               (ivory-key.model:normalized-layout-name (compiler-unit-normalized unit)))
+              (compiler-placement-name placement)
+              (compiler-realization-name realization))
+      (if issues
+          (progn
+            (format stream "Fidelity: unsupported~%")
+            (dolist (issue issues)
+              (format stream "  ~A [~A]: ~A~%"
+                      (compiler-fidelity-issue-feature issue)
+                      (compiler-fidelity-issue-code issue)
+                      (compiler-fidelity-issue-detail issue)))
+            nil)
+          (let ((result (%compile-unit-to-pipeline unit placement realization)))
+            (format stream "Fidelity: exact for the current direct pipeline~%")
+            (write-string (ivory-key.report:realization-report-string result) stream)
+            request)))))
+
+(defun explain-project-source (project-path composition-name &key source-roots
+                                                           (stream *standard-output*))
+  "Explain exact lowering for one named project composition without emission."
+  (multiple-value-bind (unit placement realization)
+      (load-project-composition-for-compilation project-path composition-name
+                                                :source-roots source-roots)
     (%require-compatible-realization realization)
     (multiple-value-bind (request issues)
         (analyze-normalized-layout (compiler-unit-normalized unit) placement)

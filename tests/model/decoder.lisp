@@ -37,9 +37,14 @@
                             :key #'ivory-key.model:interaction-name))
          (tap (find "on-tap-latch-latch" interactions :test #'ivory-key.model:identifier=
                     :key #'ivory-key.model:interaction-name)))
-    ;; FALLBACK has materialized every omitted product tuple as explicit NONE.
+    ;; The mechanical baseline transcription covers 52 static XKB positions,
+    ;; plus the separate semantic Greek selector binding.
+    (is-equal 53 (length (ivory-key.model:layout-bindings layout)))
+    (is-equal 2 (length interactions))
+    ;; FALLBACK has materialized the two genuinely absent T cells as NONE;
+    ;; the other six cells come directly from the frozen XKB baseline.
     (is-equal 8 (length (ivory-key.model:behavior-table-entries t-table)))
-    (is-equal 4 (count :none (ivory-key.model:behavior-table-entries t-table)
+    (is-equal 2 (count :none (ivory-key.model:behavior-table-entries t-table)
                         :key #'ivory-key.model:behavior-entry-disposition))
     ;; The source template call has been expanded before direct validation.
     (is (typep (ivory-key.model:binding-behavior greek-binding)

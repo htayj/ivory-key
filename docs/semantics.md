@@ -32,8 +32,13 @@ a behavior, `none`, inheritance, or—only for a patch table—transparency.
 
 The model includes sparse overlay-patch and finite behavior/interaction
 template objects. Programmatic resolution expands behavior templates without
-evaluating layout-provided Lisp and detects recursion. Source decoding for
-those constructs is not implemented yet; see [language.md](language.md).
+evaluating layout-provided Lisp and detects recursion. The v1 source decoder
+also accepts closed `overlay` declarations: a patch axis/state, an explicit
+integer precedence, and sparse complete/transparent bindings. An active
+transparent binding falls through to the next lower-precedence active overlay
+and then the base binding. Conflicting non-transparent bindings at equal
+precedence are invalid; source order never supplies an implicit tie-break.
+See [language.md](language.md) for the concrete grammar.
 
 ## Unified timed interactions
 
@@ -63,12 +68,27 @@ effects. It is meaningful implementation evidence for those simulation
 objects, but it is not yet wired to decoded `.ivory` layouts or backend
 generation.
 
-## Present limits
+## Planning boundary and present limits
+
+The target-neutral planner consumes a normalized layout and a model device
+placement. It retains every static table entry in canonical order and reports
+separate selector, semantic-modifier, and finite-resource requirements. It
+does not use a modifier bitmask or turn an abstract selector into a backend
+spelling. If finite resource pools are supplied, planning copies them before
+reserving physical inputs and allocating deterministically, so collision or
+exhaustion is explicit and does not mutate a reusable profile inventory.
+
+With an XKB capability advertising the conventional eight native static levels,
+dependency-scoped static product tables of up to eight states receive an
+`exact` table grade. A twenty-state table remains twenty entries in the plan
+and is `unsupported` unless another target or separately proven emulation is
+provided. The planner does not claim a Kanata or QMK realization merely from
+that requirement, and `require-planned-realizations` refuses unproved plans.
 
 The plan specifies one unified source-to-normalized-to-simulation pipeline.
-The current repository has substantial model, validation, normalization, and
-simulation pieces, but no complete public source front end that connects all
-of them. In particular, no claim of semantic equivalence should be made for a
-fixture merely because it parses, and no backend output should be treated as
-the semantic oracle. That role belongs to the reference simulator once the
-end-to-end frontend is connected.
+The current repository has model, validation, normalization, project loading,
+and simulation pieces, but no complete reference-simulator adapter for a
+decoded whole layout. In particular, no claim of semantic equivalence should
+be made for a fixture merely because it parses or plans, and no backend output
+should be treated as the semantic oracle. That role belongs to the reference
+simulator once the end-to-end frontend is connected.

@@ -54,6 +54,42 @@
   (forbid-shell-actions yes))
 ")
 
+(defparameter +compiler-test-composition+
+  "(ivory-key 1)
+(realize direct-build (:layout direct) (:device test-device) (:profile direct-linux))
+")
+
+(defun write-compiler-test-project (directory)
+  (compiler-test-write
+   directory "project.ivory"
+   "(ivory-key 1)
+(import \"topology.ivory\")
+(import \"layout.ivory\")
+(import \"device.ivory\")
+(import \"realization.ivory\")
+(import \"composition.ivory\")
+")
+  (compiler-test-write directory "topology.ivory" +compiler-test-topology+)
+  (compiler-test-write directory "layout.ivory" +compiler-test-layout+)
+  (compiler-test-write directory "device.ivory" +compiler-test-device+)
+  (compiler-test-write directory "realization.ivory" +compiler-test-realization+)
+  (compiler-test-write directory "composition.ivory" +compiler-test-composition+)
+  (merge-pathnames "project.ivory" directory))
+
+(defun compiler-project-error-code-from (thunk)
+  (handler-case
+      (progn (funcall thunk)
+             (error "Expected IVORY-KEY.PROJECT:PROJECT-ERROR."))
+    (ivory-key.project:project-error (condition)
+      (ivory-key.project:project-error-code condition))))
+
+(defun compiler-stage-code-from (thunk)
+  (handler-case
+      (progn (funcall thunk)
+             (error "Expected IVORY-KEY.CLI:COMPILER-STAGE-ERROR."))
+    (ivory-key.cli:compiler-stage-error (condition)
+      (ivory-key.cli:compiler-stage-error-code condition))))
+
 (deftest compiler-bridge-runs-every-front-end-stage-and-emits-new-build
   (with-compiler-test-directory (directory)
     (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
@@ -147,3 +183,170 @@
                           (ivory-key.model:identifier-name
                            (ivory-key.model:position-name position)))
                         (ivory-key.model:topology-positions topology))))))
+
+(deftest compiler-project-composition-compiles-without-reparsing-components
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (output (merge-pathnames "project-build/" directory)))
+      (multiple-value-bind (unit placement realization composition project-result)
+          (ivory-key.cli:load-project-composition-for-compilation
+           project "direct-build")
+        (is (null (ivory-key.cli::compiler-unit-parsed unit)))
+        (is-equal "direct" (ivory-key.model:identifier-name
+                             (ivory-key.model:layout-name
+                              (ivory-key.cli::compiler-unit-layout unit))))
+        (is-equal "test-device" (ivory-key.cli::compiler-placement-name placement))
+        (is-equal "direct-linux" (ivory-key.cli::compiler-realization-name realization))
+        (is-equal "direct-build"
+                  (ivory-key.project:project-realization-composition-name composition))
+        (is (ivory-key.project:project-composition project-result "direct-build")))
+      (let ((pipeline (ivory-key.cli:compile-project-source
+                       project "direct-build" :output-directory output)))
+        (is pipeline)
+        (is (probe-file (merge-pathnames "keymap.xkb" output)))
+        (is (probe-file (merge-pathnames "layout.kbd" output)))
+        (is (probe-file (merge-pathnames "REPORT.txt" output)))))))
+
+(deftest compiler-project-composition-refuses-an-unknown-name
+  (with-compiler-test-directory (directory)
+    (let ((project (write-compiler-test-project directory)))
+      (is-equal :unknown-project-definition
+                (compiler-project-error-code-from
+                 (lambda ()
+                   (ivory-key.cli:load-project-composition-for-compilation
+                    project "does-not-exist")))))))
+
+(deftest compiler-cli-inspects-and-explains-a-project-composition
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (output (merge-pathnames "cli-project-build/" directory))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream)))
+      (let ((*standard-output* standard-output)
+            (*error-output* error-output))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "dump-ir" "--stage" "normalized" "--project"
+                         (namestring project) "--composition" "direct-build")))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "levels" "--project" (namestring project)
+                         "--composition" "direct-build")))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "explain" "--project" (namestring project)
+                         "--composition" "direct-build")))
+        (is-equal 0
+                  (ivory-key.cli:main
+                   (list "compile" "--project" (namestring project)
+                         "--composition" "direct-build" "--output"
+                         (namestring output)))))
+      (let ((output (get-output-stream-string standard-output)))
+        (is (search "normalized-layout direct" output))
+        (is (search "levels for direct" output))
+        (is (search "Fidelity: exact" output))
+        (is (search "Emitted new build directory" output)))
+      (is (probe-file (merge-pathnames "keymap.xkb" output)))
+      (is (probe-file (merge-pathnames "layout.kbd" output)))
+      (is-equal "" (get-output-stream-string error-output)))))
+
+(deftest compiler-project-composition-preserves-source-root-refusal
+  (with-compiler-test-directory (directory)
+    (let* ((root (merge-pathnames "root/" directory))
+           (entry nil))
+      (ensure-directories-exist (merge-pathnames "placeholder" root))
+      (setf entry (compiler-test-write root "project.ivory"
+                                       "(ivory-key 1) (import \"../outside.ivory\")"))
+      (compiler-test-write directory "outside.ivory" "(ivory-key 1)")
+      (is-equal :import-outside-source-root
+                (compiler-project-error-code-from
+                 (lambda ()
+                   (ivory-key.cli:load-project-composition-for-compilation
+                    entry "unreachable")))))))
+
+(deftest compiler-cli-project-mode-resolves-relative-entry-from-captured-cwd
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (output (merge-pathnames "relative-project-build/" directory))
+           (standard-output (make-string-output-stream))
+           (error-output (make-string-output-stream)))
+      (declare (ignore project))
+      (uiop:with-current-directory (directory)
+        ;; Both the entry and explicit source root are relative.  This is the
+        ;; command-line shape that used to depend on NIL/default pathname state.
+        (is (ivory-key.project:load-project "project.ivory" :source-roots '(".")))
+        (let ((*standard-output* standard-output)
+              (*error-output* error-output))
+          (is-equal 0
+                    (ivory-key.cli:main
+                     (list "compile" "--project" "project.ivory"
+                           "--composition" "direct-build" "--output"
+                           (namestring output))))))
+      (is (probe-file (merge-pathnames "keymap.xkb" output)))
+      (is-equal "" (get-output-stream-string error-output)))))
+
+(deftest project-loader-accepts-entry-beneath-a-symlinked-source-root
+  ;; Symlink construction is deliberately an optional Unix adversarial check;
+  ;; the loader behavior itself remains portable Common Lisp.
+  (when (uiop:os-unix-p)
+    (with-compiler-test-directory (directory)
+      (let* ((real-root (merge-pathnames "real-root/" directory))
+             (link-path (merge-pathnames "source-root-link" directory))
+             (link-root (uiop:ensure-directory-pathname link-path)))
+        (ensure-directories-exist (merge-pathnames "placeholder" real-root))
+        (write-compiler-test-project real-root)
+        (unwind-protect
+             (progn
+               (uiop:run-program (list "ln" "-s" (namestring real-root)
+                                       (namestring link-path)))
+               (is (ivory-key.project:load-project
+                    (merge-pathnames "project.ivory" link-root)
+                    :source-roots (list link-root))))
+          ;; LINK-PATH has no trailing slash, so DELETE-FILE removes the link
+          ;; itself rather than treating it as a directory pathname.
+          (ignore-errors (delete-file link-path)))))))
+
+(deftest compiler-emission-requires-an-existing-trusted-output-parent
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (output (merge-pathnames "not-created/build/" directory)))
+      (is-equal :missing-output-parent
+                (compiler-stage-code-from
+                 (lambda ()
+                   (ivory-key.cli:compile-project-source
+                    project "direct-build" :output-directory output)))))))
+
+(deftest compiler-emission-does-not-use-predictable-temporary-siblings
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (output (merge-pathnames "build/" directory))
+           (old-temporary (merge-pathnames ".build.ivory-key-tmp-0/" directory)))
+      (ensure-directories-exist (merge-pathnames "placeholder" old-temporary))
+      (compiler-test-write old-temporary "sentinel.txt" "must remain untouched")
+      (is (ivory-key.cli:compile-project-source
+           project "direct-build" :output-directory output))
+      (with-open-file (stream (merge-pathnames "sentinel.txt" old-temporary)
+                              :direction :input :external-format :utf-8)
+        (is-equal "must remain untouched"
+                  (let ((text (make-string (file-length stream))))
+                    (read-sequence text stream)
+                    text))))))
+
+(deftest compiler-emission-refuses-a-visible-dangling-symlink-target
+  ;; DIRECTORY exposes dangling links on the supported Unix hosts.  On other
+  ;; hosts the documented trusted-parent precondition remains the fail-closed
+  ;; boundary because portable Common Lisp has no LSTAT operation.
+  (when (uiop:os-unix-p)
+    (with-compiler-test-directory (directory)
+      (let* ((project (write-compiler-test-project directory))
+             (output (merge-pathnames "build/" directory))
+             (link-path (merge-pathnames "build" directory)))
+        (unwind-protect
+             (progn
+               (uiop:run-program (list "ln" "-s" "nowhere" (namestring link-path)))
+               (is-equal :output-already-exists
+                         (compiler-stage-code-from
+                          (lambda ()
+                            (ivory-key.cli:compile-project-source
+                             project "direct-build" :output-directory output)))))
+          (ignore-errors (delete-file link-path)))))))

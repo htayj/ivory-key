@@ -1,13 +1,69 @@
-;; Logical positions used by the initial semantic fixture. Device files own
-;; the physical switch or evdev placement.
+;; Logical positions evidenced by the frozen Manna Cadet layered variants.
+;; Coordinates are retained only where the prior fixture supplied them; the
+;; migration has not inferred geometry from XKB key names or Kanata token order.
 
 (ivory-key 1)
 (define-topology
   kinesis-advantage
+  ;; Number row.
+  (position number-equals)
+  (position number-1)
+  (position number-2)
+  (position number-3)
+  (position number-4)
+  (position number-5)
+  (position number-6)
+  (position number-7)
+  (position number-8)
+  (position number-9)
+  (position number-0)
+  (position number-minus)
+
+  ;; Alphanumeric/static-symbol positions.
+  (position tab)
   (position q (:row 1) (:column 1) (:hand left) (:finger pinky))
+  (position w)
+  (position e)
+  (position r)
   (position t (:row 1) (:column 5) (:hand left) (:finger index))
+  (position y)
+  (position u)
   (position i (:row 1) (:column 8) (:hand right) (:finger middle))
   (position o (:row 1) (:column 9) (:hand right) (:finger ring))
+  (position p)
+  (position left-bracket)
+  (position right-bracket)
+  (position return)
+  (position a)
+  (position s)
+  (position d)
+  (position f)
+  (position g)
+  (position h)
+  (position j)
+  (position k)
+  (position l)
+  (position semicolon)
+  (position apostrophe)
+  (position grave)
+  (position backslash)
+  (position z)
+  (position x)
+  (position c)
+  (position v)
+  (position b)
+  (position n)
+  (position m)
+  (position comma)
+  (position period)
+  (position slash)
+  (position backspace)
+  (position space)
+  ;; <LSGT> has a static XKB table but no direct layered-Kanata source token.
+  (position less-greater)
+
+  ;; Existing partial semantic positions, retained pending a fully evidenced
+  ;; interaction/placement transcription.
   (position greek (:row 6) (:column 1) (:hand left) (:finger thumb))
   (position latch-latch (:row 6) (:column 2) (:hand left) (:finger thumb))
 )

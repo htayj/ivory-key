@@ -63,6 +63,11 @@ form. It supports the implemented subset below:
   (level-order product-axis ...)
   (modifiers modifier ...)
   (binding position behavior-or-table)
+  (overlay overlay-name
+    (:axis patch-axis)
+    (:state patch-state)
+    (:precedence integer)
+    (binding position behavior-or-transparent) ...)
   (interaction name ...))
 ```
 
@@ -80,11 +85,44 @@ forms are rejected without interning their names. Both checked-in layout
 fixtures decode, validate, and normalize; the twenty-level fixture materializes
 all twenty dependency-scoped entries.
 
-The compiler envelope separately decodes the checked-in topology, device, and
-realization-profile vocabularies when their paths are supplied explicitly. It
-does not yet implement source imports, `realize` composition, surface overlay
-syntax, or source interaction-template declarations. `check` remains a syntax
-command; `dump-ir`, `levels`, `explain`, and `compile` invoke later stages.
+An `overlay` is a closed sparse-patch declaration. `:axis`, `:state`, and
+`:precedence` occur exactly once; the axis must exist, use `patch` resolution,
+and contain the selected state. A patch binding has exactly one logical
+position and either a complete abstract behavior or the literal
+`transparent`. Transparency is explicit fall-through, not a missing binding.
+Duplicate overlay names, duplicate options, duplicate patched positions,
+unknown clauses, invalid states, non-integer precedence, and backend spellings
+such as XKB keysyms are rejected. Normalization orders active overlays by
+descending declared precedence; equal-precedence conflicting overrides are a
+semantic ambiguity rather than source-order behavior.
+
+## Project files and confined imports
+
+The project loader adds a separate, deliberately small cross-file envelope.
+Each project file has one `(ivory-key 1)` header and may contain top-level
+`(import "relative-path.ivory")`, `define-layout`, `define-topology`,
+`define-device`, `define-realization`, and:
+
+```lisp
+(realize name
+  (:layout layout-name)
+  (:device device-name)
+  (:profile realization-name))
+```
+
+Imports are source-language data, not ASDF or Common Lisp modules. They are
+relative, confined to configured source roots both lexically and after symlink
+resolution, and reject absolute paths, traversal escapes, malformed imports,
+cycles, and duplicate definitions. Registries are canonical name-sorted, so
+import traversal order is not semantic. A `realize` composition names exactly
+one compatible layout, device, and realization profile.
+
+The CLI's `dump-ir`, `levels`, `explain`, and `compile` commands support either
+their explicit single-file inputs or `--project PROJECT --composition NAME`.
+The modes cannot be mixed. Project `dump-ir` supports typed and normalized
+stages, not raw parsed output. `check` remains a syntax command; it does not
+load a project graph. Source interaction-template declarations remain outside
+the implemented surface subset.
 
 The authoritative long-term language design remains [PLAN.md](../PLAN.md).
 This document draws the narrower, implemented boundary.

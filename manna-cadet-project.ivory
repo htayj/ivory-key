@@ -1,0 +1,10 @@
+;; Auditable project graph for the frozen Manna Cadet transcription.
+;; Loading or compiling this project never installs or activates a keymap.
+
+(ivory-key 1)
+
+(import "topologies/kinesis-advantage.ivory")
+(import "layouts/manna-cadet.ivory")
+(import "devices/kinesis-advantage2.ivory")
+(import "realizations/linux-xkb-kanata.ivory")
+(import "realizations/manna-cadet-linux.ivory")

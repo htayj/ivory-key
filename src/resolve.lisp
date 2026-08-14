@@ -296,7 +296,7 @@ handles the references whose target is a typed model declaration."
 
 (defparameter +decoder-layout-clauses+
   '("uses-topology" "axis" "level-order" "modifiers" "binding"
-    "define-behavior" "interaction")
+    "overlay" "define-behavior" "interaction")
   "The complete currently-decoded DEFINE-LAYOUT clause vocabulary.")
 
 (defparameter +decoder-behavior-forms+
@@ -646,6 +646,77 @@ handles the references whose target is a typed model declaration."
                                                     (nreverse entries)))
                  nil))))))
 
+(defun %decode-overlay (form axes product-axes template-names)
+  "Decode one closed-vocabulary sparse patch declaration.
+
+The surface form is deliberately small:
+
+  (overlay NAME (:axis AXIS) (:state STATE) (:precedence INTEGER)
+    (binding POSITION BEHAVIOR-OR-TRANSPARENT) ...)
+
+Unlike a base binding, each overlay binding is sparse and may explicitly be
+TRANSPARENT.  It may not spell a backend key, carrier, or layer; its behavior
+is decoded through the same abstract behavior vocabulary as an ordinary
+binding.
+"
+  ;; Check the name here, then let the required-option checks identify which
+  ;; semantic declaration is absent.  That produces useful stable diagnostics
+  ;; for a partially written overlay rather than one generic arity failure.
+  (%require-form-arity form 2 nil :malformed-overlay "OVERLAY declaration")
+  (let* ((name (%require-identifier (second form) "Overlay name"))
+         (clauses (cddr form)))
+    (%assert-known-forms clauses '("axis" "state" "precedence" "binding")
+                         "OVERLAY clause")
+    (let* ((axis-form (%single-form clauses "axis" "OVERLAY" :required t))
+           (state-form (%single-form clauses "state" "OVERLAY" :required t))
+           (precedence-form (%single-form clauses "precedence" "OVERLAY" :required t))
+           (binding-forms (%forms-named clauses "binding")))
+      (%require-form-arity axis-form 2 2 :malformed-overlay-option "OVERLAY :AXIS option")
+      (%require-form-arity state-form 2 2 :malformed-overlay-option "OVERLAY :STATE option")
+      (%require-form-arity precedence-form 2 2 :malformed-overlay-option
+                           "OVERLAY :PRECEDENCE option")
+      (let* ((axis-name (%require-identifier (second axis-form) "Overlay axis"))
+             (axis (find-axis axis-name axes)))
+        (unless axis
+          (%resolution-error :unknown-context-axis
+                             "Overlay ~A uses unknown axis ~A."
+                             (identifier-name name) (identifier-name axis-name)))
+        (unless (eq (axis-resolution axis) :patch)
+          (%resolution-error :wrong-axis-resolution
+                             "Overlay ~A must be selected by a patch axis."
+                             (identifier-name name)))
+        (let ((state (%require-identifier (second state-form) "Overlay state"))
+              (precedence (second precedence-form)))
+          (unless (axis-state-p axis state)
+            (%resolution-error :unknown-axis-state
+                               "Overlay ~A selects unknown state ~A for axis ~A."
+                               (identifier-name name) (identifier-name state)
+                               (identifier-name (axis-name axis))))
+          (unless (integerp precedence)
+            (%resolution-error :invalid-overlay-precedence
+                               "Overlay ~A precedence must be an integer."
+                               (identifier-name name)))
+          (let ((bindings
+                  (mapcar
+                   (lambda (binding-form)
+                     (%require-form-arity binding-form 3 3 :malformed-overlay-binding
+                                          "OVERLAY BINDING clause")
+                     (let ((position (%require-identifier (second binding-form)
+                                                         "Overlay binding position"))
+                           (value (third binding-form)))
+                       (if (and (stringp value)
+                                (string= (string-downcase value) "transparent"))
+                           (make-transparent-patch-binding position)
+                           (make-patch-binding
+                            position
+                            (%decode-behavior value product-axes
+                                              :template-names template-names)))))
+                   binding-forms)))
+            (%require-unique-identifiers (mapcar #'patch-binding-position bindings)
+                                         "overlay binding"
+                                         :code :duplicate-overlay-binding)
+            (make-overlay-patch name axis-name state bindings :precedence precedence)))))))
+
 (defun %decode-position-pattern-argument (value)
   (cond ((and (consp value) (string= (%form-name value) "other-than"))
          (when (null (rest value))
@@ -912,13 +983,17 @@ handles the references whose target is a typed model declaration."
                                  "LEVEL-ORDER must list every product axis exactly once."))
             (append products (remove-if (lambda (axis) (member axis products)) axes)))))))
 
-(defun %decode-layout-topology (topology topology-resolver uses-topology bindings interactions)
+(defun %decode-layout-topology (topology topology-resolver uses-topology bindings overlays interactions)
   (or topology
       (and uses-topology topology-resolver
            (funcall topology-resolver (%require-identifier (second uses-topology) "Topology name")))
       (let ((positions
               (remove-duplicates
                (append (mapcar #'binding-position bindings)
+                       (mapcan (lambda (overlay)
+                                 (mapcar #'patch-binding-position
+                                         (overlay-patch-bindings overlay)))
+                               overlays)
                        (mapcan #'interaction-participants interactions))
                :test #'identifier=)))
         (make-topology (if uses-topology (second uses-topology) "inferred")
@@ -961,6 +1036,10 @@ topology/import loading is deliberately outside this decoder."
                          (%forms-named clauses "binding")))
                (bindings (remove nil (mapcar #'first binding-results)))
                (on-tap-interactions (mapcan #'second binding-results))
+               (overlays
+                 (mapcar (lambda (overlay-form)
+                           (%decode-overlay overlay-form axes product-axes template-names))
+                         (%forms-named clauses "overlay")))
                (interactions
                  (append (mapcar (lambda (interaction-form)
                                    (%decode-interaction interaction-form product-axes template-names))
@@ -968,6 +1047,8 @@ topology/import loading is deliberately outside this decoder."
                          on-tap-interactions)))
           (%require-unique-identifiers (mapcar #'binding-position bindings) "binding"
                                        :code :duplicate-binding)
+          (%require-unique-identifiers (mapcar #'overlay-patch-name overlays) "overlay"
+                                       :code :duplicate-overlay)
           (%require-unique-identifiers (mapcar #'interaction-name interactions) "interaction"
                                        :code :duplicate-interaction)
           (when uses-topology
@@ -981,7 +1062,7 @@ topology/import loading is deliberately outside this decoder."
           (resolve-layout
            (make-layout name
                         (%decode-layout-topology topology topology-resolver uses-topology
-                                                 bindings interactions)
+                                                 bindings overlays interactions)
                         axes (if modifiers-form (rest modifiers-form) nil)
-                        :bindings bindings :interactions interactions
+                        :bindings bindings :overlays overlays :interactions interactions
                         :behavior-templates templates)))))))

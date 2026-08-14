@@ -20,6 +20,26 @@ topology/device/profile inputs only when every selected feature is exactly
 representable. Callers must not interpret this bootstrap API as permission to
 place backend spellings in `.ivory` layout meaning.
 
+## Capability planner before target lowering
+
+`plan-normalized-layout` is a separate target-neutral planning stage. It takes
+a normalized layout and model device placement, preserves canonical static
+table order, and produces a lowering plan with explicit selector,
+semantic-modifier, and resource requirements. Resource inventories are copied
+before physical inputs are reserved and requirements allocated, making the
+allocation report deterministic and preventing a collision or exhaustion from
+mutating the caller's inventory.
+
+For a selected backend that advertises native keysym-table capacity, static
+product tables at or below that finite capacity are graded `exact`. The current
+XKB capability supplies the conventional eight-level case. A table with more
+than eight states is retained in full and graded `unsupported` with an explicit
+requirement for another target or a separately proven emulation. It is never
+truncated, replaced with `NoSymbol`, or silently assigned to Kanata or QMK.
+`require-planned-realizations` refuses that unproved plan. This planner records
+requirements only; it does not itself emit Kanata, XKB, firmware, or a carrier
+scheme.
+
 ## Fidelity grades and refusal
 
 Each requested feature has one of these grades:
@@ -70,13 +90,23 @@ header; unsafe input is rejected rather than becoming emitted Kanata syntax.
 `compile-xkb-kanata-request` lowers one request into `keymap.xkb` and
 `layout.kbd` string artifacts after fidelity refusal. Artifact writes reject
 absolute paths and parent traversal. The CLI compiler emits through a fresh
-sibling directory, refuses an existing target, and includes a realization
-report. `validate-pipeline-result` invokes `xkbcli
+sibling directory derived from an exclusive random reservation, verifies the
+physical parent and temporary contents, refuses an existing target, and
+includes a realization report. Portable Common Lisp has no atomic
+non-replacing directory rename or directory-descriptor API, so the output
+parent must already exist and must not be concurrently writable by an
+untrusted principal. `validate-pipeline-result` invokes `xkbcli
 compile-keymap --keymap PATH` and `kanata --check -c PATH` when asked.
+
+CLI inspection, explanation, and compilation may instead select a confined
+project composition with `--project PROJECT --composition NAME`; this is an
+input-selection mode, not deployment. Project mode does not mix independent
+layout/device/profile paths with a composition.
 
 Tool validation is optional environmental evidence. A passing `xkbcli` or
 `kanata` invocation proves only the generated artifact was accepted by that
 installed tool; it does not prove semantic equivalence, live device behavior,
 or deployment. The current pipeline has no integrated carrier allocation,
-machine-readable manifest, or source map. `resource-pool` is a deterministic
-reusable allocator, but it is not yet connected to pipeline planning.
+machine-readable manifest, or source map. The planner can inspect and allocate
+an explicitly provided resource inventory, but those allocations are not yet
+wired into emitted pipeline artifacts.

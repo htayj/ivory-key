@@ -24,12 +24,14 @@
                (:file "src/resolve")
                (:file "src/validate")
                (:file "src/normalize")
+               (:file "src/project")
                (:file "src/simulate/events")
                (:file "src/simulate/patterns")
                (:file "src/simulate/machine")
                (:file "src/simulate/compile")
                (:file "src/backend/protocol")
                (:file "src/backend/resources")
+               (:file "src/backend/planner")
                (:file "src/backend/xkb")
                (:file "src/backend/kanata")
                (:file "src/pipeline/xkb-kanata")
@@ -39,7 +41,7 @@
                (:file "src/cli")))
 
 (asdf:defsystem "ivory-key/cli"
-  :description "Ivory Key command-line entry point (bootstrap placeholder)"
+  :description "Ivory Key command-line entry point"
   :depends-on ("ivory-key"))
 
 (asdf:defsystem "ivory-key/tests"
@@ -53,9 +55,12 @@
                (:file "tests/syntax/formatter")
                (:file "tests/model/semantic-core")
                (:file "tests/model/decoder")
+               (:file "tests/model/overlay-decoder")
+               (:file "tests/project")
                (:file "tests/simulation/machine")
                (:file "tests/simulation/compile")
                (:file "tests/backend/backend")
+               (:file "tests/backend/planner")
                (:file "tests/compiler")
                (:file "tests/security/backend-validation")
                (:file "tests/integration/helpers"))

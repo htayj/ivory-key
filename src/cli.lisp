@@ -88,6 +88,26 @@ cannot silently override an earlier safety-relevant path.
 (defun optional-option (options name)
   (cdr (assoc name options :test #'string=)))
 
+(defun project-option-values (options command)
+  "Return PROJECT and COMPOSITION together, or reject a partial project mode.
+
+The project loader owns import traversal and source-root confinement.  A
+command must therefore choose either its historic independent source files or
+one root project composition; mixing the two would make the selected meaning
+and physical mappings ambiguous.
+"
+  (let ((project (optional-option options "--project"))
+        (composition (optional-option options "--composition")))
+    (cond ((and project composition) (values project composition))
+          ((or project composition)
+           (error "~A requires --project and --composition together." command))
+          (t (values nil nil)))))
+
+(defun reject-mixed-project-options (project direct-options command)
+  (when (and project (some #'identity direct-options))
+    (error "~A cannot mix --project/--composition with explicit source files."
+           command)))
+
 (defun typed-layout-dump-string (unit)
   "Show the typed, pre-normalization model without depending on object printing."
   (let ((layout (compiler-unit-layout unit)))
@@ -113,65 +133,126 @@ cannot silently override an earlier safety-relevant path.
                       (ivory-key.model:layout-interactions layout))))))
 
 (defun dump-ir-command (arguments)
-  (let* ((options (command-options arguments '("--stage" "--layout" "--topology")))
+  (let* ((options (command-options arguments
+                                   '("--stage" "--layout" "--topology"
+                                     "--project" "--composition")))
          (stage (required-option options "--stage"))
-         (layout-path (required-option options "--layout"))
+         (layout-path (optional-option options "--layout"))
          (topology-path (optional-option options "--topology")))
-    (cond
-      ((string= stage "parsed")
-       (let ((parsed (%parse-required-file layout-path "layout")))
-         (dolist (form (%parsed-values parsed))
-           (write form :stream *standard-output* :escape t)
-           (terpri))))
-      ((or (string= stage "typed") (string= stage "normalized"))
-       (let ((unit (load-layout-for-compilation layout-path :topology-path topology-path)))
-         (write-string (if (string= stage "typed")
-                           (typed-layout-dump-string unit)
-                           (normalized-layout-dump-string
-                            (compiler-unit-normalized unit)))
-                       *standard-output*)))
-      (t (error "Unknown IR stage ~A; expected parsed, typed, or normalized." stage)))
-    0))
+    (multiple-value-bind (project-path composition-name)
+        (project-option-values options "dump-ir")
+      (reject-mixed-project-options project-path (list layout-path topology-path)
+                                    "dump-ir")
+      (cond
+        (project-path
+         (when (string= stage "parsed")
+           ;; The project loader intentionally does not expose raw parser
+           ;; values as a public registry.  Do not bypass it by reparsing an
+           ;; arbitrary imported file merely to satisfy this inspection mode.
+           (error "dump-ir --project supports typed or normalized stages, not parsed."))
+         (unless (or (string= stage "typed") (string= stage "normalized"))
+           (error "Unknown IR stage ~A; expected typed or normalized." stage))
+         (multiple-value-bind (unit)
+             (load-project-composition-for-compilation project-path composition-name)
+           (write-string (if (string= stage "typed")
+                             (typed-layout-dump-string unit)
+                             (normalized-layout-dump-string
+                              (compiler-unit-normalized unit)))
+                         *standard-output*)))
+        ((string= stage "parsed")
+         (let ((parsed (%parse-required-file
+                        (required-option options "--layout") "layout")))
+           (dolist (form (%parsed-values parsed))
+             (write form :stream *standard-output* :escape t)
+             (terpri))))
+        ((or (string= stage "typed") (string= stage "normalized"))
+         (let ((unit (load-layout-for-compilation
+                      (required-option options "--layout")
+                      :topology-path topology-path)))
+           (write-string (if (string= stage "typed")
+                             (typed-layout-dump-string unit)
+                             (normalized-layout-dump-string
+                              (compiler-unit-normalized unit)))
+                         *standard-output*)))
+        (t (error "Unknown IR stage ~A; expected parsed, typed, or normalized." stage)))
+      0)))
 
 (defun levels-command (arguments)
-  (let* ((options (command-options arguments '("--layout" "--topology")))
-         (unit (load-layout-for-compilation
-                (required-option options "--layout")
-                :topology-path (optional-option options "--topology"))))
-    (write-string (level-report-string (compiler-unit-normalized unit))
-                  *standard-output*)
-    0))
+  (let* ((options (command-options arguments
+                                   '("--layout" "--topology"
+                                     "--project" "--composition")))
+         (layout-path (optional-option options "--layout"))
+         (topology-path (optional-option options "--topology")))
+    (multiple-value-bind (project-path composition-name)
+        (project-option-values options "levels")
+      (reject-mixed-project-options project-path (list layout-path topology-path)
+                                    "levels")
+      (let ((unit (if project-path
+                      (load-project-composition-for-compilation
+                       project-path composition-name)
+                      (load-layout-for-compilation
+                       (required-option options "--layout")
+                       :topology-path topology-path))))
+        (write-string (level-report-string (compiler-unit-normalized unit))
+                      *standard-output*)
+        0))))
 
 (defun explain-command (arguments)
   (let* ((options (command-options arguments
-                                   '("--layout" "--topology" "--device" "--realization")))
-         (result (explain-layout-source
-                  (required-option options "--layout")
-                  :topology-path (optional-option options "--topology")
-                  :device-path (required-option options "--device")
-                  :realization-path (required-option options "--realization")
-                  :stream *standard-output*)))
-    ;; EXPLAIN succeeds only when the planner found an all-exact request.  A
-    ;; report of unsupported features is useful evidence, but is not a compile
-    ;; success and has a non-zero status for scripts.
-    (if result 0 1)))
+                                   '("--layout" "--topology" "--device" "--realization"
+                                     "--project" "--composition"))))
+    (multiple-value-bind (project-path composition-name)
+        (project-option-values options "explain")
+      (reject-mixed-project-options
+       project-path
+       (list (optional-option options "--layout")
+             (optional-option options "--topology")
+             (optional-option options "--device")
+             (optional-option options "--realization"))
+       "explain")
+      (let ((result (if project-path
+                        (explain-project-source project-path composition-name
+                                                :stream *standard-output*)
+                        (explain-layout-source
+                         (required-option options "--layout")
+                         :topology-path (optional-option options "--topology")
+                         :device-path (required-option options "--device")
+                         :realization-path (required-option options "--realization")
+                         :stream *standard-output*))))
+        ;; EXPLAIN succeeds only when the planner found an all-exact request.  A
+        ;; report of unsupported features is useful evidence, but is not a compile
+        ;; success and has a non-zero status for scripts.
+        (if result 0 1)))))
 
 (defun compile-command (arguments)
   (let* ((options (command-options arguments
-                                   '("--layout" "--topology" "--device" "--realization" "--output")))
-         (output (required-option options "--output"))
-         (result (compile-layout-source
-                  (required-option options "--layout")
-                  :topology-path (optional-option options "--topology")
-                  :device-path (required-option options "--device")
-                  :realization-path (required-option options "--realization")
-                  :output-directory output)))
-    (format *standard-output* "Emitted new build directory ~A.~%" output)
-    (format *standard-output* "Tool validation was not run; use validate-build for that evidence.~%")
-    (dolist (artifact (ivory-key.backend:pipeline-result-artifacts result))
-      (format *standard-output* "  ~A~%"
-              (ivory-key.backend:pipeline-artifact-relative-path artifact)))
-    0))
+                                   '("--layout" "--topology" "--device" "--realization" "--output"
+                                     "--project" "--composition")))
+         (output (required-option options "--output")))
+    (multiple-value-bind (project-path composition-name)
+        (project-option-values options "compile")
+      (reject-mixed-project-options
+       project-path
+       (list (optional-option options "--layout")
+             (optional-option options "--topology")
+             (optional-option options "--device")
+             (optional-option options "--realization"))
+       "compile")
+      (let ((result (if project-path
+                        (compile-project-source project-path composition-name
+                                                :output-directory output)
+                        (compile-layout-source
+                         (required-option options "--layout")
+                         :topology-path (optional-option options "--topology")
+                         :device-path (required-option options "--device")
+                         :realization-path (required-option options "--realization")
+                         :output-directory output))))
+        (format *standard-output* "Emitted new build directory ~A.~%" output)
+        (format *standard-output* "Tool validation was not run; use validate-build for that evidence.~%")
+        (dolist (artifact (ivory-key.backend:pipeline-result-artifacts result))
+          (format *standard-output* "  ~A~%"
+                  (ivory-key.backend:pipeline-artifact-relative-path artifact)))
+        0))))
 
 (defun validate-build-command (arguments)
   (unless (= (length arguments) 1)
@@ -212,10 +293,13 @@ cannot silently override an earlier safety-relevant path.
   (format stream "  fmt [--check] FILE...  Canonically format source~%")
   (format stream "  inventory ROOT      Inventory a Manna Cadet checkout~%")
   (format stream "  dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]~%")
-  (format stream "  levels --layout FILE [--topology FILE]~%")
+  (format stream "          or --stage typed|normalized --project FILE --composition NAME~%")
+  (format stream "  levels --layout FILE [--topology FILE] | --project FILE --composition NAME~%")
   (format stream "  simulate --layout FILE --events FILE  (reports adapter availability)~%")
   (format stream "  explain --layout FILE --device FILE --realization FILE [--topology FILE]~%")
+  (format stream "          or --project FILE --composition NAME~%")
   (format stream "  compile --layout FILE --device FILE --realization FILE --output DIR [--topology FILE]~%")
+  (format stream "          or --project FILE --composition NAME --output DIR~%")
   (format stream "  validate-build DIR  Run optional XKB/Kanata validators~%"))
 
 (defun main (&optional (arguments (uiop:command-line-arguments)))

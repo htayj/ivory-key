@@ -278,6 +278,26 @@
    #:compile-normalized-interaction #:compile-normalized-interactions
    #:model-layout-simulator-axes #:compile-model-layout-interactions))
 
+(defpackage #:ivory-key.project
+  (:use #:cl #:ivory-key.source #:ivory-key.syntax
+        #:ivory-key.conditions #:ivory-key.model)
+  (:export
+   #:project-error #:project-error-code #:project-error-message
+   #:project-error-path #:project-error-import-stack
+   #:project-definition #:project-definition-kind #:project-definition-name
+   #:project-definition-value #:project-definition-span
+   #:project-load-result #:project-load-result-definitions
+   #:project-load-result-layouts #:project-load-result-topologies
+   #:project-load-result-devices #:project-load-result-realizations
+   #:project-load-result-compositions #:load-project
+   #:project-realization-composition
+   #:project-realization-composition-name
+   #:project-realization-composition-layout
+   #:project-realization-composition-device
+   #:project-realization-composition-realization
+   #:project-definition-by-name #:project-layout #:project-topology
+   #:project-device #:project-realization #:project-composition))
+
 (defpackage #:ivory-key.backend
   (:use #:cl #:ivory-key.conditions #:ivory-key.model)
   (:export
@@ -297,6 +317,35 @@
    #:lowering-request-metadata
    #:resource-pool #:make-resource-pool #:reserve-resource #:allocate-resource
    #:allocation-alist
+   ;; Backend-neutral capability planning.
+   #:planner-refusal #:planner-refusal-code #:planner-refusal-feature
+   #:planner-refusal-detail #:planner-refusal-plan
+   #:static-table-requirement #:make-static-table-requirement
+   #:static-table-requirement-position
+   #:static-table-requirement-physical-input
+   #:static-table-requirement-axes #:static-table-requirement-entries
+   #:static-table-requirement-state-count #:static-table-requirement-static-p
+   #:planned-binding #:make-planned-binding
+   #:selector-requirement #:make-selector-requirement
+   #:selector-requirement-axis #:selector-requirement-resolution
+   #:selector-requirement-states #:selector-requirement-default-state
+   #:selector-requirement-positions
+   #:modifier-requirement #:make-modifier-requirement
+   #:modifier-requirement-modifier
+   #:planner-resource-requirement #:make-planner-resource-requirement
+   #:planner-resource-requirement-kind #:planner-resource-requirement-owner
+   #:planner-resource-requirement-cardinality
+   #:planner-resource-requirement-detail #:planner-resource-requirement-source
+   #:planner-allocation #:make-planner-allocation
+   #:planner-allocation-requirement #:planner-allocation-pool-kind
+   #:planner-allocation-value
+   #:lowering-plan #:make-lowering-plan #:lowering-plan-layout
+   #:lowering-plan-placement #:lowering-plan-bindings
+   #:lowering-plan-selector-requirements
+   #:lowering-plan-modifier-requirements
+   #:lowering-plan-resource-requirements #:lowering-plan-allocations
+   #:lowering-plan-realizations #:lowering-plan-diagnostics
+   #:plan-normalized-layout #:require-planned-realizations
    #:make-xkb-backend #:xkb-plan-realizations
    #:make-kanata-backend #:kanata-plan-realizations
    #:pipeline-artifact-kind #:pipeline-artifact-relative-path
@@ -316,8 +365,10 @@
    #:compiler-stage-error #:compiler-stage-error-stage
    #:compiler-stage-error-code #:compiler-stage-error-message
    #:load-layout-for-compilation
+   #:load-project-composition-for-compilation
    #:make-lowering-request-from-normalized-layout
    #:compile-layout-source #:dump-normalized-layout
+   #:compile-project-source #:explain-project-source
    #:level-report-string #:simulate-layout-events
    #:validate-build-directory))
 

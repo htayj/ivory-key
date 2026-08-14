@@ -16,23 +16,30 @@ The bootstrap currently provides:
 - a dedicated, non-evaluating S-expression lexer, parser, diagnostics, and
   canonical formatter;
 - typed model objects for axes, modifiers, positions, behaviors, bindings,
-  overlays, and finite timed interactions, with resolution, validation, and
-  normalization support for programmatic callers;
+  sparse overlays, and finite timed interactions, with resolution, validation,
+  and normalization support;
+- a deterministic project loader for explicitly imported layout, topology,
+  device, realization, and `realize` composition declarations. Imports are
+  confined to configured source roots and reject cycles, traversal escapes,
+  and symlink escapes;
 - a reference timed-event simulator and dependency-free simulation tests;
+- a target-neutral capability planner that preserves normalized static product
+  tables, lists selector/modifier/resource requirements, and deterministically
+  detects allocation collisions or exhaustion;
 - constrained XKB and Kanata emitters driven by a backend-neutral
-  `lowering-request`, plus optional external-tool validation;
+  `lowering-request`, plus optional external-tool validation; and
 - a conservative end-to-end compiler for exactly representable static layouts,
   with deterministic inspection, capability explanation, fresh build-directory
-  emission, and explicit refusal of unsupported semantics; and
-- a read-only Manna Cadet baseline inventory command.
+  emission, and explicit refusal of unsupported semantics.
 
-The checked-in Manna Cadet fragment and twenty-level conformance fixture now
-decode, validate, and normalize: the latter produces twenty abstract entries.
-They are not yet exactly realizable by the bootstrap pipeline. Multi-context
-selection, semantic modifiers, generic timed interactions, commands, named
-symbols, and unregistered vocabulary are refused instead of approximated.
-The CLI `simulate` command also remains unavailable for a complete layout;
-the programmatic reference simulator and model adapter are implemented.
+The checked-in Manna Cadet layout now contains a frozen 52-key static-symbol
+transcription, plus separately identified selector/timed-interaction evidence.
+It is an auditable transcription, not a claim that Ivory Key has generated,
+installed, or activated an equivalent keyboard configuration. The twenty-level
+conformance fixture remains expressible in the abstract model but is not
+silently reduced to eight states. The CLI `simulate` command also remains
+unavailable for a complete layout; the programmatic reference simulator and
+model adapter are implemented.
 
 ## Quick start
 
@@ -52,9 +59,13 @@ ivory-key check FILE...
 ivory-key fmt [--check] FILE...
 ivory-key inventory MANNA-CADET-CHECKOUT
 ivory-key dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]
+ivory-key dump-ir --stage typed|normalized --project PROJECT --composition NAME
 ivory-key levels --layout FILE [--topology FILE]
+ivory-key levels --project PROJECT --composition NAME
 ivory-key explain --layout FILE --topology FILE --device FILE --realization FILE
+ivory-key explain --project PROJECT --composition NAME
 ivory-key compile --layout FILE --topology FILE --device FILE --realization FILE --output DIR
+ivory-key compile --project PROJECT --composition NAME --output DIR
 ivory-key validate-build DIR
 ```
 
@@ -62,15 +73,31 @@ ivory-key validate-build DIR
 hashes, tool-version probes, and selected evidence lines. It does not change
 the checkout or install any keyboard configuration.
 
+Project-mode commands select one named `realize` composition. They do not
+accept a mixture of `--project`/`--composition` and independent layout/device/
+profile paths, because that would make the selected meaning and placement
+ambiguous. `dump-ir` project mode exposes only typed and normalized stages;
+raw parsed inspection remains a single-file mode.
+
+The checked-in `manna-cadet-project.ivory` is the auditable import graph for
+the frozen Manna layout, Kinesis Advantage 2 placement, Linux profile, and
+named `manna-cadet-linux` composition. Inspection works today; compilation is
+expected to refuse until every required selector, modifier, named output, and
+timed interaction has an exact approved realization.
+
 ## Documentation
 
 - [Language syntax and decoder scope](docs/language.md)
 - [Implemented semantic model and timed interactions](docs/semantics.md)
 - [XKB/Kanata backend contract and fidelity rules](docs/backend-contract.md)
+- [Frozen Manna Cadet baseline and truth table](docs/manna-cadet-baseline.md)
 - [Manna Cadet migration status](docs/migration-manna-cadet.md)
 - [Conceptual overview](docs/concepts-and-abstractions.md)
 
-`compile` creates a new build directory and refuses to overwrite one; it never
-deploys. Generated artifacts and live keyboard deployment remain separate.
+`compile` creates a new build beneath an existing trusted output parent and
+refuses to overwrite one; it never deploys. Because portable Common Lisp lacks
+an atomic non-replacing directory rename, that parent must not be concurrently
+writable by an untrusted process. Generated artifacts and live keyboard
+deployment remain separate.
 A successful parse, normalization, in-process lowering, external tool check,
 and observed live input are different kinds of evidence.

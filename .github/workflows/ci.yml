@@ -1,0 +1,39 @@
+name: Common Lisp CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        implementation: [sbcl, ecl]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Common Lisp
+        run: sudo apt-get update && sudo apt-get install --yes ${{ matrix.implementation }}
+
+      - name: Run tests with SBCL
+        if: matrix.implementation == 'sbcl'
+        run: |
+          sbcl --noinform --non-interactive \
+            --eval '(require :asdf)' \
+            --eval '(asdf:load-asd (truename "ivory-key.asd"))' \
+            --eval '(asdf:test-system "ivory-key/tests")'
+
+      - name: Run tests with ECL
+        if: matrix.implementation == 'ecl'
+        run: |
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:load-asd (truename "ivory-key.asd"))' \
+            --eval '(asdf:test-system "ivory-key/tests")' \
+            --eval '(quit)'
