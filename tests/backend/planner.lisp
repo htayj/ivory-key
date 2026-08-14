@@ -151,7 +151,7 @@
     ;; Fifty-two frozen symbol tables fit conventional XKB eight-level
     ;; capacity.  Four literal primary-layer bindings are direct outputs, not
     ;; selector tables; neither class allocates selectors or five modifiers.
-    (is-equal 56 (length bindings))
+    (is-equal 66 (length bindings))
     (let ((selector-tables
             (remove-if-not
              (lambda (binding)

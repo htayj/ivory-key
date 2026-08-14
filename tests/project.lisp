@@ -129,18 +129,19 @@ unselected.  This covers the real graph rather than a decoder-only fixture."
                    :source-roots (list (truename "./"))))
          (layout (ivory-key.project:project-layout project "manna-cadet" :errorp t))
          (topology (ivory-key.model:layout-topology layout))
-         (native-only-positions
+         (direct-native-positions
            '("left" "right" "up" "down" "home" "page-up"
-             "control-plane-alt" "hotkey-18" "hotkey-20" "hotkey-19"
-             "hotkey-21")))
-    (is-equal 56 (length (ivory-key.model:layout-bindings layout)))
+             "hotkey-18" "hotkey-20" "hotkey-19" "hotkey-21")))
+    (is-equal 66 (length (ivory-key.model:layout-bindings layout)))
     (is-equal 20 (length (ivory-key.model:layout-interactions layout)))
     (is-equal 72 (length (ivory-key.model:topology-positions topology)))
-    ;; The native-only physical domain is typed without assigning ordinary
-    ;; layout behavior to any of its positions.
-    (dolist (position native-only-positions)
+    ;; Literal direct routes are transcribed; only C7 remains a typed physical
+    ;; input without an invented ordinary layout behavior.
+    (dolist (position direct-native-positions)
       (is (ivory-key.model:find-position position topology))
-      (is (null (ivory-key.model:layout-binding layout position))))
+      (is (ivory-key.model:layout-binding layout position)))
+    (is (ivory-key.model:find-position "control-plane-alt" topology))
+    (is (null (ivory-key.model:layout-binding layout "control-plane-alt")))
     (dolist (specification
              '(("kinesis-advantage2" 67
                 (("hotkey-18" :unreachable nil nil)

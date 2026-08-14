@@ -21,8 +21,9 @@ The labels below are deliberately narrow:
 
 ## Phase 7 and Phase 9 boundary
 
-The completed evidence tranche records 52 static XKB tables, four direct
-normal-layer bindings, the five semantic-modifier names, both primary layered
+The completed evidence tranche records 52 static XKB tables, fourteen direct
+normal-layer bindings (four tap identities, six shared navigation keys, and
+four Advantage 360 local F-key routes), the five semantic-modifier names, both primary layered
 physical placements, four direct immediate selector lifecycles, sixteen
 structurally transcribed but unselected tap-hold interactions, and the 29
 output positions of the common primary function table.
@@ -117,8 +118,8 @@ simulator, compiler, backend, XKB, client, or live-device claim.
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
 |---|---|---|---|
 | §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; no source inventory selects behavior | implementable review tooling remains |
-| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, four direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed/unselected tap-holds, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
-| §13.3 complete physical placement | 51 physically covered Manna selector overrides, four immediate direct holders/selectors, the mode-key position, an explicit typed-unreachable `<LSGT>` record on both devices, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
+| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed/unselected tap-holds, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
+| §13.3 complete physical placement | the complete 72-position union, A2 coverage of 67 physical plus five typed-unreachable positions, A360 coverage of 71 physical plus typed-unreachable `<LSGT>`, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
 | §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths. Proposed ADR 0003 also has a source-decoded/reference-simulated no-delay 14+2 fixture: every literal tap/deadline row, immutable foreign capture, early-owner-up tap fallback, all five modifier families, case, script/plane capture/release, both release orders for every paired hold family, and a foreign interaction armed independently before its later own tap | project the still-unselected policy onto an active reviewed Manna composition, then prove complete timed, overlay, selector-visibility, and generated-backend traces; a shared foreign-UP cross-interaction ordering remains deliberately unselected | blocked by profile selection and lowering choices |
 | §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
@@ -449,14 +450,14 @@ guessed.
 
 ## Checked-in consequences and review gates
 
-- `layouts/manna-cadet.ivory` has 52 static eight-context bindings, four direct
+- `layouts/manna-cadet.ivory` has 52 static eight-context bindings, fourteen direct
   ordinary bindings, one function patch with 29 entries, four immediate held
   interactions, and 16 structurally transcribed but unselected tap-hold
   interactions. It selects no compatibility policy, allocation, or emission.
-- The shared topology has the 52 static positions, four additional direct
-  normal-layer positions, two direct physical case holders, immediate Greek
-  and Top selectors, and the common `mode-key`. Each device has 60 explicit
-  placements; the `mode-key` maps to `MENU`/`menu` on A2 and `CAPS`/`caps` on
+- The shared topology is the complete 72-position device union. Advantage 2
+  has 67 physical placements plus typed-unreachable `<LSGT>` and four local
+  hotkeys; Advantage 360 has 71 physical placements plus typed-unreachable
+  `<LSGT>`. The `mode-key` maps to `MENU`/`menu` on A2 and `CAPS`/`caps` on
   360. RETURN remains the sole physical Enter identity.
 - `manna-cadet-advantage360-linux` is a second project composition.  It selects
   the frozen 360 placement only; it does not select or implement the game

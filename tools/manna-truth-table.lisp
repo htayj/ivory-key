@@ -1326,10 +1326,10 @@ runtime behavior.
     (unless (search fixture layout)
       (error "Manna fixture's 52 static tables differ from the frozen mechanical render.")))
   ;; The mechanically rendered block remains exactly 52 static tables.  Four
-  ;; source-selected tap identities are represented by context-free ordinary
-  ;; bindings after that block.
-  (unless (= 56 (count-prefixed-lines layout "  (binding"))
-    (error "Manna fixture must contain 52 static and 4 tap bindings."))
+  ;; source-selected tap identities plus six shared navigation and four A360
+  ;; local-key routes are context-free ordinary bindings after that block.
+  (unless (= 66 (count-prefixed-lines layout "  (binding"))
+    (error "Manna fixture must contain 52 static and 14 direct bindings."))
   (unless (= 72 (count-prefixed-lines topology "  (position "))
     (error "Manna topology must contain the complete 72-position device union."))
   (dolist (row (static-placement-rows))

@@ -173,11 +173,11 @@ atomic; source authors do not receive a generic press/release or replay macro.
 The old output list may remain a compatibility projection, but the ordered
 transitions are normative for this policy.
 
-The reference simulator's redispatch domain is intentionally small: unpatched
-direct ordinary bindings, evaluated at the resolution frontier, whose every
-normalized table entry is text, a named key, a named symbol, or no output.
-This is reference-only evidence: the pinned Kanata differential exercises the
-direct named-key route, not the wider table classes. Overlays,
+The reference simulator's redispatch domain is intentionally small: one
+unpatched, context-free direct ordinary binding whose sole normalized output
+is a named key. This is reference-only evidence and matches the route class
+exercised by the pinned Kanata differential. Text, named-symbol, no-output,
+context tables, overlays,
 timed-interaction participants, selector or state changes, modifier operations,
 commands, arbitrary sequences, unknown positions, and unbound positions
 refuse. No backend lowering is exact on account of this simulator boundary;
@@ -185,9 +185,9 @@ the boundary can grow only with separate semantic and differential evidence.
 
 ## Explicit refusal boundary
 
-The barrier is deliberately not a general event queue. It admits only
-unpatched direct output-only ordinary routes (text, named key, named symbol, or
-none) authorized by the same opaque layout token. It refuses `gdel` and
+The barrier is deliberately not a general event queue. It admits only an
+unpatched, context-free, direct named-key ordinary route authorized by the same
+opaque layout token. It refuses `gdel` and
 `rtop`, C7/game or unmapped domains, overlays, stateful/latch-sensitive routes,
 foreign timed interactions, nested/arbitrary replay, and any backend that
 cannot preserve the listed order. It also does not prove a 360 state-machine

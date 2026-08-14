@@ -30,10 +30,10 @@ and proving live keyboard behavior are different evidence levels.
   states and explicitly refuses the conventional eight-level XKB realization
   unless another target or separately proven emulation is supplied.
 - `topologies/kinesis-advantage.ivory` and `topologies/one-key.ivory` record
-  logical positions and descriptive geometry. The Kinesis topology includes
-  the 52 static positions, two direct physical case holders, immediate Greek
-  and Top selectors, and the shared device-variant `mode-key`; it does not
-  infer missing geometry from backend names.
+  logical positions and descriptive geometry. The Kinesis topology is the
+  complete 72-position A2/A360 union, with explicit physical/unreachable
+  coverage in each device; it does not infer missing geometry from backend
+  names.
 - `devices/kinesis-advantage2.ivory` and
   `devices/kinesis-advantage360.ivory` sketch separate physical mappings and
   reserved carrier numbers.

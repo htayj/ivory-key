@@ -1387,7 +1387,7 @@ complete carrier table from an invented Manna behavior.
       ;; selected device coverage, leaving 51 selector overrides plus the
       ;; three directly routable named-key bindings.  Frozen END remains the
       ;; command route; its overlapping buffered interaction is still refused.
-      (is-equal 54 (length (ivory-key.backend::lowering-request-entries request)))
+      (is-equal 60 (length (ivory-key.backend::lowering-request-entries request)))
       (let* ((metadata (ivory-key.backend::lowering-request-metadata request))
              (carriers (getf metadata :xkb-carrier-entries))
              (allocations (getf metadata :carrier-allocations))
@@ -1511,6 +1511,8 @@ complete carrier table from an invented Manna behavior.
          :unsupported-command-output
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unsupported-timed-interaction :unsupported-timed-interaction
+         :unreachable-device-position :unreachable-device-position
+         :unreachable-device-position :unreachable-device-position
          :unreachable-device-position :unproved-patch-activation
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unsupported-timed-interaction :unsupported-timed-interaction
@@ -1533,8 +1535,8 @@ complete carrier table from an invented Manna behavior.
                     :selector-policy
                     (ivory-key.cli::compiler-realization-selector-policy realization))))))))
 
-(deftest compiler-manna-native-only-physical-coverage-does-not-invent-bindings
-  "Typed native coverage is not permission to assign C7, game, or hotkey behavior."
+(deftest compiler-manna-native-coverage-retains-only-source-transcribed-bindings
+  "Typed coverage plus literal rows is not permission to invent C7 or game behavior."
   (dolist (specification
            '(("manna-cadet-linux"
               (("hotkey-18" :unreachable) ("hotkey-20" :unreachable)
@@ -1556,10 +1558,10 @@ complete carrier table from an invented Manna behavior.
           (let ((coverage
                   (getf (ivory-key.backend::lowering-request-metadata request)
                         :input-coverage))
-                (native-only
-                  '("left" "right" "up" "down" "home" "page-up"
-                    "control-plane-alt" "hotkey-18" "hotkey-20" "hotkey-19"
-                    "hotkey-21")))
+                (shared-direct-routes
+                  '("left" "right" "up" "down" "home" "page-up"))
+                (hotkey-routes
+                  '("hotkey-18" "hotkey-20" "hotkey-19" "hotkey-21")))
             (is-equal 72 (length coverage))
             (dolist (row hotkeys)
               (destructuring-bind (position disposition) row
@@ -1567,11 +1569,25 @@ complete carrier table from an invented Manna behavior.
                           (find position coverage :test #'string=
                                 :key (lambda (record)
                                        (getf record :position))))))
-            (dolist (position native-only)
-              (is (null (find position
-                              (ivory-key.backend::lowering-request-entries request)
-                              :test #'string=
-                              :key #'ivory-key.backend:key-entry-position))))
+            (dolist (position shared-direct-routes)
+              (is (find position
+                        (ivory-key.backend::lowering-request-entries request)
+                        :test #'string=
+                        :key #'ivory-key.backend:key-entry-position)))
+            (dolist (position hotkey-routes)
+              (if (string= composition "manna-cadet-advantage360-linux")
+                  (is (find position
+                            (ivory-key.backend::lowering-request-entries request)
+                            :test #'string=
+                            :key #'ivory-key.backend:key-entry-position))
+                  (is (null (find position
+                                  (ivory-key.backend::lowering-request-entries request)
+                                  :test #'string=
+                                  :key #'ivory-key.backend:key-entry-position)))))
+            (is (null (find "control-plane-alt"
+                            (ivory-key.backend::lowering-request-entries request)
+                            :test #'string=
+                            :key #'ivory-key.backend:key-entry-position)))
             (is issues)
             ;; Neither variant can turn physical evidence into an artifact:
             ;; the still-unselected profile semantics retain the deterministic

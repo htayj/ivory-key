@@ -387,8 +387,8 @@ verified before these checked-in counts and raw rows are considered evidence."
         (vocabulary (uiop:read-file-string
                      (repository-file
                       "realizations/manna-cadet-output-vocabulary.ivory"))))
-    (unless (= 56 (count-prefixed-lines layout "  (binding"))
-      (error "Manna fixture no longer has 52 static plus four direct bindings."))
+    (unless (= 66 (count-prefixed-lines layout "  (binding"))
+      (error "Manna fixture no longer has 52 static plus fourteen direct bindings."))
     (unless (= 29 (count-prefixed-lines layout "    (binding "))
       (error "Manna fixture no longer has the complete 29-entry primary function table."))
     (unless (search derived-static-bindings layout)
@@ -396,7 +396,17 @@ verified before these checked-in counts and raw rows are considered evidence."
     (dolist (binding '("(binding escape (named-key escape))"
                        "(binding delete (named-key delete))"
                        "(binding end (command end))"
-                       "(binding pgdn (named-key page-down))"))
+                       "(binding pgdn (named-key page-down))"
+                       "(binding left (named-key left))"
+                       "(binding right (named-key right))"
+                       "(binding up (named-key up))"
+                       "(binding down (named-key down))"
+                       "(binding home (named-key home))"
+                       "(binding page-up (named-key page-up))"
+                       "(binding hotkey-18 (named-key f18))"
+                       "(binding hotkey-20 (named-key f20))"
+                       "(binding hotkey-19 (named-key f19))"
+                       "(binding hotkey-21 (named-key f21))"))
       (unless (search binding layout)
         (error "Manna fixture lost direct frozen normal binding ~A." binding)))
     (unless (and (search "(axis function (:states inactive active) (:resolution patch))" layout)

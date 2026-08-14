@@ -127,7 +127,8 @@ applications. `NoSymbol` is the explicit XKB no-symbol entry, not a guess.
 
 ## Transcribed fixture scope
 
-`layouts/manna-cadet.ivory` contains all 52 static tables. Its
+`layouts/manna-cadet.ivory` contains all 52 static tables plus the literal
+shared navigation and Advantage 360 local F-key routes. Its
 `named-symbol` values are neutral semantic registry names, not XKB or
 private-use carrier escapes. `realizations/manna-cadet-output-vocabulary.ivory`
 owns their frozen XKB spellings; the compiler therefore prepares the 51 static
@@ -135,11 +136,13 @@ tables that have an evidenced device placement, while preserving physical
 Kanata events for XKB to translate. This remains a refused partial proposal,
 not a generatable replacement.
 
-The Kinesis topology has the 52 static positions, two direct physical case
-holders, directly evidenced `greek` and `top` selectors, and a shared
-`mode-key` whose inactive result differs by device. Both device files place 51
-static positions (every table except `<LSGT>`), the two direct case holders,
-the two direct selectors, and the common mode-key location:
+The Kinesis topology is the complete 72-position union: the 52 static
+positions, two direct physical case holders, directly evidenced `greek` and
+`top` selectors, a shared `mode-key`, six navigation positions, one C7 control
+position, four tap-only positions, and four Advantage 360 local hotkeys. A2
+classifies 67 positions physical and five unreachable; A360 classifies 71
+physical and only `<LSGT>` unreachable. The shared mode-key's inactive result
+still differs by device:
 
 | Device | Physical source | XKB output |
 |---|---|---|

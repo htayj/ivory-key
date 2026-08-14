@@ -50,7 +50,7 @@
     ;; positions.  Four extra context-independent bindings are the literal
     ;; taps for primary source-selected interactions, not a change to the
     ;; 52-table truth contract.
-    (is-equal 56 (length (ivory-key.model:layout-bindings layout)))
+    (is-equal 66 (length (ivory-key.model:layout-bindings layout)))
     (let ((static-bindings
             (remove-if-not
              (lambda (binding)
