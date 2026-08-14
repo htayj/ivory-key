@@ -44,6 +44,20 @@
                           "~A is not one closed Kanata token." label))
   (string-downcase value))
 
+(defun %kanata-action-alias-token (value label)
+  "Validate a definition-position alias independently of input key tokens."
+  (unless (and (stringp value)
+               (plusp (length value))
+               (let ((first (char value 0)))
+                 (or (alpha-char-p first) (char= first #\_)))
+               (every (lambda (character)
+                        (or (alphanumericp character)
+                            (find character "_-")))
+                      value))
+    (%kanata-action-error :unsafe-kanata-buffered-alias
+                          "~A is not one closed Kanata alias identifier." label))
+  (string-downcase value))
+
 (defun %kanata-action-safe-token-p (value)
   "The closed atom vocabulary duplicated before KANATA's text emitter loads."
   (and (stringp value)
@@ -150,6 +164,9 @@
 
 (defclass kanata-buffered-interaction-action ()
   ((contract :initarg :contract :reader kanata-buffered-interaction-action-contract)
+   ;; The realization allocation supplies the alias token.  It must never be
+   ;; derived from the semantic interaction identity.
+   (alias :initarg :alias :reader kanata-buffered-interaction-action-alias)
    (owner :initarg :owner :reader kanata-buffered-interaction-action-owner)
    (tap-hold :initarg :tap-hold :reader kanata-buffered-interaction-action-tap-hold)
    (foreign-routes :initarg :foreign-routes
@@ -184,8 +201,9 @@
     action))
 
 (defun make-kanata-alias-ref-action (alias)
-  (let ((action (make-instance 'kanata-alias-ref-action
-                               :alias (%kanata-action-identifier alias "Alias reference"))))
+  (let* ((token (%kanata-action-alias-token alias "Alias reference"))
+         (action (make-instance 'kanata-alias-ref-action
+                                :alias (%kanata-action-identifier token "Alias reference"))))
     (setf (%kanata-action-validated-p action) t)
     action))
 
@@ -220,7 +238,9 @@
      (%kanata-action-token (kanata-layer-while-held-action-token action)
                            "Held layer token"))
     (kanata-alias-ref-action
-     (%kanata-action-identifier (kanata-alias-ref-action-alias action) "Alias reference"))
+     (%kanata-action-alias-token
+      (ivory-key.model:identifier-name (kanata-alias-ref-action-alias action))
+      "Alias reference"))
     (kanata-modifier-hold-action
      (%kanata-action-identifier (kanata-modifier-hold-action-identity action)
                                 "Modifier hold identity")
@@ -507,7 +527,7 @@ from minting buffered authority from a name/content projection.
   contract)
 
 (defun make-kanata-buffered-interaction-action
-    (contract owner tap-hold foreign-routes defcfg &key provenance)
+    (contract alias owner tap-hold foreign-routes defcfg &key provenance)
   "Build one inert buffered action only from a closed evidence contract.
 
 The returned object deliberately has no raw Kanata action string or emitted
@@ -516,7 +536,9 @@ which a later exact emitter would need to prove again.
 "
   (let ((action
           (make-instance 'kanata-buffered-interaction-action
-                         :contract contract :owner owner :tap-hold tap-hold
+                         :contract contract
+                         :alias (%kanata-action-alias-token alias "Buffered action alias")
+                         :owner owner :tap-hold tap-hold
                          :foreign-routes (copy-list (%kanata-action-proper-list
                                                      foreign-routes "Foreign routes"))
                          :defcfg defcfg
@@ -533,11 +555,13 @@ which a later exact emitter would need to prove again.
     (%kanata-action-error :unvalidated-kanata-buffered-action
                           "Buffered Kanata action was not built by a closed constructor."))
   (let* ((contract (kanata-buffered-interaction-action-contract action))
+         (alias (kanata-buffered-interaction-action-alias action))
          (owner (kanata-buffered-interaction-action-owner action))
          (tap-hold (kanata-buffered-interaction-action-tap-hold action))
          (routes (kanata-buffered-interaction-action-foreign-routes action))
          (provenance (kanata-buffered-interaction-action-provenance action)))
     (%validate-kanata-buffered-contract contract)
+    (%kanata-action-alias-token alias "Buffered action alias")
     (%validate-kanata-owner-placement owner)
     (%validate-kanata-action tap-hold)
     (%validate-kanata-defcfg-requirements
@@ -653,6 +677,7 @@ which a later exact emitter would need to prove again.
           (ivory-key.model:identifier-name
            (ivory-key.model:normalized-interaction-name
             (ivory-key.model::interaction-compatibility-contract-interaction contract)))
+          :alias (kanata-buffered-interaction-action-alias action)
           :owner
           (list :position (ivory-key.model:identifier-name
                            (kanata-owner-placement-position owner))
@@ -686,3 +711,239 @@ which a later exact emitter would need to prove again.
                  (kanata-buffered-interaction-action-defcfg action)))
           :provenance (%kanata-action-origin-data
                        (kanata-buffered-interaction-action-provenance action)))))
+
+;;; Closed buffered configuration proposal ---------------------------------
+
+;; This is deliberately a typed proposal AST, not a text configuration.  The
+;; emitter below remains behind the normal unsupported-realization gate; these
+;; values exist so a complete synthetic allocation can be reviewed without
+;; giving a native Kanata domain any authority it has not proved.
+(defclass kanata-buffered-layer-cell ()
+  ((position :initarg :position :reader kanata-buffered-layer-cell-position)
+   (input-token :initarg :input-token :reader kanata-buffered-layer-cell-input-token)
+   (action :initarg :action :reader kanata-buffered-layer-cell-action)))
+
+(defclass kanata-buffered-config ()
+  ((defcfg :initarg :defcfg :reader kanata-buffered-config-defcfg)
+   ;; Each member is a validated KANATA-BUFFERED-INTERACTION-ACTION whose
+   ;; explicit alias token names the emitted alias definition.
+   (aliases :initarg :aliases :reader kanata-buffered-config-aliases)
+   ;; Only owner aliases and realization-owned direct named-key routes occur
+   ;; here.  The ordinary plan supplies every other base layer cell.
+   (layer-cells :initarg :layer-cells :reader kanata-buffered-config-layer-cells)
+   (validated-p :initform nil :accessor %kanata-buffered-config-validated-p)))
+
+(defun %kanata-buffered-action< (left right)
+  (string< (kanata-buffered-interaction-action-alias left)
+           (kanata-buffered-interaction-action-alias right)))
+
+(defun %kanata-buffered-layer-cell< (left right)
+  (ivory-key.model:identifier<
+   (kanata-buffered-layer-cell-position left)
+   (kanata-buffered-layer-cell-position right)))
+
+(defun %kanata-buffered-source-row (row)
+  "Return canonical POSITION and INPUT from one compiler-owned source row."
+  (unless (and (consp row) (stringp (car row)) (stringp (cdr row)))
+    (%kanata-action-error :invalid-kanata-buffered-source-row
+                          "Buffered configuration source rows must be (position . token) pairs."))
+  (values (%kanata-action-identifier (car row) "Buffered source position")
+          (%kanata-action-token (cdr row) "Buffered source input token")))
+
+(defun %kanata-buffered-source-table (source-rows)
+  (unless (listp source-rows)
+    (%kanata-action-error :invalid-kanata-buffered-source-row
+                          "Buffered configuration source rows must be a proper list."))
+  (let ((by-position (make-hash-table :test #'equal))
+        (by-input (make-hash-table :test #'equal)))
+    (dolist (row source-rows)
+      (multiple-value-bind (position input) (%kanata-buffered-source-row row)
+        (let ((name (ivory-key.model:identifier-name position)))
+          (when (or (gethash name by-position) (gethash input by-input))
+            (%kanata-action-error :duplicate-kanata-buffered-source-row
+                                  "Buffered configuration source rows repeat ~A or ~A."
+                                  name input))
+          (setf (gethash name by-position) input
+                (gethash input by-input) name))))
+    (values by-position by-input)))
+
+(defun %make-kanata-buffered-layer-cell (position input-token action)
+  (unless (typep action '(or kanata-key-action kanata-alias-ref-action))
+    (%kanata-action-error :invalid-kanata-buffered-layer-cell
+                          "Buffered layer cells may contain only direct keys or alias references."))
+  (%validate-kanata-action action)
+  (make-instance 'kanata-buffered-layer-cell
+                 :position (%kanata-action-identifier position "Buffered cell position")
+                 :input-token (%kanata-action-token input-token "Buffered cell input token")
+                 :action action))
+
+(defun %validate-kanata-buffered-layer-cell (cell)
+  (unless (typep cell 'kanata-buffered-layer-cell)
+    (%kanata-action-error :invalid-kanata-buffered-layer-cell
+                          "Buffered configuration layer cell is not typed."))
+  (%kanata-action-identifier (kanata-buffered-layer-cell-position cell)
+                             "Buffered cell position")
+  (%kanata-action-token (kanata-buffered-layer-cell-input-token cell)
+                        "Buffered cell input token")
+  (%validate-kanata-action (kanata-buffered-layer-cell-action cell))
+  cell)
+
+(defun make-kanata-buffered-config (actions source-rows)
+  "Build a complete typed alias/defcfg/layer-cell proposal from ACTIONS.
+
+Every alias is explicit in its realization allocation; every owner and direct
+foreign route must be present exactly once in compiler-owned SOURCE-ROWS.  The
+result is non-emitting until the independent native-domain proof gate clears.
+"
+  (unless (and (listp actions) (consp actions))
+    (%kanata-action-error :empty-kanata-buffered-config
+                          "Buffered configuration requires one or more actions."))
+  (dolist (action actions) (validate-kanata-buffered-interaction-action action))
+  (%kanata-action-distinct actions #'kanata-buffered-interaction-action-alias
+                           :duplicate-kanata-buffered-config-alias
+                           "Buffered configuration alias")
+  (multiple-value-bind (source-by-position ignored-source-by-input)
+      (%kanata-buffered-source-table source-rows)
+    (declare (ignore ignored-source-by-input))
+    (let* ((ordered-actions (sort (copy-list actions) #'%kanata-buffered-action<))
+           (defcfg (kanata-buffered-interaction-action-defcfg (first ordered-actions)))
+           (cells nil)
+           (cell-positions (make-hash-table :test #'equal)))
+      (%validate-kanata-defcfg-requirements defcfg)
+      (labels ((source-input-for (position role)
+                 (let ((input (gethash (ivory-key.model:identifier-name position)
+                                       source-by-position)))
+                   (unless input
+                     (%kanata-action-error :missing-kanata-buffered-source-position
+                                           "Buffered ~A position ~A is absent from the source domain."
+                                           role (ivory-key.model:identifier-name position)))
+                   input))
+               (add-cell (position input action)
+                 (let ((name (ivory-key.model:identifier-name position)))
+                   (when (gethash name cell-positions)
+                     (%kanata-action-error :duplicate-kanata-buffered-layer-cell
+                                           "Buffered configuration has conflicting cells for ~A." name))
+                   (setf (gethash name cell-positions) t)
+                   (push (%make-kanata-buffered-layer-cell position input action) cells))))
+        (dolist (action ordered-actions)
+          (unless (and (eq (kanata-defcfg-requirements-process-unmapped-keys
+                            (kanata-buffered-interaction-action-defcfg action)) t)
+                       (eq (kanata-defcfg-requirements-concurrent-tap-hold
+                            (kanata-buffered-interaction-action-defcfg action)) :required))
+            (%kanata-action-error :conflicting-kanata-buffered-defcfg
+                                  "Buffered actions do not share the closed DEFCFG requirements."))
+          (let* ((owner (kanata-buffered-interaction-action-owner action))
+                 (position (kanata-owner-placement-position owner))
+                 (input (source-input-for position "owner")))
+            (unless (string= input (kanata-owner-placement-input-token owner))
+              (%kanata-action-error :mismatched-kanata-buffered-owner-source
+                                    "Buffered owner source token differs from its typed placement."))
+            (add-cell position input
+                      (make-kanata-alias-ref-action
+                       (kanata-buffered-interaction-action-alias action))))
+          (dolist (route (kanata-buffered-interaction-action-foreign-routes action))
+            (let* ((position (kanata-direct-route-reference-position route))
+                   (input (source-input-for position "foreign route")))
+              (unless (string= input (kanata-direct-route-reference-input-token route))
+                (%kanata-action-error :mismatched-kanata-buffered-route-source
+                                      "Buffered foreign route source token differs from its typed placement."))
+              ;; The global realization route may intentionally be used by
+              ;; several interactions.  It yields one identical layer cell.
+              (let ((existing (gethash (ivory-key.model:identifier-name position)
+                                       cell-positions)))
+                (if existing
+                    (unless (and (typep existing 'kanata-key-action)
+                                 (equal (kanata-action-canonical-data existing)
+                                        (kanata-action-canonical-data
+                                         (kanata-direct-route-reference-action route))))
+                      (%kanata-action-error :conflicting-kanata-buffered-foreign-route
+                                            "Buffered foreign routes disagree at one physical position."))
+                    (let ((key-action (kanata-direct-route-reference-action route)))
+                      (setf (gethash (ivory-key.model:identifier-name position)
+                                     cell-positions) key-action)
+                      (push (%make-kanata-buffered-layer-cell position input key-action)
+                            cells))))))))
+      ;; Replace marker T values by their key actions for the shared-route case.
+      (setf cells
+            (sort cells #'%kanata-buffered-layer-cell<))
+      (let ((config (make-instance 'kanata-buffered-config
+                                   :defcfg defcfg :aliases ordered-actions
+                                   :layer-cells cells)))
+        (setf (%kanata-buffered-config-validated-p config) t)
+        (validate-kanata-buffered-config config)
+        config))))
+
+(defun validate-kanata-buffered-config (config)
+  "Validate an inspection-only buffered configuration proposal."
+  (unless (and (typep config 'kanata-buffered-config)
+               (%kanata-buffered-config-validated-p config))
+    (%kanata-action-error :unvalidated-kanata-buffered-config
+                          "Buffered Kanata configuration was not built by its closed constructor."))
+  (%validate-kanata-defcfg-requirements (kanata-buffered-config-defcfg config))
+  (unless (consp (kanata-buffered-config-aliases config))
+    (%kanata-action-error :empty-kanata-buffered-config
+                          "Buffered configuration requires one or more aliases."))
+  (dolist (action (kanata-buffered-config-aliases config))
+    (validate-kanata-buffered-interaction-action action))
+  (%kanata-action-distinct (kanata-buffered-config-aliases config)
+                           #'kanata-buffered-interaction-action-alias
+                           :duplicate-kanata-buffered-config-alias
+                           "Buffered configuration alias")
+  (unless (equal (kanata-buffered-config-aliases config)
+                 (sort (copy-list (kanata-buffered-config-aliases config))
+                       #'%kanata-buffered-action<))
+    (%kanata-action-error :noncanonical-kanata-buffered-config-alias-order
+                          "Buffered configuration aliases must be canonical."))
+  (dolist (cell (kanata-buffered-config-layer-cells config))
+    (%validate-kanata-buffered-layer-cell cell))
+  (%kanata-action-distinct (kanata-buffered-config-layer-cells config)
+                           (lambda (cell)
+                             (ivory-key.model:identifier-name
+                              (kanata-buffered-layer-cell-position cell)))
+                           :duplicate-kanata-buffered-layer-cell
+                           "Buffered configuration layer cell")
+  (unless (equal (kanata-buffered-config-layer-cells config)
+                 (sort (copy-list (kanata-buffered-config-layer-cells config))
+                       #'%kanata-buffered-layer-cell<))
+    (%kanata-action-error :noncanonical-kanata-buffered-config-layer-order
+                          "Buffered configuration layer cells must be canonical."))
+  config)
+
+(defun kanata-buffered-config-canonical-data (config)
+  "Return deterministic, non-pathname inspection data for CONFIG."
+  (validate-kanata-buffered-config config)
+  (list :defcfg (list :process-unmapped-keys t :concurrent-tap-hold :required)
+        :aliases (mapcar #'kanata-buffered-interaction-action-canonical-data
+                         (kanata-buffered-config-aliases config))
+        :layer-cells
+        (mapcar (lambda (cell)
+                  (list :position
+                        (ivory-key.model:identifier-name
+                         (kanata-buffered-layer-cell-position cell))
+                        :input (kanata-buffered-layer-cell-input-token cell)
+                        :action (kanata-action-canonical-data
+                                 (kanata-buffered-layer-cell-action cell))))
+                (kanata-buffered-config-layer-cells config))))
+
+(defun kanata-action-emission-string (action)
+  "Render one already-validated closed action AST; never parse raw action text."
+  (%validate-kanata-action action)
+  (typecase action
+    (kanata-key-action (kanata-key-action-token action))
+    (kanata-arbitrary-code-action
+     (format nil "(arbitrary-code ~D)" (kanata-arbitrary-code-action-code action)))
+    (kanata-modifier-hold-action (kanata-modifier-hold-action-token action))
+    (kanata-layer-while-held-action
+     (format nil "(layer-while-held ~A)"
+             (kanata-layer-while-held-action-token action)))
+    (kanata-alias-ref-action
+     (format nil "@~A" (ivory-key.model:identifier-name
+                         (kanata-alias-ref-action-alias action))))
+    (kanata-tap-hold-release-action
+     (format nil "(tap-hold-release ~D ~D ~A ~A)"
+             (kanata-tap-hold-release-action-tap-time action)
+             (kanata-tap-hold-release-action-hold-time action)
+             (kanata-action-emission-string
+              (kanata-tap-hold-release-action-tap-action action))
+             (kanata-action-emission-string
+              (kanata-tap-hold-release-action-hold-action action))))))

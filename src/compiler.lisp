@@ -777,15 +777,21 @@ both paths construct the one public MODEL policy value.
                   (%compiler-syntax-text (third children) "Buffered route token"))
                  routes))
           ((string= (or name "") "action")
-           (unless (= (length children) 5)
+           (unless (= (length children) 6)
              (%stage-error :decode :invalid-realization-kanata-buffered-action
-                           "Buffered ACTION requires identity, TAP, HOLD, and ROUTES."))
+                           "Buffered ACTION requires identity, ALIAS, TAP, HOLD, and ROUTES."))
            (let* ((interaction
                     (%compiler-syntax-identifier (second children)
                                                  "Buffered action interaction"))
-                  (tap (third children))
-                  (hold (fourth children))
-                  (route-list (fifth children)))
+                  (alias (third children))
+                  (tap (fourth children))
+                  (hold (fifth children))
+                  (route-list (sixth children)))
+             (unless (and (ivory-key.syntax:syntax-list-p alias)
+                          (string= (or (%compiler-syntax-form-name alias) "") "alias")
+                          (= (length (ivory-key.syntax:syntax-list-children alias)) 2))
+               (%stage-error :decode :invalid-realization-kanata-buffered-action
+                             "Buffered ACTION ~A has malformed ALIAS." interaction))
              (unless (and (ivory-key.syntax:syntax-list-p tap)
                           (string= (or (%compiler-syntax-form-name tap) "") "tap")
                           (= (length (ivory-key.syntax:syntax-list-children tap)) 2))
@@ -799,6 +805,9 @@ both paths construct the one public MODEL policy value.
              (push
               (ivory-key.model::make-realization-kanata-buffered-action-allocation
                interaction
+               (%compiler-syntax-text
+                (second (ivory-key.syntax:syntax-list-children alias))
+                "Buffered alias token")
                (%compiler-syntax-text
                 (second (ivory-key.syntax:syntax-list-children tap))
                 "Buffered tap token")
@@ -1596,6 +1605,8 @@ ordinary compiler lifecycle refusal and backend emission gate are independent.
                       (push
                        (ivory-key.backend::make-kanata-buffered-interaction-action
                         contract
+                        (ivory-key.model::realization-kanata-buffered-action-alias-token
+                         action-allocation)
                         (ivory-key.backend::make-kanata-owner-placement
                          owner (getf owner-placement :kanata)
                          :origin

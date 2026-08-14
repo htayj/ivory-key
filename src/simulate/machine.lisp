@@ -234,6 +234,22 @@ from host iteration order."
   withheld-event withheld-index origin deferred-key committed-role committed-candidate
   disposition terminal-foreign-position terminal-foreign-index terminal-foreign-time)
 
+(defstruct (buffered-dispatch-interval
+             (:constructor make-buffered-dispatch-interval
+                 (&key id down-event down-index position state route owners
+                       up-event up-index up-time dispatch-frontier deferred-key
+                       provenance)))
+  "One immutable physical foreign interval owned by a dispatch barrier."
+  id down-event down-index position route (owners nil :type list)
+  (state :withheld :type keyword)
+  up-event up-index up-time dispatch-frontier deferred-key provenance)
+
+(defstruct (buffered-dispatch-barrier
+             (:constructor make-buffered-dispatch-barrier (&key token)))
+  "Machine-global finite custody state for one opaque whole-layout token."
+  token (intervals-reversed nil :type list) (active-by-position (make-hash-table :test #'equal))
+  (next-interval-id 0 :type integer))
+
 (defstruct (latch-cell (:constructor make-latch-cell (value generation)))
   value
   (generation 0 :type integer))
@@ -269,7 +285,7 @@ from host iteration order."
 (defstruct (simulation-result
              (:constructor make-simulation-result
                  (&key outputs trace latches axes active-effects candidates
-                       semantic-transitions dispatch-transactions)))
+                       semantic-transitions dispatch-transactions dispatch-barrier)))
   (outputs nil :type list)
   (trace nil :type list)
   (latches nil :type list)
@@ -277,7 +293,8 @@ from host iteration order."
   (active-effects nil :type list)
   (candidates nil :type list)
   (semantic-transitions nil :type list)
-  (dispatch-transactions nil :type list))
+  (dispatch-transactions nil :type list)
+  dispatch-barrier)
 
 (defstruct (simulator
              (:constructor %make-simulator
@@ -285,7 +302,7 @@ from host iteration order."
                        candidates pressed latches axes active-effects claimed-events
                        held-axis-contributions held-modifier-contributions
                        next-candidate-id next-latch-generation
-                       transactions-reversed next-transaction-id
+                       transactions-reversed next-transaction-id dispatch-barrier
                        semantic-transitions-reversed)))
   (interactions nil :type list)
   (now 0 :type timestamp)
@@ -308,6 +325,7 @@ from host iteration order."
   (next-latch-generation 0 :type integer)
   (transactions-reversed nil :type list)
   (next-transaction-id 0 :type integer)
+  dispatch-barrier
   (semantic-transitions-reversed nil :type list))
 
 (defvar *simulation-execution-provenance* nil
@@ -496,7 +514,11 @@ is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
             (error "Privileged ordinary route belongs to a different dispatch plan."))
           (when (and (null plan-token) token)
             (error "Privileged ordinary route has no selected buffered dispatch plan."))))))
-  (let ((machine (%make-simulator :interactions interactions)))
+  (let* ((token (find-if #'identity
+                         (mapcar #'sim-interaction-dispatch-plan-token interactions)))
+         (machine (%make-simulator :interactions interactions
+                                   :dispatch-barrier
+                                   (and token (make-buffered-dispatch-barrier :token token)))))
     (dolist (entry latches)
       (setf (gethash (car entry) (simulator-latches machine))
             (make-latch-cell (cdr entry)
@@ -1202,7 +1224,7 @@ closed before the second snapshot becomes viable.
        (find-if
         (lambda (transaction)
           (and (member (buffered-dispatch-transaction-state transaction)
-                       '(:armed :withheld-down) :test #'eq)
+                       '(:armed :withheld-down :barrier-attached) :test #'eq)
                (equal (timed-event-position event)
                       (buffered-dispatch-transaction-owner-position transaction))))
         (simulator-transactions-reversed machine))))
@@ -1309,7 +1331,7 @@ notice after the timeout candidate has committed its held result.
   (find-if
    (lambda (transaction)
      (and (member (buffered-dispatch-transaction-state transaction)
-                  '(:armed :withheld-down) :test #'eq)
+                  '(:armed :withheld-down :barrier-attached) :test #'eq)
           (eq candidate (buffered-transaction-committed-candidate machine transaction))
           (let ((role (buffered-contract-role-for-candidate transaction candidate)))
             (and role
@@ -1351,112 +1373,119 @@ notice after the timeout candidate has committed its held result.
 (defun buffered-dispatch-refuse (code transaction event)
   (error 'buffered-dispatch-refusal :code code :transaction transaction :event event))
 
-(defun buffered-dispatch-before-physical-event (machine event)
-  "Check the closed one-owner/one-foreign transaction boundary before append.
+(defun buffered-dispatch-barrier-intervals (machine)
+  (let ((barrier (simulator-dispatch-barrier machine)))
+    (and barrier
+         (reverse (copy-list (buffered-dispatch-barrier-intervals-reversed barrier))))))
 
-The physical stream remains immutable: refusal happens before we publish an
-ambiguous event, and accepted events are appended exactly once by the caller."
+(defun buffered-dispatch-eligible-owners (machine)
+  "Return every still-live selected owner in deterministic creation order."
+  (reverse
+   (remove-if-not
+    (lambda (transaction)
+      (member (buffered-dispatch-transaction-state transaction)
+              '(:armed :barrier-attached) :test #'eq))
+    (simulator-transactions-reversed machine))))
+
+(defun buffered-dispatch-owner-deadline (transaction)
+  (ivory-key.model::release-trigger-interaction-compatibility-contract-deadline
+   (buffered-dispatch-transaction-contract transaction)))
+
+(defun buffered-dispatch-interval-for-position (machine position)
+  (let ((barrier (simulator-dispatch-barrier machine)))
+    (and barrier
+         (gethash position (buffered-dispatch-barrier-active-by-position barrier)))))
+
+(defun buffered-dispatch-validate-route (machine event owners)
+  "Validate every ownership and route fact before touching physical state."
+  (let* ((position (timed-event-position event))
+         (routes (routed-interactions-at machine position)))
+    (when (timed-interactions-at machine position)
+      (buffered-dispatch-refuse :foreign-timed-interaction (first owners) event))
+    (cond ((null routes)
+           (buffered-dispatch-refuse :unroutable-foreign (first owners) event))
+          ((> (length routes) 1)
+           (buffered-dispatch-refuse :multiple-routed-bindings (first owners) event))
+          ((some (lambda (owner)
+                   (not (buffered-output-routed-case (first routes) position owner)))
+                 owners)
+           (buffered-dispatch-refuse :unsupported-buffered-foreign-route
+                                     (first owners) event)))
+    (let ((deadlines (remove-duplicates
+                      (mapcar #'buffered-dispatch-owner-deadline owners))))
+      (when (> (length deadlines) 1)
+        (buffered-dispatch-refuse :unequal-buffered-owner-deadline
+                                  (first owners) event)))
+    (first routes)))
+
+(defun buffered-dispatch-allocate-interval (machine event owners route)
+  "Allocate one complete direct interval before its physical DOWN is appended."
+  (let ((barrier (simulator-dispatch-barrier machine)))
+    (unless barrier
+      (buffered-dispatch-refuse :missing-dispatch-barrier (first owners) event))
+    (let ((position (timed-event-position event)))
+      (when (buffered-dispatch-interval-for-position machine position)
+        (buffered-dispatch-refuse :duplicate-buffered-physical-down
+                                  (first owners) event))
+      (let ((interval
+              (make-buffered-dispatch-interval
+               :id (incf (buffered-dispatch-barrier-next-interval-id barrier))
+               :down-event event :down-index (length (simulator-events machine))
+               :position position :route route :owners owners
+               :state :withheld :provenance :preappend-interval-allocation)))
+        (push interval (buffered-dispatch-barrier-intervals-reversed barrier))
+        (setf (gethash position (buffered-dispatch-barrier-active-by-position barrier))
+              interval)
+        ;; Transactions remain a legacy/explain projection.  The barrier owns
+        ;; the real interval queue; the first interval is retained only for
+        ;; established inspection fields.
+        (dolist (owner owners)
+          (when (eq (buffered-dispatch-transaction-state owner) :armed)
+            (setf (buffered-dispatch-transaction-state owner) :barrier-attached
+                  (buffered-dispatch-transaction-withheld-event owner) event
+                  (buffered-dispatch-transaction-withheld-index owner)
+                  (buffered-dispatch-interval-down-index interval)
+                  (buffered-dispatch-transaction-origin owner)
+                  :barrier-interval)))
+        (trace-entry machine :dispatch-withheld :event event
+                     :details (list :interval (buffered-dispatch-interval-id interval)
+                                    :owners (mapcar #'buffered-dispatch-transaction-id owners)
+                                    :original-index (buffered-dispatch-interval-down-index interval)
+                                    :origin :preappend-interval-allocation)
+                     :provenance (list :route-kind :ordinary-binding
+                                       :interval (buffered-dispatch-interval-id interval)
+                                       :origin :preappend-interval-allocation))
+        interval))))
+
+(defun buffered-dispatch-before-physical-event (machine event)
+  "Atomically admit a selected owner or allocate a direct interval before append."
   (let* ((position (timed-event-position event))
          (selected (and (eq (timed-event-kind event) :down)
-                        (selected-buffered-interactions-at machine position)))
-         (armed (and (eq (timed-event-kind event) :down)
-                     (armed-buffered-transactions machine)))
-         (transaction (active-buffered-transaction machine)))
+                        (selected-buffered-interactions-at machine position))))
     (when (> (length selected) 1)
-      (buffered-dispatch-refuse :multiple-eligible-owners nil event))
+      (buffered-dispatch-refuse :duplicate-buffered-owner-position nil event))
     (when (and selected
                (some (lambda (interaction)
                        (not (member interaction selected :test #'eq)))
                      (timed-interactions-at machine position)))
       (buffered-dispatch-refuse :selected-owner-overlap nil event))
-    ;; Establish the complete custody boundary before pressed state, the
-    ;; physical evidence vector, or trace is mutated. A caller that catches a
-    ;; refusal may therefore inspect the unchanged simulator safely.
-    (when (and armed (null selected))
-      ;; An unselected raw TIMED route at B would otherwise observe the
-      ;; physical event while it is still eligible for foreign custody.  The
-      ;; bounded contract has no arbitration semantics for that splice, so
-      ;; reject before publishing B to the event frontier.
-      (when (timed-interactions-at machine position)
-        (buffered-dispatch-refuse :foreign-timed-interaction (first armed) event))
-      (let ((routes (routed-interactions-at machine position)))
-        (cond ((null routes)
-               (buffered-dispatch-refuse :unroutable-foreign (first armed) event))
-              ((> (length routes) 1)
-               (buffered-dispatch-refuse :multiple-routed-bindings
-                                         (first armed) event))
-              ((not (buffered-output-routed-case (first routes) position (first armed)))
-               (buffered-dispatch-refuse :unsupported-buffered-foreign-route
-                                         (first armed) event))
-              ((> (length armed) 1)
-               (buffered-dispatch-refuse :multiple-eligible-owners nil event)))))
-    (when transaction
-      (let ((owner (buffered-dispatch-transaction-owner-position transaction))
-            (withheld (buffered-dispatch-transaction-withheld-event transaction)))
-        (case (buffered-dispatch-transaction-state transaction)
-          (:armed
-           (when (and (eq (timed-event-kind event) :down)
-                      (not (equal position owner)))
-             (when (selected-buffered-interactions-at machine position)
-               (buffered-dispatch-refuse :new-owner transaction event))))
-          (:withheld-down
-           (cond
-             ((and (eq (timed-event-kind event) :down)
-                   (not (equal position owner)))
-              (buffered-dispatch-refuse :second-foreign transaction event))
-             ((and (eq (timed-event-kind event) :up)
-                   (not (or (equal position owner)
-                            (equal position (timed-event-position withheld)))))
-              (buffered-dispatch-refuse :mismatched-terminal transaction event))))
-          (:down-redispatched-awaiting-up
-           ;; Once the deadline has routed B-DOWN, either physical terminal
-           ;; order is proven: B-UP may arrive before P-UP, or P-UP may end
-           ;; the held owner while B remains physically down.  No new DOWN or
-           ;; unrelated UP joins this bounded transaction.
-           (unless (and (eq (timed-event-kind event) :up)
-                        (or (equal position owner)
-                            (equal position (timed-event-position withheld))))
-             (buffered-dispatch-refuse :nested-or-mismatched-terminal
-                                       transaction event))))))))
+    (when (and (eq (timed-event-kind event) :down)
+               (null selected)
+               (buffered-dispatch-eligible-owners machine))
+      (when (gethash position (simulator-pressed machine))
+        (buffered-dispatch-refuse :duplicate-buffered-physical-down nil event))
+      (when (and (null selected)
+                 (buffered-dispatch-eligible-owners machine))
+        (let ((owners (buffered-dispatch-eligible-owners machine)))
+          (buffered-dispatch-allocate-interval
+           machine event owners
+           (buffered-dispatch-validate-route machine event owners)))))))
 
 (defun maybe-withhold-buffered-down (machine event index)
-  (when (eq (timed-event-kind event) :down)
-    (let* ((position (timed-event-position event))
-           (selected (selected-buffered-interactions-at machine position))
-           (routes (routed-interactions-at machine position))
-           (armed (armed-buffered-transactions machine)))
-      ;; A second selected owner is another independently armed candidate set,
-      ;; not foreign input.  Custody begins only for one output-only B route.
-      (when (and armed (null selected))
-        (cond
-          ;; Defense in depth for callers that invoke this helper through a
-          ;; future processing path after the pre-append check above.
-          ((timed-interactions-at machine position)
-           (buffered-dispatch-refuse :foreign-timed-interaction (first armed) event))
-          ((null routes)
-           (buffered-dispatch-refuse :unroutable-foreign (first armed) event))
-          ((> (length routes) 1)
-           (buffered-dispatch-refuse :multiple-routed-bindings (first armed) event))
-          ((not (buffered-output-routed-case (first routes) position (first armed)))
-           (buffered-dispatch-refuse :unsupported-buffered-foreign-route
-                                     (first armed) event))
-          ((> (length armed) 1)
-           (buffered-dispatch-refuse :multiple-eligible-owners nil event))
-          (t
-           (let ((transaction (first armed)))
-      (setf (buffered-dispatch-transaction-state transaction) :withheld-down
-            (buffered-dispatch-transaction-withheld-event transaction) event
-            (buffered-dispatch-transaction-withheld-index transaction) index
-            (buffered-dispatch-transaction-origin transaction) :withheld-foreign-down)
-      (trace-entry machine :dispatch-withheld :event event
-                   :interaction (buffered-dispatch-transaction-interaction transaction)
-                   :details (list :transaction (buffered-dispatch-transaction-id transaction)
-                                  :original-index index :original-time (timed-event-time event)
-                                  :origin :withheld-foreign-down)
-                   :provenance (list :route-kind :timed
-                                     :transaction (buffered-dispatch-transaction-id transaction)
-                                     :origin :withheld-foreign-down))
-      transaction)))))))
+  "Return the preallocated barrier interval for EVENT, if custody owns it."
+  (declare (ignore index))
+  (and (eq (timed-event-kind event) :down)
+       (buffered-dispatch-interval-for-position machine (timed-event-position event))))
 
 (defun routed-interactions-at (machine position)
   (remove-if-not
@@ -1580,80 +1609,164 @@ deliberately later than a withheld DOWN for this bounded contract.
     (setf (buffered-dispatch-transaction-deferred-key transaction) nil
           (buffered-dispatch-transaction-state transaction) :complete))))
 
+(defun buffered-dispatch-interval-owner-resolution (machine interval event)
+  "Return the shared committed role/candidates, or NIL until every owner resolves."
+  (let ((role-name nil)
+        (resolved nil))
+    (dolist (owner (buffered-dispatch-interval-owners interval))
+      (let* ((candidate (buffered-transaction-committed-candidate machine owner))
+             (role (and candidate (buffered-contract-role-for-candidate owner candidate))))
+        (unless role
+          (return-from buffered-dispatch-interval-owner-resolution nil))
+        (let ((name (ivory-key.model:interaction-compatibility-role-reference-role role)))
+          (unless (member name '(:timeout :foreign-release :tap) :test #'eq)
+            (buffered-dispatch-refuse :unproved-buffered-owner-resolution owner event))
+          (when (and role-name (not (eq role-name name)))
+            (buffered-dispatch-refuse :divergent-buffered-owner-resolution owner event))
+          (setf role-name name)
+          (push (cons owner candidate) resolved))))
+    (values role-name (nreverse resolved))))
+
+(defun buffered-dispatch-record-physical-up (machine event)
+  "Pair UP with its exact physical DOWN interval before any logical flush."
+  (when (eq (timed-event-kind event) :up)
+    (let* ((position (timed-event-position event))
+           (interval (buffered-dispatch-interval-for-position machine position)))
+      (when interval
+        (setf (buffered-dispatch-interval-up-event interval) event
+              (buffered-dispatch-interval-up-index interval)
+              (1- (length (simulator-events machine)))
+              (buffered-dispatch-interval-up-time interval) (timed-event-time event))
+        (remhash position
+                 (buffered-dispatch-barrier-active-by-position
+                  (simulator-dispatch-barrier machine)))
+        (when (eq (buffered-dispatch-interval-state interval) :withheld)
+          (setf (buffered-dispatch-interval-state interval) :closed-unflushed))
+        interval))))
+
+(defun buffered-dispatch-flush-interval (machine interval role resolutions event)
+  "Flush INTERVAL once in physical-DOWN order after every owner commits."
+  (unless (member (buffered-dispatch-interval-state interval)
+                  '(:withheld :closed-unflushed) :test #'eq)
+    (return-from buffered-dispatch-flush-interval interval))
+  (let* ((primary (caar resolutions))
+         (down-event (buffered-dispatch-interval-down-event interval))
+         (down-index (buffered-dispatch-interval-down-index interval))
+         (position (buffered-dispatch-interval-position interval))
+         (owner-tap-releases
+           (and (eq role :tap)
+                (mapcan (lambda (resolution)
+                          (routed-dispatch-owner-tap machine (car resolution) event))
+                        resolutions)))
+         (releases (routed-dispatch-output machine primary down-event down-index position
+                                           :down :barrier-flush)))
+    ;; Deferred logical key release belongs to this physical interval, not to
+    ;; its selected owner: one owner may custody several direct intervals
+    ;; concurrently, and each one must pair with its own physical UP.
+    (setf (buffered-dispatch-interval-deferred-key interval) releases
+          (buffered-dispatch-interval-dispatch-frontier interval)
+          (1- (length (simulator-events machine))))
+    (dolist (resolution resolutions)
+      (let ((owner (car resolution)) (candidate (cdr resolution)))
+        (setf (buffered-dispatch-transaction-committed-candidate owner) candidate
+              (buffered-dispatch-transaction-committed-role owner) role
+              (buffered-dispatch-transaction-disposition owner)
+              (if (eq role :timeout) :deadline-hold :foreign-release-hold))
+        (trace-entry machine :dispatch-resolved :event event
+                     :interaction (buffered-dispatch-transaction-interaction owner)
+                     :case (simulation-candidate-case candidate) :candidate candidate
+                     :details (list :transaction (buffered-dispatch-transaction-id owner)
+                                    :interval (buffered-dispatch-interval-id interval)
+                                    :disposition (buffered-dispatch-transaction-disposition owner)
+                                    :role role :foreign-down-index down-index
+                                    :origin :barrier-flush)
+                     :provenance (list :route-kind :timed
+                                       :transaction (buffered-dispatch-transaction-id owner)
+                                       :interval (buffered-dispatch-interval-id interval)
+                                       :origin :barrier-flush))))
+    ;; A tap owner's press is observed before the queued direct route; its
+    ;; semantic release follows that route exactly as in the legacy projection.
+    (dolist (release owner-tap-releases)
+      (destructuring-bind (key transaction origin original-index) release
+        (record-semantic-key-transition machine :release key :transaction transaction
+                                        :origin origin :original-index original-index)))
+    (setf (buffered-dispatch-interval-state interval) :flushed-awaiting-up)
+    (when (buffered-dispatch-interval-up-event interval)
+      (buffered-dispatch-flush-up machine interval primary))
+    interval))
+
+(defun buffered-dispatch-flush-up (machine interval primary)
+  "Release a previously flushed logical direct route at its paired physical UP."
+  (unless (eq (buffered-dispatch-interval-state interval) :flushed-awaiting-up)
+    (return-from buffered-dispatch-flush-up interval))
+  (let ((up-event (buffered-dispatch-interval-up-event interval))
+        (up-index (buffered-dispatch-interval-up-index interval)))
+    (unless up-event
+      (return-from buffered-dispatch-flush-up interval))
+    (trace-entry machine :redispatch :event up-event
+                 :details (list :kind :up
+                                :transaction (buffered-dispatch-transaction-id primary)
+                                :interval (buffered-dispatch-interval-id interval)
+                                :original-index up-index
+                                :original-time (buffered-dispatch-interval-up-time interval)
+                                :withheld-down-index
+                                (buffered-dispatch-interval-down-index interval)
+                                :origin :routed-physical-up)
+                 :provenance (list :route-kind :routed-up
+                                   :transaction (buffered-dispatch-transaction-id primary)
+                                   :interval (buffered-dispatch-interval-id interval)
+                                   :origin :routed-physical-up))
+    (dolist (release (buffered-dispatch-interval-deferred-key interval))
+      (destructuring-bind (key ignored-transaction origin original-index) release
+        (declare (ignore ignored-transaction origin original-index))
+        (record-semantic-key-transition machine :release key :transaction primary
+                                        :origin :routed-up :original-index up-index)))
+    (setf (buffered-dispatch-interval-deferred-key interval) nil
+          (buffered-dispatch-interval-state interval) :complete)
+    (dolist (owner (buffered-dispatch-interval-owners interval))
+      (setf (buffered-dispatch-transaction-terminal-foreign-position owner)
+            (buffered-dispatch-interval-position interval)
+            (buffered-dispatch-transaction-terminal-foreign-index owner) up-index
+            (buffered-dispatch-transaction-terminal-foreign-time owner)
+            (buffered-dispatch-interval-up-time interval)))
+    interval))
+
+(defun buffered-dispatch-sync-projections (machine)
+  "Complete legacy owner projections once their physical owner and intervals end."
+  (dolist (owner (buffered-dispatch-transactions machine))
+    (when (eq (buffered-dispatch-transaction-state owner) :barrier-attached)
+      (let ((intervals (remove-if-not
+                        (lambda (interval)
+                          (member owner (buffered-dispatch-interval-owners interval)
+                                  :test #'eq))
+                        (buffered-dispatch-barrier-intervals machine))))
+        (when (and intervals
+                   (every (lambda (interval)
+                            (eq (buffered-dispatch-interval-state interval) :complete))
+                          intervals)
+                   (not (gethash (buffered-dispatch-transaction-owner-position owner)
+                                 (simulator-pressed machine))))
+          (setf (buffered-dispatch-transaction-state owner) :complete))))))
+
 (defun buffered-dispatch-after-prefix (machine event deferred-releases)
-  "Advance the finite transaction only after normal timed candidate selection."
-  (let ((transaction (active-buffered-transaction machine)))
-    (when transaction
-      (case (buffered-dispatch-transaction-state transaction)
-        (:withheld-down
-         (when (or (and (eq (timed-event-kind event) :up)
-                        (equal (timed-event-position event)
-                               (buffered-dispatch-transaction-owner-position transaction)))
-                   (and (eq (timed-event-kind event) :up)
-                        (equal (timed-event-position event)
-                               (timed-event-position
-                                (buffered-dispatch-transaction-withheld-event transaction)))))
-           (let* ((candidate (buffered-transaction-committed-candidate machine transaction))
-                  (role (and candidate
-                             (buffered-contract-role-for-candidate transaction candidate))))
-             (unless role
-               (buffered-dispatch-refuse :unproved-committed-role transaction event))
-             (setf (buffered-dispatch-transaction-committed-candidate transaction) candidate
-                   (buffered-dispatch-transaction-committed-role transaction)
-                   (ivory-key.model:interaction-compatibility-role-reference-role role)))
-           (let ((disposition
-                   (if (equal (timed-event-position event)
-                              (buffered-dispatch-transaction-owner-position transaction))
-                       :tap
-                       :foreign-release-hold)))
-             (setf (buffered-dispatch-transaction-disposition transaction)
-                   disposition)
-           (trace-entry
-            machine :dispatch-resolved :event event
-            :interaction (buffered-dispatch-transaction-interaction transaction)
-            :details
-            (list :transaction (buffered-dispatch-transaction-id transaction)
-                  :disposition
-                  disposition
-                  :role (buffered-dispatch-transaction-committed-role transaction)
-                  :foreign-down-index
-                  (buffered-dispatch-transaction-withheld-index transaction)
-                  :origin (buffered-dispatch-transaction-origin transaction))
-            :provenance
-            (list :route-kind :timed
-                  :transaction (buffered-dispatch-transaction-id transaction)
-                  :origin (buffered-dispatch-transaction-origin transaction)))
-           (let ((owner-tap-releases
-                   (and (eq disposition :tap)
-                        (routed-dispatch-owner-tap machine transaction event))))
-             ;; The selected tap press precedes the routed foreign DOWN; its
-             ;; release follows that notice while the foreign release remains
-             ;; deferred to its own physical UP.
-             (routed-dispatch-down machine transaction)
-             (dolist (release owner-tap-releases)
-               (destructuring-bind (key ignored-transaction origin original-index) release
-                 (declare (ignore ignored-transaction))
-                 (record-semantic-key-transition machine :release key :transaction transaction
-                                                 :origin origin :original-index original-index)))
-             ;; Kept as a defensive compatibility path for a future selected
-             ;; candidate that itself intentionally deferred a semantic edge.
-             (unless (eq deferred-releases :inactive)
-               (dolist (release (nreverse deferred-releases))
-                 (destructuring-bind (key ignored-transaction origin original-index) release
-                   (declare (ignore ignored-transaction))
-                   (record-semantic-key-transition machine :release key :transaction transaction
-                                                   :origin origin :original-index original-index)))))
-           (when (and (eq (timed-event-kind event) :up)
-                      (equal (timed-event-position event)
-                             (timed-event-position
-                              (buffered-dispatch-transaction-withheld-event transaction))))
-             (routed-dispatch-up machine transaction event)))))
-        (:down-redispatched-awaiting-up
-         (when (and (eq (timed-event-kind event) :up)
-                    (equal (timed-event-position event)
-                           (timed-event-position
-                            (buffered-dispatch-transaction-withheld-event transaction))))
-           (routed-dispatch-up machine transaction event)))))))
+  "Resolve every barrier interval after candidate commitment, exactly once."
+  (declare (ignore deferred-releases))
+  (when (simulator-dispatch-barrier machine)
+    (buffered-dispatch-record-physical-up machine event)
+    (dolist (interval (buffered-dispatch-barrier-intervals machine))
+      (when (member (buffered-dispatch-interval-state interval)
+                    '(:withheld :closed-unflushed) :test #'eq)
+        (multiple-value-bind (role resolutions)
+            (buffered-dispatch-interval-owner-resolution machine interval event)
+          (when role
+            (buffered-dispatch-flush-interval machine interval role resolutions event)))))
+    ;; A later reverse-order UP may belong to an already-flushed interval.
+    (dolist (interval (buffered-dispatch-barrier-intervals machine))
+      (when (and (eq (buffered-dispatch-interval-state interval) :flushed-awaiting-up)
+                 (buffered-dispatch-interval-up-event interval))
+        (buffered-dispatch-flush-up machine interval
+                                    (first (buffered-dispatch-interval-owners interval)))))
+    (buffered-dispatch-sync-projections machine)))
 
 (defun process-physical-event (machine event)
   (buffered-dispatch-before-physical-event machine event)
@@ -1726,10 +1839,10 @@ deliberately later than a withheld DOWN for this bounded contract.
   (let ((event (make-deadline-event time)))
     (append-event machine event)
     (update-candidates-for-current-prefix machine)
-    (let ((transaction (active-buffered-transaction machine)))
-      (when (and transaction
-                 (eq (buffered-dispatch-transaction-state transaction) :withheld-down))
-        (resolve-withheld-buffered-deadline machine transaction event)))
+    ;; Interval ownership is resolved only by the barrier after the complete
+    ;; candidate prefix has committed.  The retired scalar transaction path
+    ;; must not route a second logical DOWN here.
+    (buffered-dispatch-after-prefix machine event :inactive)
     (complete-armed-buffered-transactions machine event)))
 
 (defun next-deadline-through (machine limit)
@@ -1886,6 +1999,21 @@ identity remain on the model side of this projection.
    :active-effects (simulator-active-effect-names machine)
    :candidates (reverse (copy-list (simulator-candidates machine)))
    :semantic-transitions (simulator-semantic-transitions machine)
+   :dispatch-barrier
+   (let ((barrier (simulator-dispatch-barrier machine)))
+     (and barrier
+          (list :intervals
+                (mapcar (lambda (interval)
+                          (list :id (buffered-dispatch-interval-id interval)
+                                :position (buffered-dispatch-interval-position interval)
+                                :down-index (buffered-dispatch-interval-down-index interval)
+                                :up-index (buffered-dispatch-interval-up-index interval)
+                                :state (buffered-dispatch-interval-state interval)
+                                :owners
+                                (sort (mapcar #'buffered-dispatch-transaction-id
+                                              (buffered-dispatch-interval-owners interval))
+                                      #'<)))
+                        (reverse (copy-list (buffered-dispatch-barrier-intervals-reversed barrier)))))))
    :dispatch-transactions
    (mapcar
     (lambda (transaction)

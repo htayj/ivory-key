@@ -82,16 +82,19 @@ interval for every source row, and it has no direct `gdel`/`rtop` trace.  The
 14+2 list is therefore a complete frozen source inventory, not permission to
 instantiate every row under this policy.
 
+The frozen mechanical ledger now closes all 68 Advantage2 and 72
+Advantage360 primary input positions. C7/game differences remain separately
+classified; they do not expand this policy's route domain.
+
 ## Required abstract contract
 
-For an owner position `P` admitted by a later evidence review, one foreign
-position `B`, and equal deadline `D`, the future model must represent a typed
-pending foreign **press interval**, not a backend event string.  The pending
-record needs the captured physical position, its `down` event index and time,
-its later `up` (if received while pending), and a closed disposition.  `P`
-owns its tap-hold interpretation; `B` is temporarily withheld from ordinary
-dispatch while pending.  Neither event may be dropped, duplicated,
-transformed, or accidentally dispatched twice.
+For policy-selected owners with one shared deadline `D`, the reference model
+uses one opaque per-layout dispatch barrier, not a backend event string or a
+per-owner foreign slot. It records ordered pending foreign **press intervals**,
+each with physical `down`/paired `up`, selected direct route, dispatch frontier,
+participating owners, and closed disposition. An interval is withheld once and
+routed once; no physical edge is dropped, cloned, transformed, or dispatched
+twice.
 
 The profile must keep these output-order requirements distinct from the
 existing no-delay policy:
@@ -124,8 +127,8 @@ cancellation must release exactly its contribution.
 
 ## Selected implementation boundary
 
-The first implementation uses a finite dispatch transaction at the boundary
-between physical evidence and logical binding dispatch. It is not an
+The implementation uses a finite, opaque per-plan dispatch barrier at the
+boundary between physical evidence and logical binding dispatch. It is not an
 interaction effect and not a general replay queue. Effects begin too late to
 withhold a speculative foreign press; making `B` a participant would falsely
 claim it; and cloning a physical event would let deadlines, pressed-state
@@ -134,42 +137,32 @@ validation, or another timed interaction observe input that never occurred.
 Physical `down`/`up` events therefore remain immutable and appear exactly once
 in the pattern evidence stream. A routed dispatch notice refers back to the
 original physical index and records a separate dispatch-frontier sequence.
-Redispatch may start exactly one eligible direct ordinary named-key binding,
-but it must not advance time, mutate physical pressed state, re-feed the
-simulator, or start an overlay or timed interaction. The foreign interval is
-in temporary dispatch custody, not in the committed candidate's participant
+Redispatch may start an authorized unpatched direct output-only ordinary
+binding, but it must not advance time, mutate physical pressed state, re-feed
+the simulator, or start an overlay or timed interaction. The foreign interval
+is in temporary dispatch custody, not in the committed candidate's participant
 claims.
 
-The finite transaction has these closed states:
+The barrier records closed state per ordered interval: armed owners, withheld
+`down`, routed `down` awaiting its matching physical `up`, and completion with
+disposition and the paired physical positions, indices, and times. Multiple
+eligible owners with the same deadline attach to an interval; an unequal
+deadline combination refuses atomically before publishing the foreign event.
 
-- `armed`: the selected owner interaction is pending and no foreign input is
-  withheld;
-- `withheld-down`: the first eligible foreign `down` is recorded and ordinary
-  dispatch is suppressed; and
-- `down-redispatched-awaiting-up`: an early owner release has redispatched the
-  foreign `down`, but the corresponding physical `up` has not arrived; and
-- `complete`: the transaction records its disposition and, when custody was
-  acquired, the original foreign `down` and terminal `up` positions, indices,
-  and times.
-
-A deadline reached in `withheld-down` now has one bounded reference path: for
-one selected owner and one already-withheld direct named-key foreign down, the
-timeout candidate first commits/acquires its held result and the simulator then
-issues that foreign logical down at the deadline dispatch frontier.  Its later
-physical up and the owner up retain either observed order without cloning the
-physical interval.  This follows the pinned Advantage 2 raw trace, which emits
-`LShift` at `t:199ms` and the buffered `B` down one millisecond later across
-the nominal 200 ms owner deadline.  A two-owner `f`/`j` prefix with that
-foreign input likewise has one exact raw trace, but remains refused by the
-reference transaction: these observations do not select a generic queue rule,
-cancellation operation, or abstract multi-owner arbitration policy.  Likewise,
-every policy-selected owner position is excluded from the eligible foreign
-domain. This permits the
-separately proven multiple-owner modifier/function lifetime while preventing
-one selected owner from accidentally becoming another owner's single buffered
-`B`. If one ordinary foreign `down` would be eligible for more than one armed
-transaction, the simulator refuses rather than using layout, interaction, or
-host iteration order.
+A deadline reached in `withheld-down` has a bounded reference path: the timeout
+candidates commit/acquire their held results and the simulator routes the
+foreign logical down at the deadline dispatch frontier. Its later physical up
+and the owner ups retain their observed order without cloning the physical
+interval. This follows the pinned Advantage 2 raw trace, which emits `LShift`
+at `t:199ms` and the buffered `B` down one millisecond later across the nominal
+200 ms owner deadline. A two-owner `f`/`j` prefix with that foreign input has
+one exact raw trace. The reference barrier attaches every eligible owner with
+the same deadline to one interval, preserves deterministic owner order, and
+preserves shared held-effect reference counting. It also proves ordered multiple
+and repeated direct intervals, pairing reverse-order physical `up` edges with
+their own prior `down` interval. Unequal eligible-owner deadlines refuse
+atomically before the foreign `down` is published. Policy-selected owner
+positions remain outside the foreign domain.
 
 The early-owner-release prefix also exposes a limitation in the former output
 model: one atomic `(:named-key ...)` cannot prove the required tap press,
@@ -180,8 +173,8 @@ atomic; source authors do not receive a generic press/release or replay macro.
 The old output list may remain a compatibility projection, but the ordered
 transitions are normative for this policy.
 
-The reference simulator's redispatch domain is intentionally small: one
-unpatched ordinary binding, evaluated at the resolution frontier, whose every
+The reference simulator's redispatch domain is intentionally small: unpatched
+direct ordinary bindings, evaluated at the resolution frontier, whose every
 normalized table entry is text, a named key, a named symbol, or no output.
 This is reference-only evidence: the pinned Kanata differential exercises the
 direct named-key route, not the wider table classes. Overlays,
@@ -192,14 +185,14 @@ the boundary can grow only with separate semantic and differential evidence.
 
 ## Explicit refusal boundary
 
-The oracle does not authorize a general event queue.  Until separately proven,
-the profile must refuse `gdel` and `rtop`, multiple foreign positions, repeated
-foreign presses, foreign timed interactions, state-changing or latch-sensitive
-overlays, nested buffering, a new owner while a foreign interval is pending,
-replay into another timed interaction, source forms that request arbitrary
-replay, and any backend that cannot preserve the listed order.  It also does
-not prove a 360 state-machine trace, live keyboard events, XKB/client semantics,
-or the historic source-era Kanata scheduler.
+The barrier is deliberately not a general event queue. It admits only
+unpatched direct output-only ordinary routes (text, named key, named symbol, or
+none) authorized by the same opaque layout token. It refuses `gdel` and
+`rtop`, C7/game or unmapped domains, overlays, stateful/latch-sensitive routes,
+foreign timed interactions, nested/arbitrary replay, and any backend that
+cannot preserve the listed order. It also does not prove a 360 state-machine
+trace, live keyboard events, XKB/client semantics, or the historic source-era
+Kanata scheduler.
 
 The public source language still deliberately has no `buffer` or `replay`
 behavior. The representation is a derived normalized compatibility contract,
@@ -217,7 +210,7 @@ remains unlowerable until each pipeline stage proves the same pending-input
 and output-order contract.
 
 This decision remains Proposed. The typed policy, positive fourteen-instance
-evidence ledger, strict structural gate, and bounded named-key reference
+evidence ledger, strict structural gate, and per-plan barrier reference
 transaction implement a reviewed subset of the model/reference work below.
 They do not by themselves satisfy the whole-layout, cancellation, backend, or
 selected-profile gates. It becomes Accepted only when all of the following are

@@ -329,7 +329,12 @@
             (ivory-key.backend::make-kanata-key-action foreign-position foreign-token)
             :origin (ivory-key.model::interaction-compatibility-contract-origin contract))))
     (ivory-key.backend::make-kanata-buffered-interaction-action
-     contract owner-placement
+     contract
+     (format nil "alias-~A"
+             (ivory-key.model:identifier-name
+              (ivory-key.model:normalized-interaction-name
+               (ivory-key.model::interaction-compatibility-contract-interaction contract))))
+     owner-placement
      (ivory-key.backend::make-kanata-tap-hold-release-action
       deadline deadline tap-action hold)
      (list route)
@@ -381,13 +386,27 @@ three normalized candidates MODEL originally proved.
 
 (defun backend-test-buffered-plan (policy contracts actions)
   "Lower an inert direct protocol request without ever attempting emission."
-  (ivory-key.backend:lower-request
-   (ivory-key.backend:make-kanata-backend)
-   (backend-test-request
-    :entries (list (backend-test-entry))
-    :interactions contracts
-    :metadata (list :interaction-compatibility-policy policy
-                    :kanata-buffered-actions actions))))
+  (let ((positions nil))
+    (dolist (contract contracts)
+      (push (ivory-key.model:identifier-name
+             (ivory-key.model::interaction-compatibility-contract-owner contract))
+            positions))
+    (dolist (action actions)
+      (dolist (route (ivory-key.backend::kanata-buffered-interaction-action-foreign-routes
+                      action))
+        (push (ivory-key.model:identifier-name
+               (ivory-key.backend::kanata-direct-route-reference-position route))
+              positions)))
+    (setf positions (sort (remove-duplicates positions :test #'string=) #'string<))
+    (ivory-key.backend:lower-request
+     (ivory-key.backend:make-kanata-backend)
+     (backend-test-request
+      :entries (list (backend-test-entry))
+      :interactions contracts
+      :metadata (list :interaction-compatibility-policy policy
+                      :kanata-buffered-actions actions
+                      :kanata-source-order
+                      (mapcar (lambda (position) (cons position position)) positions))))))
 
 (defun backend-test-kanata-plan-dump (plan)
   "Return the compiler's inspection-only Kanata plan dump for PLAN."
@@ -410,7 +429,8 @@ three normalized candidates MODEL originally proved.
                :interactions (list contract)
                :metadata
                (list :interaction-compatibility-policy policy
-                     :kanata-buffered-actions (list action))))))
+                     :kanata-buffered-actions (list action)
+                     :kanata-source-order '(("f" . "f") ("q" . "q")))))))
       ;; Canonical data contains semantic identities and known/unknown
       ;; provenance disposition only: no object address, source pathname, or
       ;; raw parenthesized Kanata action text can leak through inspection.
@@ -464,7 +484,7 @@ three normalized candidates MODEL originally proved.
        (lambda ()
          (let ((owner (ivory-key.backend::make-kanata-owner-placement "f" "f")))
            (ivory-key.backend::make-kanata-buffered-interaction-action
-            contract owner
+            contract "alias-owner-collision" owner
             (ivory-key.backend::make-kanata-tap-hold-release-action
              200 200 tap hold)
             (list (ivory-key.backend::make-kanata-direct-route-reference

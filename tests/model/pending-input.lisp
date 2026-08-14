@@ -147,7 +147,8 @@ a checked-in Manna profile and do not make the compiler emission-capable.
      (mapcar
       (lambda (row)
         (ivory-key.model::make-realization-kanata-buffered-action-allocation
-         (first row) (format nil "tap-~A" (first row))
+         (first row) (format nil "alias-~A" (first row))
+         (format nil "tap-~A" (first row))
          (hold-for-row row) '("b")))
      (pending-input-buffered-evidence-rows))
      (list (ivory-key.model::make-realization-kanata-buffered-foreign-route
@@ -196,13 +197,45 @@ a checked-in Manna profile and do not make the compiler emission-capable.
                 (make-instance
                  'ivory-key.model::realization-kanata-buffered-action-allocation
                  :interaction (ivory-key.model:ensure-identifier "tap-hold-case-f")
-                 :tap-token "tap" :hold forged-hold
+                 :alias-token "alias-case-f" :tap-token "tap" :hold forged-hold
                  :foreign-route-positions (list (ivory-key.model:ensure-identifier "b"))))
               (route
                 (ivory-key.model::make-realization-kanata-buffered-foreign-route
                  "b" "b")))
          (ivory-key.model::make-realization-kanata-buffered-allocation-policy
           (list forged-action) (list route)))))))
+
+(deftest pending-input-buffered-allocation-aliases-are-explicit-safe-and-unique
+  "Definition aliases are not permissive physical input tokens."
+  (let* ((allocation (pending-input-buffered-allocation-policy))
+         (actions
+           (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+            allocation))
+         (first-action (first actions)))
+    (is-equal "alias-tap-hold-alt-backspace"
+              (ivory-key.model::realization-kanata-buffered-action-alias-token
+               first-action))
+    (pending-input-signals-code
+     :unsafe-realization-kanata-buffered-alias
+     (lambda ()
+       (ivory-key.model::make-realization-kanata-buffered-action-allocation
+        "tap-hold-case-f" ";" "tap"
+        (ivory-key.model::realization-kanata-buffered-action-hold first-action)
+        '("b"))))
+    (pending-input-signals-code
+     :duplicate-realization-kanata-buffered-alias
+     (lambda ()
+       (ivory-key.model::make-realization-kanata-buffered-allocation-policy
+        (list first-action
+              (ivory-key.model::make-realization-kanata-buffered-action-allocation
+               "tap-hold-case-j"
+               (ivory-key.model::realization-kanata-buffered-action-alias-token
+                first-action)
+               "tap-case-j"
+               (ivory-key.model::realization-kanata-buffered-action-hold first-action)
+               '("b")))
+        (ivory-key.model::realization-kanata-buffered-allocation-policy-foreign-routes
+         allocation))))))
 
 (deftest pending-input-derives-evidenced-buffered-contracts
   "The buffered route accepts exactly its current 14-instance evidence scope."

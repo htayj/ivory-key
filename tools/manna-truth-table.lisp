@@ -5,10 +5,13 @@
 ;;;;   sbcl --script tools/manna-truth-table.lisp render ROOT
 ;;;;   sbcl --script tools/manna-truth-table.lisp verify ROOT
 ;;;;   sbcl --script tools/manna-truth-table.lisp fixture ROOT
+;;;;   sbcl --script tools/manna-truth-table.lisp routes ROOT
 ;;;;
 ;;;; This script is deliberately read-only.  It accepts only the frozen Manna
 ;;;; Cadet checkout recorded below; VERIFY also checks the canonical table
-;;;; digest after parsing the static Group 1 and Top symbol arrays.
+;;;; digest after parsing the static Group 1 and Top symbol arrays.  ROUTES
+;;;; checks a separate canonical digest for the ordered primary normal/fun
+;;;; native-route ledger.
 
 (require :asdf)
 
@@ -379,6 +382,61 @@
 
 (defparameter +advantage360-game-aliases+
   '("GoGame" "ExitGame" "Gjmp" "Ghop" "Gnp7" "Gctl" "Galt" "Gsup"))
+
+;;; Frozen primary native-route ledger --------------------------------------
+
+;; These are source-route classes, not simulator or backend permissions.  The
+;; partition is deliberately closed over the ordered defsrc rows in the two
+;; hash-pinned primary files.  C5 includes all fourteen primary owners plus the
+;; source-selected gdel/rtop pair; that structural inclusion does not select a
+;; tap-hold policy for any of them.
+(defparameter +native-route-class-dispositions+
+  '(("C1" "context-key/direct-identity" "source-classified; runtime-unproved")
+    ("C2" "direct-physical-modifier" "source-classified; runtime-unproved")
+    ("C3" "residual-direct-named-key" "source-classified; runtime-unproved")
+    ("C4" "renamed-direct-local-key" "source-classified; runtime-unproved")
+    ("C5" "tap-hold-release-owner" "source-selected; policy/runtime-refused")
+    ("C6" "direct-carrier-selector" "source-classified; runtime-unproved")
+    ("C7" "stateful/control-plane" "unresolved/refused")
+    ("F1" "function-carrier-output" "source-classified; runtime-unproved")
+    ("F2" "transparent-to-normal" "source-classified; runtime-unproved")))
+
+(defparameter +native-route-primary-owner-aliases+
+  (append (mapcar #'first +unresolved-primary-tap-holds+)
+          (mapcar #'first +unresolved-selector-tap-holds+)))
+
+(defparameter +native-route-direct-modifiers+
+  '("lshift" "rshift" "rmet"))
+
+(defparameter +native-route-residual-direct+
+  '(("Advantage 2" "left" "right" "up" "down" "home" "pgup" "menu")
+    ("Advantage 360" "left" "right" "up" "down" "home" "pgup" "caps")))
+
+(defparameter +native-route-renamed-direct+
+  '(("K18" . "F18") ("K20" . "F20")
+    ("K19" . "F19") ("K21" . "F21")))
+
+(defparameter +native-route-direct-selectors+
+  '(("lctl" . "@gr") ("rctl" . "@top")))
+
+(defparameter +native-route-control-plane+
+  '(("Advantage 2" "lalt" "lrld")
+    ("Advantage 360" "lalt" "@GoGame")))
+
+;; Device label, report label, source file, defsrc arity, expected C1--C7
+;; counts, expected F1/F2 counts, and the disposition of any additional layer.
+(defparameter +native-route-device-specifications+
+  '(("Advantage 2" "A2"
+     "kanata/kinesis.advantage2.layered.kanata.kbd" 68
+     (39 3 7 0 16 2 1) (29 39) nil)
+    ("Advantage 360" "A360"
+     "kanata/kinesis.advantage360.layered.kanata.kbd" 72
+     (39 3 7 4 16 2 1) (29 43) ("game" 72 "unresolved/refused"))))
+
+;; Filled from the canonical ordered render.  This is independent of the
+;; static XKB truth-table digest and catches route parser/order regressions.
+(defparameter +expected-native-route-ledger-sha256+
+  "24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a")
 
 ;; The two non-layered source files are not executable migration profiles.
 ;; These rows preserve only their literal structural facts for P-04 review.
@@ -848,6 +906,231 @@ continues to be controlled by the individual classified rows.
              relative name (length defsrc) (length layer)))
     (mapcar #'cons defsrc layer)))
 
+(defun native-route-class-row (code)
+  (or (assoc code +native-route-class-dispositions+ :test #'string=)
+      (error "Unknown native-route disposition ~A." code)))
+
+(defun native-route-static-token-p (token)
+  (member token +static-kanata-tokens+ :key #'cdr :test #'string=))
+
+(defun native-route-classify-normal (device physical action)
+  "Classify one frozen normal cell, requiring exactly one C1--C7 match."
+  (let ((matches nil))
+    (flet ((matched (condition code)
+             (when condition (push code matches))))
+      (matched (and (string= physical action)
+                    (native-route-static-token-p physical))
+               "C1")
+      (matched (and (string= physical action)
+                    (member physical +native-route-direct-modifiers+
+                            :test #'string=))
+               "C2")
+      (matched (and (string= physical action)
+                    (member physical
+                            (rest (assoc device +native-route-residual-direct+
+                                         :test #'string=))
+                            :test #'string=))
+               "C3")
+      (matched (and (string= device "Advantage 360")
+                    (string= action
+                             (cdr (assoc physical +native-route-renamed-direct+
+                                         :test #'string=))))
+               "C4")
+      (matched (and (string-prefix-p "@" action)
+                    (member (subseq action 1)
+                            +native-route-primary-owner-aliases+
+                            :test #'string=))
+               "C5")
+      (matched (string= action
+                        (cdr (assoc physical +native-route-direct-selectors+
+                                    :test #'string=)))
+               "C6")
+      (let ((control (assoc device +native-route-control-plane+
+                            :test #'string=)))
+        (matched (and control
+                      (string= physical (second control))
+                      (string= action (third control)))
+                 "C7")))
+    (unless (= (length matches) 1)
+      (error "Frozen ~A normal route ~A → ~A has ~D C1--C7 dispositions: ~S."
+             device physical action (length matches) (nreverse matches)))
+    (first matches)))
+
+(defun native-route-classify-function (physical action)
+  "Classify one frozen fun cell, requiring exactly one F1/F2 match."
+  (let ((matches nil))
+    (when (string= action "_") (push "F2" matches))
+    (when (and (string-prefix-p "@" action)
+               (member (subseq action 1) +function-output-rows+
+                       :key #'first :test #'string=))
+      (push "F1" matches))
+    (unless (= (length matches) 1)
+      (error "Frozen function route ~A → ~A has ~D F1/F2 dispositions: ~S."
+             physical action (length matches) (nreverse matches)))
+    (first matches)))
+
+(defun source-config-value (source key relative)
+  "Return the unique atom following KEY in the active frozen defcfg form."
+  (let* ((active (active-kanata-text source))
+         (tokens (rest (source-form-tokens active "(defcfg" "defcfg")))
+         (positions (loop for token in tokens
+                          for index from 0
+                          when (string= token key)
+                            collect index)))
+    (unless (= (length positions) 1)
+      (error "Frozen source ~A has ~D active defcfg values for ~A."
+             relative (length positions) key))
+    (let ((position (first positions)))
+      (or (nth (1+ position) tokens)
+          (error "Frozen source ~A has no value after defcfg key ~A."
+                 relative key)))))
+
+(defun native-route-counts (rows key-position codes)
+  (mapcar (lambda (code)
+            (count code rows :key (lambda (row) (nth key-position row))
+                             :test #'string=))
+          codes))
+
+(defun checked-native-route-inventory (root specification)
+  "Return one exact ordered normal/fun ledger after all closed checks."
+  (destructuring-bind (device label relative expected-arity
+                       expected-normal-counts expected-function-counts
+                       additional-layer)
+      specification
+    (let* ((source (uiop:read-file-string (pathname-at root relative)))
+           (defsrc (source-defsrc-tokens source))
+           (normal (source-layer-tokens source "normal"))
+           (fun (source-layer-tokens source "fun"))
+           (active-layers (active-deflayer-names source))
+           (expected-layers (if additional-layer
+                                '("normal" "game" "fun")
+                                '("normal" "fun")))
+           (process-unmapped (source-config-value
+                              source "process-unmapped-keys" relative))
+           (rows
+             (loop for physical in defsrc
+                   for normal-action in normal
+                   for fun-action in fun
+                   for index from 1
+                   collect (list index physical normal-action
+                                 (native-route-classify-normal
+                                  device physical normal-action)
+                                 fun-action
+                                 (native-route-classify-function
+                                  physical fun-action)))))
+      (unless (and (= (length defsrc) expected-arity)
+                   (= (length normal) expected-arity)
+                   (= (length fun) expected-arity))
+        (error "Frozen source ~A changed native-route arity: defsrc/normal/fun = ~D/~D/~D, expected ~D."
+               relative (length defsrc) (length normal) (length fun)
+               expected-arity))
+      (unless (= (length defsrc)
+                 (length (remove-duplicates defsrc :test #'string=)))
+        (error "Frozen source ~A has duplicate defsrc tokens; ordered route identity is ambiguous."
+               relative))
+      (unless (equal active-layers expected-layers)
+        (error "Frozen source ~A active layer order changed: expected ~S, got ~S."
+               relative expected-layers active-layers))
+      (when additional-layer
+        (destructuring-bind (layer expected-count disposition) additional-layer
+          (declare (ignore disposition))
+          (unless (= (length (source-layer-tokens source layer)) expected-count)
+            (error "Frozen source ~A additional layer ~A does not cover all ~D rows."
+                   relative layer expected-count))))
+      (unless (string= process-unmapped "yes")
+        (error "Frozen source ~A no longer has process-unmapped-keys yes."
+               relative))
+      (let ((normal-counts
+              (native-route-counts rows 3
+                                   '("C1" "C2" "C3" "C4" "C5" "C6" "C7")))
+            (function-counts
+              (native-route-counts rows 5 '("F1" "F2"))))
+        (unless (equal normal-counts expected-normal-counts)
+          (error "Frozen ~A normal route counts changed: expected ~S, got ~S."
+                 device expected-normal-counts normal-counts))
+        (unless (equal function-counts expected-function-counts)
+          (error "Frozen ~A function route counts changed: expected ~S, got ~S."
+                 device expected-function-counts function-counts)))
+      (list device label relative
+            (or (cdr (assoc relative +baseline-files+ :test #'string=))
+                (error "Frozen primary route source ~A lacks a baseline hash."
+                       relative))
+            active-layers process-unmapped rows additional-layer))))
+
+(defun checked-native-route-inventories (root)
+  (mapcar (lambda (specification)
+            (checked-native-route-inventory root specification))
+          +native-route-device-specifications+))
+
+(defun native-route-count-summary (rows codes key-position)
+  (format nil "~{~A~^, ~}"
+          (loop for code in codes
+                for count in (native-route-counts rows key-position codes)
+                collect (format nil "~A=~D" code count))))
+
+(defun canonical-native-route-ledger (root)
+  "Render the canonical ordered frozen source-route ledger as Markdown."
+  (let ((inventories (checked-native-route-inventories root)))
+    (with-output-to-string (stream)
+      (format stream "# Frozen Manna Cadet native-route evidence ledger v1~%~%")
+      (format stream "Commit: `~A`~%~%" +baseline-commit+)
+      (format stream "This ledger is closed over the ordered `defsrc` rows in the two hash-pinned primary files. Both exact configs say `process-unmapped-keys yes`; a physical input outside these `defsrc` tables can therefore reach Kanata, but it is outside this ledger and remains an unresolved/refused foreign-input route. No class below grants simulator or backend permission.~%~%")
+      (format stream "C5 contains the fourteen primary owners plus the source-selected `@gdel` and `@rtop` normal actions. Their inclusion proves source selection only; all sixteen policy/runtime routes remain refused. The Advantage 360 `game` layer and every C7 row are likewise unresolved/refused.~%~%")
+      (format stream "## Closed class dispositions~%~%")
+      (format stream "| Code | Stable class name | Disposition |~%")
+      (format stream "|---|---|---|~%")
+      (dolist (row +native-route-class-dispositions+)
+        (format stream "| `~A` | `~A` | ~A |~%"
+                (first row) (second row) (third row)))
+      (dolist (inventory inventories)
+        (destructuring-bind (device label relative hash active-layers
+                             process-unmapped rows additional-layer)
+            inventory
+          (declare (ignore device))
+          (format stream "~%## ~A ordered routes~%~%" label)
+          (format stream "Source: `~A`  ~%SHA-256: `~A`  ~%" relative hash)
+          (format stream "Order/coverage: `defsrc` ~D; ~{`~A` ~D~^, ~}.  ~%"
+                  (length rows)
+                  (loop for layer in active-layers
+                        append (list layer
+                                     (length (source-layer-tokens
+                                              (uiop:read-file-string
+                                               (pathname-at root relative))
+                                              layer)))))
+          (format stream "Config boundary: `process-unmapped-keys ~A`.  ~%"
+                  process-unmapped)
+          (format stream "Normal counts: `~A`.  ~%"
+                  (native-route-count-summary
+                   rows '("C1" "C2" "C3" "C4" "C5" "C6" "C7") 3))
+          (format stream "Function counts: `~A`.~%"
+                  (native-route-count-summary rows '("F1" "F2") 5))
+          (when additional-layer
+            (destructuring-bind (layer count disposition) additional-layer
+              (format stream "Additional active layer: `~A` (~D rows), disposition `~A`; its actions are deliberately not assigned C/F route semantics.~%"
+                      layer count disposition)))
+          (format stream "~%| Device | Index | `defsrc` token | `normal` action | Normal class | `fun` action | Function class |~%")
+          (format stream "|---|---:|---|---|---|---|---|~%")
+          (dolist (row rows)
+            (destructuring-bind (index physical normal-action normal-class
+                                 fun-action function-class)
+                row
+              (format stream "| ~A | ~3,'0D | `~A` | `~A` | `~A` | `~A` | `~A` |~%"
+                      label index physical normal-action normal-class
+                      fun-action function-class)))))
+      (format stream "~%Unclassified ordered routes: 0~%"))))
+
+(defun render-native-route-ledger (root stream)
+  (verify-baseline root)
+  (let* ((ledger (canonical-native-route-ledger root))
+         (digest (string-sha256 ledger)))
+    (when (and +expected-native-route-ledger-sha256+
+               (not (string= digest +expected-native-route-ledger-sha256+)))
+      (error "Canonical native-route ledger digest mismatch: expected ~A, got ~A."
+             +expected-native-route-ledger-sha256+ digest))
+    (write-string ledger stream)
+    (format stream "Canonical native-route ledger SHA-256: `~A`~%" digest)
+    digest))
+
 (defun chorded-expected-non-source-actions (device)
   (cdr (assoc device +chorded-normal-non-source-actions+ :test #'string=)))
 
@@ -1047,8 +1330,8 @@ runtime behavior.
   ;; bindings after that block.
   (unless (= 56 (count-prefixed-lines layout "  (binding"))
     (error "Manna fixture must contain 52 static and 4 tap bindings."))
-  (unless (= 61 (count-prefixed-lines topology "  (position "))
-    (error "Manna topology must contain 52 static, 5 control, and 4 tap positions."))
+  (unless (= 72 (count-prefixed-lines topology "  (position "))
+    (error "Manna topology must contain the complete 72-position device union."))
   (dolist (row (static-placement-rows))
     (destructuring-bind (logical xkb kanata) row
       (unless (and (search (format nil "(position ~A" logical) topology)
@@ -1063,9 +1346,11 @@ runtime behavior.
                (search "(unreachable less-greater)" advantage2)
                (search "(unreachable less-greater)" advantage360))
     (error "<LSGT> must remain explicitly unreachable without an invented placement."))
-  (unless (and (= 60 (count-prefixed-lines advantage2 "  (place "))
-               (= 60 (count-prefixed-lines advantage360 "  (place ")))
-    (error "Each Manna device fixture must contain exactly 60 classified placements."))
+  (unless (and (= 67 (count-prefixed-lines advantage2 "  (place "))
+               (= 5 (count-prefixed-lines advantage2 "  (unreachable "))
+               (= 71 (count-prefixed-lines advantage360 "  (place "))
+               (= 1 (count-prefixed-lines advantage360 "  (unreachable ")))
+    (error "Manna device coverage must classify all 72 positions (A2: 67/5; A360: 71/1)."))
   t)
 
 (defun checked-function-fixture-p (root layout advantage2 advantage360 vocabulary)
@@ -1310,6 +1595,7 @@ claim zero unchecked differences.
          (a2-layers (primary-layer-inventory a2-source "Advantage 2" a2-relative))
          (a360-layers (primary-layer-inventory
                        a360-source "Advantage 360" a360-relative))
+         (native-route-inventories (checked-native-route-inventories root))
          (chorded-inventories (checked-chorded-variant-inventories root)))
     (checked-static-fixture-p root layout topology advantage2 advantage360)
     (checked-function-fixture-p root layout advantage2 advantage360 vocabulary)
@@ -1326,10 +1612,15 @@ claim zero unchecked differences.
     (format stream "| Function outputs | 29 A2 + 29 360 placements | 29 shared outputs | 2 activators | 0 |~%")
     (format stream "| Direct selectors | 4 A2 + 4 360 observations | 4 abstract held interactions | backend lowering refused | 0 |~%")
     (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, no selected policy | all classified below | 0 |~%")
+    (format stream "| Ordered native routes | 68 A2 + 72 A360 `defsrc` rows across `normal` / `fun` | C1--C7 and F1--F2 closed ledger | C7, 360 `game`, and process-unmapped inputs refused | 0 |~%")
     (format stream "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |~%~%")
     (format stream "| Primary aliases | ~D A2 + ~D 360 declarations | ~D + ~D classified | no implicit alias meaning | 0 |~%~%"
             (length a2-aliases) (length a360-aliases)
             (length a2-aliases) (length a360-aliases))
+    (format stream "Native-route ledger SHA-256: `~A` (~D ordered rows; unclassified 0).~%~%"
+            (string-sha256 (canonical-native-route-ledger root))
+            (reduce #'+ native-route-inventories
+                    :key (lambda (inventory) (length (seventh inventory)))))
     (format stream "## Primary alias and layer coverage~%~%")
     (format stream "| Primary file | defsrc positions | Layers (each complete) | Declared aliases | Unclassified aliases |~%")
     (format stream "|---|---:|---|---:|---:|~%")
@@ -1407,7 +1698,7 @@ claim zero unchecked differences.
     t))
 
 (defun usage (stream)
-  (format stream "Usage: sbcl --script tools/manna-truth-table.lisp {render|verify|fixture|diff} ROOT~%"))
+  (format stream "Usage: sbcl --script tools/manna-truth-table.lisp {render|verify|fixture|diff|routes} ROOT~%"))
 
 (defun main (&optional (arguments (uiop:command-line-arguments)))
   (destructuring-bind (command root &rest extra) arguments
@@ -1421,6 +1712,8 @@ claim zero unchecked differences.
                (render-fixture-bindings root *standard-output*))
               ((string= command "diff")
                (render-diff-report root *standard-output*))
+              ((string= command "routes")
+               (render-native-route-ledger root *standard-output*))
               ((string= command "verify")
                (format t "Manna Cadet frozen baseline verified; truth-table SHA-256: ~A~%"
                        (verify-baseline root)))

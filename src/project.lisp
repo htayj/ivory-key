@@ -938,9 +938,9 @@ default compatibility route.
 (defun %decode-realization-kanata-buffered-allocations (context form)
   "Decode typed inert action allocations from parser nodes only.
 
-The grammar deliberately contains atoms, semantic identities, and route
-references only.  It cannot carry a Kanata alias, parenthesized action, or
-arbitrary configuration fragment.
+The grammar deliberately contains closed atoms, semantic identities, explicit
+alias names, and route references only.  It cannot carry a parenthesized
+action or arbitrary configuration fragment.
 "
   (let ((actions nil) (routes nil))
     (dolist (clause (cdr (%form-children context form 1 nil
@@ -955,31 +955,37 @@ arbitrary configuration fragment.
                   (%text-node-value context (third children) "Buffered route token"))
                  routes)))
         ((%named-form-p clause "action")
-         (let* ((children (%form-children context clause 5 5
+         (let* ((children (%form-children context clause 6 6
                                            "Buffered ACTION clause"))
                 (interaction (%identifier-node-name context (second children)
                                                     "Buffered action interaction"))
                 (subclauses (cddr children))
+                (alias-forms (remove-if-not (lambda (node) (%named-form-p node "alias"))
+                                            subclauses))
                 (tap-forms (remove-if-not (lambda (node) (%named-form-p node "tap"))
                                           subclauses))
                 (hold-forms (remove-if-not (lambda (node) (%named-form-p node "hold"))
                                            subclauses))
                 (route-forms (remove-if-not (lambda (node) (%named-form-p node "routes"))
                                             subclauses)))
-           (unless (and (= (length tap-forms) 1)
+           (unless (and (= (length alias-forms) 1)
+                        (= (length tap-forms) 1)
                         (= (length hold-forms) 1)
                         (= (length route-forms) 1)
-                        (= (length subclauses) 3))
+                        (= (length subclauses) 4))
              (%fail context :invalid-realization-kanata-buffered-action
-                    "Buffered ACTION ~A requires exactly TAP, HOLD, and ROUTES."
+                    "Buffered ACTION ~A requires exactly ALIAS, TAP, HOLD, and ROUTES."
                     interaction))
-           (let* ((tap-children (%form-children context (first tap-forms) 2 2
+           (let* ((alias-children (%form-children context (first alias-forms) 2 2
+                                                   "Buffered ALIAS clause"))
+                  (tap-children (%form-children context (first tap-forms) 2 2
                                                  "Buffered TAP clause"))
                   (route-children (%form-children context (first route-forms) 2 nil
                                                    "Buffered ROUTES clause")))
              (push
               (ivory-key.model::make-realization-kanata-buffered-action-allocation
                interaction
+               (%text-node-value context (second alias-children) "Buffered alias token")
                (%text-node-value context (second tap-children) "Buffered tap token")
                (%decode-realization-kanata-buffered-hold context (first hold-forms))
                (mapcar (lambda (node)

@@ -110,6 +110,38 @@ events result.  The broader observations therefore create model/lowering test
 obligations; they do not authorize a generic replay source construct or make
 the current bounded reference transaction a whole-device implementation.
 
+## Frozen native-route source partition
+
+A separate hash-gated, non-runtime ledger now closes the source inventory that
+the representative oracle deliberately does not. Run:
+
+```sh
+sbcl --script tools/manna-truth-table.lisp routes \
+  PATH-TO-FROZEN-MANNA-ROOT
+```
+
+The canonical render has SHA-256
+`24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`.
+It preserves all ordered A2 68 and A360 72 `defsrc` rows and pairs each with
+its exact `normal` and `fun` action. The normal partition is C1 context/direct
+identity (39/39), C2 physical modifier (3/3), C3 residual named key (7/7), C4
+renamed 360 local key (0/4), C5 source-selected tap-hold owner (16/16), C6
+direct carrier selector (2/2), and C7 stateful/control-plane (1/1). The
+function partition is F1 carrier output (29/29) and F2 transparent-to-normal
+(39/43).
+
+C5 includes `@gdel` and `@rtop` because the frozen normal layers select them;
+their buffered runtime route remains refused for lack of direct oracle traces.
+C7 is explicitly unresolved/refused. The complete 72-row Advantage 360
+`game` layer is arity-checked and explicitly unresolved/refused rather than
+folded into the normal/function classes.
+
+This is source coverage, not runtime queue closure. Both frozen configs say
+`process-unmapped-keys yes`, so a physical input outside `defsrc` may still be
+processed by Kanata but is outside the canonical ledger and remains refused.
+Nor does one class representative prove every member's routing, overlay,
+state, XKB, client, or live-device behavior.
+
 ## Carrier lifetime boundary
 
 The same pinned oracle has a ten-row carrier-lifetime matrix for direct
@@ -166,9 +198,10 @@ This evidence narrows, but does not eliminate, the owner decision:
 2. A Kanata-1.12 compatibility profile must model the pending foreign-event
    buffer and its ordered release. Ivory Key now has a bounded single-owner
    reference transaction, derived normalized contracts, and an inert typed
-   compiler handoff. Cancellation, multi-owner arbitration, native input-domain
-   closure, and backend differential proof remain mandatory before selection
-   or emission.
+   compiler handoff. The frozen native-route partition is now structurally
+   closed, but per-class queue/redispatch evidence, the process-unmapped input
+   boundary, cancellation, multi-owner arbitration, and backend differential
+   proof remain mandatory before selection or emission.
 
 Until one route is selected and implemented, the active Manna realization
 continues to refuse all fourteen primary tap-holds and the two alternate

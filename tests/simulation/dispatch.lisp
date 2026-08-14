@@ -116,6 +116,38 @@
      :interactions (ivory-key.model:normalized-layout-interactions layout)
      :origin (ivory-key.model:normalized-layout-origin layout))))
 
+(defun dispatch-extra-routed-key (position token plan-token)
+  "A test-only direct route authorized by the existing whole-layout token."
+  (ivory-key.simulate::make-routed-dispatch-ordinary-interaction
+   :name (list :ordinary-binding position) :participants (list position)
+   :dispatch-plan-token plan-token
+   :cases
+   (list (ivory-key.simulate::make-sim-case
+          :name (list :direct position)
+          :pattern (ivory-key.simulate::down-pattern position)
+          :commit :when-matched
+          :actions (list (ivory-key.simulate::emit-action
+                          (list :named-key token)))))) )
+
+(defun dispatch-buffered-interactions (&key names extra-route owner-routes)
+  "Compile selected owners and optionally attach one same-plan direct route."
+  (let ((layout (dispatch-layout-with-named-b)))
+    (dolist (position owner-routes)
+      (setf layout (dispatch-layout-with-named-owner layout position)))
+    (multiple-value-bind (interactions axes)
+        (ivory-key.simulate::compile-normalized-layout-simulation
+       layout
+       :interaction-compatibility-policy (pending-input-policy :names names))
+      (values (if extra-route
+                  (append interactions
+                          (list (dispatch-extra-routed-key
+                                 extra-route extra-route
+                                 (ivory-key.simulate::sim-interaction-dispatch-plan-token
+                                  (find-if #'ivory-key.simulate::sim-interaction-buffered-dispatch-contract
+                                           interactions)))))
+                  interactions)
+              axes))))
+
 (deftest simulation-dispatch-whole-layout-selected-contract-is-structural
   "The public whole-layout adapter derives the contract before enabling custody."
   (let* ((layout (pending-input-normalized-layout))
@@ -587,6 +619,105 @@
                             :original-index))
           (is-equal 2 (getf (ivory-key.simulate::simulation-trace-entry-details redispatch)
                             :dispatch-frontier)))))))
+
+(deftest simulation-dispatch-barrier-flushes-two-routes-in-down-order-on-reverse-ups
+  "Barrier intervals pair physical UP by position but flush in physical DOWN order."
+  (multiple-value-bind (interactions axes)
+      (dispatch-buffered-interactions
+       :names '("tap-hold-super-semicolon") :extra-route "c")
+    (let* ((result
+             (ivory-key.simulate:simulate-events
+              interactions
+              (list (dispatch-event 0 :down "semicolon")
+                    (dispatch-event 1 :down "b")
+                    (dispatch-event 2 :down "c")
+                    (dispatch-event 3 :up "c")
+                    (dispatch-event 4 :up "b")
+                    (dispatch-event 5 :up "semicolon"))
+              :axes axes))
+           (intervals
+             (getf (ivory-key.simulate::simulation-result-dispatch-barrier result)
+                   :intervals)))
+      (is-equal '((:modifier :press "super") (:named-key "b")
+                  (:named-key "c") (:modifier :release "super"))
+                (ivory-key.simulate:simulation-result-outputs result))
+      (is-equal '((:press "b") (:release "b")
+                  (:press "c") (:release "c"))
+                (dispatch-semantic-edges result))
+      (is-equal '(("b" 1 4 :complete (1))
+                  ("c" 2 3 :complete (1)))
+                (mapcar (lambda (interval)
+                          (list (getf interval :position)
+                                (getf interval :down-index)
+                                (getf interval :up-index)
+                                (getf interval :state)
+                                (getf interval :owners)))
+                        intervals)))))
+
+(deftest simulation-dispatch-barrier-supports-repeated-direct-intervals-exactly-once
+  (multiple-value-bind (interactions axes)
+      (dispatch-buffered-interactions :names '("tap-hold-super-semicolon"))
+    (let* ((result
+             (ivory-key.simulate:simulate-events
+              interactions
+              (list (dispatch-event 0 :down "semicolon")
+                    (dispatch-event 1 :down "b") (dispatch-event 2 :up "b")
+                    (dispatch-event 3 :down "b") (dispatch-event 4 :up "b")
+                    (dispatch-event 5 :up "semicolon"))
+              :axes axes))
+           (intervals
+             (getf (ivory-key.simulate::simulation-result-dispatch-barrier result)
+                   :intervals)))
+      (is-equal '((:press "b") (:release "b")
+                  (:press "b") (:release "b"))
+                (dispatch-semantic-edges result))
+      (is-equal '((1 "b" :complete) (2 "b" :complete))
+                (mapcar (lambda (interval)
+                          (list (getf interval :id) (getf interval :position)
+                                (getf interval :state)))
+                        intervals)))))
+
+(deftest simulation-dispatch-barrier-attaches-equal-deadline-owners-and-refuses-unequal
+  (multiple-value-bind (interactions axes)
+      (dispatch-buffered-interactions
+       :names '("tap-hold-case-f" "tap-hold-super-semicolon")
+       :owner-routes '("f"))
+    (let* ((result
+             (ivory-key.simulate:simulate-events
+              interactions
+              (list (dispatch-event 0 :down "f")
+                    (dispatch-event 0 :down "semicolon")
+                    (dispatch-event 1 :down "b")
+                    (dispatch-event 201 :up "b")
+                    (dispatch-event 202 :up "f")
+                    (dispatch-event 202 :up "semicolon"))
+              :axes axes))
+           (interval (first (getf
+                             (ivory-key.simulate::simulation-result-dispatch-barrier result)
+                             :intervals))))
+      (is-equal '(1 2) (getf interval :owners))
+      (is-equal :complete (getf interval :state))))
+  (multiple-value-bind (interactions axes)
+      (dispatch-buffered-interactions
+       :names '("tap-hold-super-a" "tap-hold-super-semicolon")
+       :owner-routes '("a"))
+    (let ((machine (ivory-key.simulate:make-simulator :interactions interactions :axes axes)))
+      (ivory-key.simulate:simulator-feed-event machine (dispatch-event 0 :down "a"))
+      (ivory-key.simulate:simulator-feed-event machine (dispatch-event 0 :down "semicolon"))
+      (handler-case
+          (progn
+            (ivory-key.simulate:simulator-feed-event machine (dispatch-event 1 :down "b"))
+            (error "Expected unequal-owner-deadline refusal."))
+        (ivory-key.simulate:buffered-dispatch-refusal (condition)
+          (is-equal :unequal-buffered-owner-deadline
+                    (ivory-key.simulate:buffered-dispatch-refusal-code condition))))
+      ;; Admission is atomic: the rejected direct DOWN never enters either
+      ;; physical evidence or the closed barrier dump.
+      (is-equal 2 (length (ivory-key.simulate:simulator-events machine)))
+      (is-equal nil
+                (getf (ivory-key.simulate::simulation-result-dispatch-barrier
+                       (ivory-key.simulate:simulator-result machine))
+                      :intervals)))))
 
 (deftest simulation-dispatch-refuses-overlay-foreign-route
   (let* ((layout (dispatch-layout-with-named-b))

@@ -437,6 +437,9 @@ verified before these checked-in counts and raw rows are considered evidence."
                 '("UE00" "arbitrary-code" "@sc-" "(keysym"))
       (error "Manna abstract layout contains a backend carrier or spelling escape hatch."))
     (unless (and (search "(position escape" topology)
+                 (= 72 (count-prefixed-lines topology "  (position "))
+                 (= 67 (count-prefixed-lines advantage2 "  (place "))
+                 (= 71 (count-prefixed-lines advantage360 "  (place "))
                  (search "(position delete" topology)
                  (search "(position end" topology)
                  (search "(position pgdn" topology)
@@ -464,6 +467,34 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (search "(place delete (:xkb \"DELE\") (:kanata \"del\"))" advantage360)
                  (search "(place end (:xkb \"END\") (:kanata \"end\"))" advantage360)
                  (search "(place pgdn (:xkb \"PGDN\") (:kanata \"pgdn\"))" advantage360)
+                 (search "(place left (:xkb \"LEFT\") (:kanata \"left\"))" advantage2)
+                 (search "(place right (:xkb \"RGHT\") (:kanata \"right\"))" advantage2)
+                 (search "(place up (:xkb \"UP\") (:kanata \"up\"))" advantage2)
+                 (search "(place down (:xkb \"DOWN\") (:kanata \"down\"))" advantage2)
+                 (search "(place home (:xkb \"HOME\") (:kanata \"home\"))" advantage2)
+                 (search "(place page-up (:xkb \"PGUP\") (:kanata \"pgup\"))" advantage2)
+                 (search "(place control-plane-alt (:xkb \"LALT\") (:kanata \"lalt\"))"
+                         advantage2)
+                 (search "(unreachable hotkey-18)" advantage2)
+                 (search "(unreachable hotkey-20)" advantage2)
+                 (search "(unreachable hotkey-19)" advantage2)
+                 (search "(unreachable hotkey-21)" advantage2)
+                 (search "(place left (:xkb \"LEFT\") (:kanata \"left\"))" advantage360)
+                 (search "(place right (:xkb \"RGHT\") (:kanata \"right\"))" advantage360)
+                 (search "(place up (:xkb \"UP\") (:kanata \"up\"))" advantage360)
+                 (search "(place down (:xkb \"DOWN\") (:kanata \"down\"))" advantage360)
+                 (search "(place home (:xkb \"HOME\") (:kanata \"home\"))" advantage360)
+                 (search "(place page-up (:xkb \"PGUP\") (:kanata \"pgup\"))" advantage360)
+                 (search "(place control-plane-alt (:xkb \"LALT\") (:kanata \"lalt\"))"
+                         advantage360)
+                 (search "(place hotkey-18 (:xkb \"COMP\") (:kanata \"K18\"))"
+                         advantage360)
+                 (search "(place hotkey-20 (:xkb \"VOL+\") (:kanata \"K20\"))"
+                         advantage360)
+                 (search "(place hotkey-19 (:xkb \"PROP\") (:kanata \"K19\"))"
+                         advantage360)
+                 (search "(place hotkey-21 (:xkb \"I150\") (:kanata \"K21\"))"
+                         advantage360)
                  (search "(map-output named-key delete (:xkb \"Delete\") (:kanata \"del\"))" vocabulary)
                  (search "(map-output named-key escape (:xkb \"Escape\") (:kanata \"esc\"))" vocabulary)
                  (search "(map-output named-key page-down (:xkb \"Next\") (:kanata \"pgdn\"))" vocabulary)
@@ -498,7 +529,9 @@ verified before these checked-in counts and raw rows are considered evidence."
          (second-render (tool-output "render" root))
          (fixture-render (tool-output "fixture" root))
          (first-diff (tool-output "diff" root))
-         (second-diff (tool-output "diff" root)))
+         (second-diff (tool-output "diff" root))
+         (first-routes (tool-output "routes" root))
+         (second-routes (tool-output "routes" root)))
     (unless (search "Manna Cadet frozen baseline verified" verification)
       (error "Frozen baseline verification did not report success: ~A" verification))
     (unless (search "3ef72eabdd26d2154481c1b8fd0becba50dfbb9a0ba50d0d37556930f92dc807"
@@ -514,6 +547,53 @@ verified before these checked-in counts and raw rows are considered evidence."
       (error "Rendered table lost required frozen evidence."))
     (unless (string= first-diff second-diff)
       (error "Frozen Manna baseline diff report is not deterministic."))
+    (unless (string= first-routes second-routes)
+      (error "Frozen Manna native-route ledger is not deterministic."))
+    (unless (and
+             (search "Canonical native-route ledger SHA-256: `24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`"
+                     first-routes)
+             (search "SHA-256: `d36a93eab6e2355707f7a6bfbcfac2a4e3b0ea361cc399d388543f51e1f5226b`"
+                     first-routes)
+             (search "SHA-256: `632a7574938b535a8d4b1d2e3ce1c5f711d0486298d2ce4d98adda702496df5a`"
+                     first-routes)
+             (search "Order/coverage: `defsrc` 68; `normal` 68, `fun` 68."
+                     first-routes)
+             (search "Order/coverage: `defsrc` 72; `normal` 72, `game` 72, `fun` 72."
+                     first-routes)
+             (search "Normal counts: `C1=39, C2=3, C3=7, C4=0, C5=16, C6=2, C7=1`."
+                     first-routes)
+             (search "Normal counts: `C1=39, C2=3, C3=7, C4=4, C5=16, C6=2, C7=1`."
+                     first-routes)
+             (search "Function counts: `F1=29, F2=39`." first-routes)
+             (search "Function counts: `F1=29, F2=43`." first-routes)
+             (= 68 (count-prefixed-lines first-routes "| A2 |"))
+             (= 72 (count-prefixed-lines first-routes "| A360 |"))
+             (search "| A2 | 050 | `menu` | `menu` | `C3` | `@sc-altmode` | `F1` |"
+                     first-routes)
+             (search "| A2 | 057 | `lctl` | `@gr` | `C6` | `_` | `F2` |"
+                     first-routes)
+             (search "| A2 | 058 | `lalt` | `lrld` | `C7` | `_` | `F2` |"
+                     first-routes)
+             (search "| A2 | 064 | `del` | `@gdel` | `C5` | `_` | `F2` |"
+                     first-routes)
+             (search "| A2 | 067 | `ent` | `@rtop` | `C5` | `_` | `F2` |"
+                     first-routes)
+             (search "| A360 | 019 | `K18` | `F18` | `C4` | `_` | `F2` |"
+                     first-routes)
+             (search "| A360 | 034 | `K21` | `F21` | `C4` | `_` | `F2` |"
+                     first-routes)
+             (search "| A360 | 054 | `caps` | `caps` | `C3` | `@sc-altmode` | `F1` |"
+                     first-routes)
+             (search "| A360 | 062 | `lalt` | `@GoGame` | `C7` | `_` | `F2` |"
+                     first-routes)
+             (search "Additional active layer: `game` (72 rows), disposition `unresolved/refused`"
+                     first-routes)
+             (= 2 (count-substrings first-routes
+                                    "Config boundary: `process-unmapped-keys yes`."))
+             (search "outside this ledger and remains an unresolved/refused foreign-input route"
+                     first-routes)
+             (search "Unclassified ordered routes: 0" first-routes))
+      (error "Canonical frozen native-route ledger lost a closed row, class, or refusal boundary."))
     (unless (and (search "52 tables / 416 cells / 158 `NoSymbol` cells" first-diff)
                  (= 51 (count-substrings first-diff "static-table-and-placement-exact"))
                  (= 1 (count-substrings first-diff "static-table-exact; typed-unreachable"))
@@ -523,6 +603,8 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (= 16 (count-substrings first-diff "tap-hold-policy-refused"))
                  (= 8 (count-substrings first-diff "device-variant-refused"))
                  (search "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, no selected policy | all classified below | 0 |" first-diff)
+                 (search "| Ordered native routes | 68 A2 + 72 A360 `defsrc` rows across `normal` / `fun` | C1--C7 and F1--F2 closed ledger | C7, 360 `game`, and process-unmapped inputs refused | 0 |" first-diff)
+                 (search "Native-route ledger SHA-256: `24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a` (140 ordered rows; unclassified 0)." first-diff)
                  (search "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |" first-diff)
                  (search "| Advantage 2 chorded | `e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd` | 68 | `normal` (complete) | 47 (16 tap-hold / 31 carrier) | 29 | 58 / 58 | none |" first-diff)
                  (search "| Advantage 360 chorded | `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | 72 | `normal` (complete) | 47 (16 tap-hold / 31 carrier) | 29 | 56 / 58; missing `menu`, `menu` | `K18=127`, `K19=130`, `K20=115`, `K21=142` |" first-diff)

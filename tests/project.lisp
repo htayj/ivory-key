@@ -127,21 +127,82 @@ unselected.  This covers the real graph rather than a decoder-only fixture."
   (let* ((project (ivory-key.project:load-project
                    (truename "manna-cadet-project.ivory")
                    :source-roots (list (truename "./"))))
-         (layout (ivory-key.project:project-layout project "manna-cadet" :errorp t)))
+         (layout (ivory-key.project:project-layout project "manna-cadet" :errorp t))
+         (topology (ivory-key.model:layout-topology layout))
+         (native-only-positions
+           '("left" "right" "up" "down" "home" "page-up"
+             "control-plane-alt" "hotkey-18" "hotkey-20" "hotkey-19"
+             "hotkey-21")))
     (is-equal 56 (length (ivory-key.model:layout-bindings layout)))
     (is-equal 20 (length (ivory-key.model:layout-interactions layout)))
-    (dolist (device-name '("kinesis-advantage2" "kinesis-advantage360"))
-      (let ((device (ivory-key.project:project-device project device-name :errorp t)))
+    (is-equal 72 (length (ivory-key.model:topology-positions topology)))
+    ;; The native-only physical domain is typed without assigning ordinary
+    ;; layout behavior to any of its positions.
+    (dolist (position native-only-positions)
+      (is (ivory-key.model:find-position position topology))
+      (is (null (ivory-key.model:layout-binding layout position))))
+    (dolist (specification
+             '(("kinesis-advantage2" 67
+                (("hotkey-18" :unreachable nil nil)
+                 ("hotkey-20" :unreachable nil nil)
+                 ("hotkey-19" :unreachable nil nil)
+                 ("hotkey-21" :unreachable nil nil)))
+               ("kinesis-advantage360" 71
+                (("hotkey-18" :physical "COMP" "K18")
+                 ("hotkey-20" :physical "VOL+" "K20")
+                 ("hotkey-19" :physical "PROP" "K19")
+                 ("hotkey-21" :physical "I150" "K21")))))
+      (destructuring-bind (device-name physical-count hotkeys) specification
+        (let* ((device (ivory-key.project:project-device project device-name :errorp t))
+               (coverage (ivory-key.model:placement-position-coverage device))
+               (backend-mappings
+                 (getf (ivory-key.model:placement-metadata device)
+                       :backend-mappings)))
+          (is (ivory-key.model:placement-coverage-complete-p device))
+          (is-equal 72 (length coverage))
+          (is-equal physical-count
+                    (count :physical coverage
+                           :key #'ivory-key.model:device-position-coverage-disposition))
         (dolist (position '("escape" "delete" "end" "pgdn"))
           (is-equal :physical
                     (ivory-key.model:device-position-coverage-disposition
                      (ivory-key.model:placement-coverage-for-position
-                      device position))))))
+                          device position))))
+          (dolist (row
+                   '(("left" "LEFT" "left") ("right" "RGHT" "right")
+                     ("up" "UP" "up") ("down" "DOWN" "down")
+                     ("home" "HOME" "home") ("page-up" "PGUP" "pgup")
+                     ("control-plane-alt" "LALT" "lalt")))
+            (destructuring-bind (position xkb kanata) row
+              (is-equal :physical
+                        (ivory-key.model:device-position-coverage-disposition
+                         (ivory-key.model:placement-coverage-for-position
+                          device position)))
+              (let ((mapping (cdr (assoc position backend-mappings
+                                         :test #'string=))))
+                (is-equal xkb (getf mapping :xkb))
+                (is-equal kanata (getf mapping :kanata)))))
+          (dolist (row hotkeys)
+            (destructuring-bind (position disposition xkb kanata) row
+              (is-equal disposition
+                        (ivory-key.model:device-position-coverage-disposition
+                         (ivory-key.model:placement-coverage-for-position
+                          device position)))
+              (let ((mapping (cdr (assoc position backend-mappings
+                                         :test #'string=))))
+                (if (eq disposition :physical)
+                    (progn
+                      (is-equal xkb (getf mapping :xkb))
+                      (is-equal kanata (getf mapping :kanata)))
+                    (is (null mapping))))))
+          (is-equal :unreachable
+                    (ivory-key.model:device-position-coverage-disposition
+                     (ivory-key.model:placement-coverage-for-position
+                      device "less-greater"))))))
     ;; The physical Enter token reuses RETURN; no duplicate topology identity
     ;; is invented for the rtop alias.
     (is (null (find "enter"
-                    (ivory-key.model:topology-positions
-                     (ivory-key.model:layout-topology layout))
+                    (ivory-key.model:topology-positions topology)
                     :test #'ivory-key.model:identifier=
                     :key #'ivory-key.model:position-name)))))
 
@@ -495,7 +556,7 @@ unselected.  This covers the real graph rather than a decoder-only fixture."
                  "(interaction-compatibility kanata-1-12-buffered (instances q-tap))
   (kanata-buffered-allocations
     (route q q)
-    (action q-tap (tap q) (hold modifier control lctl) (routes q)))")))
+    (action q-tap (alias q-tap-alias) (tap q) (hold modifier control lctl) (routes q)))")))
              (allocation
                (ivory-key.model::realization-profile-kanata-buffered-allocation-policy
                 profile)))
@@ -515,4 +576,4 @@ unselected.  This covers the real graph rather than a decoder-only fixture."
            (source
             "(kanata-buffered-allocations
   (route q q)
-  (action q-tap (tap q) (hold modifier control lctl) (routes q)))"))))))))
+  (action q-tap (alias q-tap-alias) (tap q) (hold modifier control lctl) (routes q)))"))))))))

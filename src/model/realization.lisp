@@ -123,8 +123,8 @@ prove a carrier/pass-through stage without inventing a backend token here.
 
 ;; This is intentionally a realization value rather than a generic Kanata
 ;; configuration language.  It can describe exactly the atoms consumed by the
-;; inert typed action handoff, but never aliases, arbitrary parenthesized
-;; actions, queue rules, or an emitted configuration.
+;; inert typed action handoff, including an explicit *alias name*, but never
+;; arbitrary parenthesized actions, queue rules, or an emitted configuration.
 (defparameter +realization-kanata-buffered-hold-kinds+
   '(:modifier :axis-modifier :axis-layer))
 
@@ -153,6 +153,11 @@ prove a carrier/pass-through stage without inventing a backend token here.
 (defclass realization-kanata-buffered-action-allocation ()
   ((interaction :initarg :interaction
                 :reader realization-kanata-buffered-action-interaction)
+   ;; Alias spelling is realization-owned.  Deriving it from the interaction
+   ;; identifier would turn an inspection-only semantic name into backend
+   ;; grammar and create an unreviewed collision surface.
+   (alias-token :initarg :alias-token
+                :reader realization-kanata-buffered-action-alias-token)
    (tap-token :initarg :tap-token
               :reader realization-kanata-buffered-action-tap-token)
    (hold :initarg :hold :reader realization-kanata-buffered-action-hold)
@@ -190,6 +195,26 @@ prove a carrier/pass-through stage without inventing a backend token here.
   (unless (%realization-kanata-buffered-safe-token-p value)
     (%realization-error :unsafe-realization-kanata-buffered-token
                         "~A must be one closed Kanata atom." role))
+  (string-downcase value))
+
+(defun %realization-kanata-buffered-alias-token (value role)
+  "Validate one identifier-shaped alias name, never an input punctuation atom.
+
+The input vocabulary above intentionally permits tokens such as `;` because
+they can be physical Kanata source keys.  An alias is emitted in a definition
+position, so it has a strictly narrower grammar and cannot be a comment,
+delimiter, or action fragment.
+"
+  (unless (and (stringp value)
+               (plusp (length value))
+               (let ((first (char value 0)))
+                 (or (alpha-char-p first) (char= first #\_)))
+               (every (lambda (character)
+                        (or (alphanumericp character)
+                            (find character "_-")))
+                      value))
+    (%realization-error :unsafe-realization-kanata-buffered-alias
+                        "~A must be one closed Kanata alias identifier." role))
   (string-downcase value))
 
 (defun %realization-kanata-buffered-identifiers (values code role &key nonempty)
@@ -246,8 +271,12 @@ syntax.
                          token "Kanata buffered foreign route token")))
 
 (defun make-realization-kanata-buffered-action-allocation
-    (interaction tap-token hold foreign-route-positions)
-  "Allocate one selected buffered interaction's tap, hold, and route set."
+    (interaction alias-token tap-token hold foreign-route-positions)
+  "Allocate one selected buffered interaction's alias, tap, hold, and routes.
+
+ALIAS-TOKEN is deliberately explicit: this semantic model never turns an
+interaction identity into a backend alias spelling on its own.
+"
   (unless (typep hold 'realization-kanata-buffered-hold-allocation)
     (%realization-error :invalid-realization-kanata-buffered-hold
                         "Buffered action hold must be a typed hold allocation."))
@@ -262,6 +291,8 @@ syntax.
            :layer (realization-kanata-buffered-hold-layer hold))))
     (make-instance 'realization-kanata-buffered-action-allocation
                    :interaction (ensure-identifier interaction)
+                   :alias-token (%realization-kanata-buffered-alias-token
+                                 alias-token "Kanata buffered alias token")
                    :tap-token (%realization-kanata-buffered-token
                                tap-token "Kanata buffered tap token")
                    :hold canonical-hold
@@ -322,12 +353,15 @@ syntax.
   (let ((canonical
           (make-realization-kanata-buffered-action-allocation
            (realization-kanata-buffered-action-interaction action)
+           (realization-kanata-buffered-action-alias-token action)
            (realization-kanata-buffered-action-tap-token action)
            (realization-kanata-buffered-action-hold action)
            (realization-kanata-buffered-action-foreign-route-positions action))))
     (unless (and (identifier=
                   (realization-kanata-buffered-action-interaction action)
                   (realization-kanata-buffered-action-interaction canonical))
+                 (string= (realization-kanata-buffered-action-alias-token action)
+                          (realization-kanata-buffered-action-alias-token canonical))
                  (string= (realization-kanata-buffered-action-tap-token action)
                           (realization-kanata-buffered-action-tap-token canonical))
                  (every #'identifier=
@@ -353,6 +387,9 @@ syntax.
    actions (lambda (action)
              (identifier-key (realization-kanata-buffered-action-interaction action)))
    :duplicate-realization-kanata-buffered-action "Buffered action allocations")
+  (%ensure-realization-policy-unique
+   actions #'realization-kanata-buffered-action-alias-token
+   :duplicate-realization-kanata-buffered-alias "Buffered action aliases")
   (%ensure-realization-policy-unique
    foreign-routes (lambda (route)
                     (identifier-key

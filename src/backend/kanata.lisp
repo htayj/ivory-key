@@ -16,6 +16,11 @@
    ;; remain unsupported, so their presence cannot authorize emission.
    (buffered-actions :initarg :buffered-actions :initform nil
                      :reader kanata-plan-buffered-actions)
+   ;; A complete typed alias/defcfg/layer-cell proposal.  It is retained for
+   ;; deterministic inspection only; unsupported realization rows still gate
+   ;; EMIT-PLAN before any configuration text can be written.
+   (buffered-config :initarg :buffered-config :initform nil
+                    :reader kanata-plan-buffered-config)
    (realizations :initarg :realizations :reader kanata-plan-realizations)))
 
 (defun make-kanata-backend ()
@@ -190,6 +195,9 @@ caller supplied no matching interaction entries.
            :message "Kanata buffered action metadata must be a proper list."))
   (dolist (action actions)
     (validate-kanata-buffered-interaction-action action))
+  (%kanata-action-distinct actions #'kanata-buffered-interaction-action-alias
+                           :duplicate-kanata-buffered-action-alias
+                           "Kanata buffered action alias")
   (let ((action-identifiers (mapcar #'%kanata-buffered-action-identifier actions))
         (interaction-identifiers (mapcar #'%kanata-interaction-identifier interactions))
         (policy-identifiers
@@ -226,7 +234,8 @@ caller supplied no matching interaction entries.
     (let ((owner-inputs nil)
           (owner-positions nil)
           (foreign-inputs nil)
-          (foreign-positions nil))
+          (foreign-positions nil)
+          (foreign-by-position (make-hash-table :test #'equal)))
       (dolist (action actions)
         (let ((owner (kanata-buffered-interaction-action-owner action)))
           (push (kanata-owner-placement-input-token owner) owner-inputs)
@@ -237,7 +246,26 @@ caller supplied no matching interaction entries.
             (push (kanata-direct-route-reference-input-token route) foreign-inputs)
             (push (ivory-key.model:identifier-name
                    (kanata-direct-route-reference-position route))
-                  foreign-positions))))
+                  foreign-positions)
+            ;; Shared direct routes are allowed only when they are exactly the
+            ;; same realization-owned input/action pair.  A later action may
+            ;; not silently win at a shared physical source position.
+            (let* ((position (ivory-key.model:identifier-name
+                              (kanata-direct-route-reference-position route)))
+                   (existing (gethash position foreign-by-position)))
+              (if existing
+                  (unless (and (string=
+                                (kanata-direct-route-reference-input-token existing)
+                                (kanata-direct-route-reference-input-token route))
+                               (equal
+                                (kanata-action-canonical-data
+                                 (kanata-direct-route-reference-action existing))
+                                (kanata-action-canonical-data
+                                 (kanata-direct-route-reference-action route))))
+                    (error 'kanata-action-validation-error
+                           :code :conflicting-kanata-buffered-foreign-route
+                           :message "Buffered Kanata foreign routes disagree at one physical position."))
+                  (setf (gethash position foreign-by-position) route))))))
       (when (/= (length owner-inputs)
                 (length (remove-duplicates owner-inputs :test #'string=)))
         (error 'kanata-action-validation-error
@@ -446,24 +474,56 @@ atom/action before text emission.
                         ;; semantic binding.
                         (or (gethash (cdr row) outputs-by-source) (cdr row)))
                       source-rows))
-            (layers (%kanata-layer-rows request source-rows)))
+            (layers (%kanata-layer-rows request source-rows))
+            (buffered-config
+              (and buffered-actions
+                   (make-kanata-buffered-config buffered-actions source-rows))))
       (make-instance 'kanata-plan
                      :name (lowering-request-name request)
                      :sources (mapcar #'cdr source-rows)
                      :outputs base-outputs
                      :layers layers
                      :buffered-actions (or buffered-actions nil)
+                     :buffered-config buffered-config
                      :realizations (nreverse results)))))))
 
 (defmethod emit-plan ((backend kanata-backend) (plan kanata-plan) stream)
   (declare (ignore backend))
-  (require-permitted-realizations (kanata-plan-realizations plan))
-  (format stream "(defcfg~%  process-unmapped-keys yes)~%~%")
+  (let ((buffered-config (kanata-plan-buffered-config plan)))
+    (when buffered-config
+      (validate-kanata-buffered-config buffered-config)
+      ;; This is intentionally a second, backend-local gate rather than
+      ;; relying solely on planner grades.  A programmatically forged PLAN
+      ;; cannot turn a structurally valid proposal into a native artifact.
+      (%kanata-action-error
+       :unproved-kanata-buffered-native-domain
+       "Buffered Kanata aliases remain non-emitting: cancellation, foreign arbitration, queue bounds, and the complete native input domain are not proved."))
+    (require-permitted-realizations (kanata-plan-realizations plan))
+    (format stream "(defcfg~%  process-unmapped-keys yes~@[~%  concurrent-tap-hold yes~])~%~%"
+            buffered-config)
   (format stream "(defsrc~%  ~{~A~^ ~})~%~%" (kanata-plan-sources plan))
-  (format stream "(deflayer ~A~%  ~{~A~^ ~})~%" (kanata-plan-name plan)
-          (kanata-plan-outputs plan))
-  (dolist (layer (kanata-plan-layers plan))
-    (format stream "~%~%(deflayer ~A~%  ~{~A~^ ~})~%" (car layer) (cdr layer))))
+    (when buffered-config
+      (format stream "(defalias~%")
+      (dolist (action (kanata-buffered-config-aliases buffered-config))
+        (format stream "  ~A ~A~%"
+                (kanata-buffered-interaction-action-alias action)
+                (kanata-action-emission-string
+                 (kanata-buffered-interaction-action-tap-hold action))))
+      (format stream ")~%~%"))
+    (let ((cells (and buffered-config
+                      (kanata-buffered-config-layer-cells buffered-config))))
+      (format stream "(deflayer ~A~%  ~{~A~^ ~})~%" (kanata-plan-name plan)
+              (loop for source in (kanata-plan-sources plan)
+                    for output in (kanata-plan-outputs plan)
+                    collect (let ((cell (and cells
+                                             (find source cells :test #'string=
+                                                   :key #'kanata-buffered-layer-cell-input-token))))
+                              (if cell
+                                  (kanata-action-emission-string
+                                   (kanata-buffered-layer-cell-action cell))
+                                  output))))
+    (dolist (layer (kanata-plan-layers plan))
+      (format stream "~%~%(deflayer ~A~%  ~{~A~^ ~})~%" (car layer) (cdr layer))))))
 
 (defmethod validate-artifact ((backend kanata-backend) pathname)
   (declare (ignore backend))

@@ -1436,6 +1436,18 @@ complete carrier table from an invented Manna behavior.
         (is-equal '(:position "less-greater" :disposition :unreachable)
                   (find "less-greater" coverage :test #'string=
                         :key (lambda (record) (getf record :position))))
+        (is-equal 72 (length coverage))
+        (dolist (position
+                 '("left" "right" "up" "down" "home" "page-up"
+                   "control-plane-alt"))
+          (is-equal (list :position position :disposition :physical)
+                    (find position coverage :test #'string=
+                          :key (lambda (record) (getf record :position)))))
+        (dolist (position
+                 '("hotkey-18" "hotkey-20" "hotkey-19" "hotkey-21"))
+          (is-equal (list :position position :disposition :unreachable)
+                    (find position coverage :test #'string=
+                          :key (lambda (record) (getf record :position)))))
         (is-equal 51 (length static-entries))
         (is (null (find "less-greater" static-entries :test #'string=
                         :key (lambda (static-entry)
@@ -1520,6 +1532,62 @@ complete carrier table from an invented Manna behavior.
                     (ivory-key.cli::compiler-realization-vocabulary realization)
                     :selector-policy
                     (ivory-key.cli::compiler-realization-selector-policy realization))))))))
+
+(deftest compiler-manna-native-only-physical-coverage-does-not-invent-bindings
+  "Typed native coverage is not permission to assign C7, game, or hotkey behavior."
+  (dolist (specification
+           '(("manna-cadet-linux"
+              (("hotkey-18" :unreachable) ("hotkey-20" :unreachable)
+               ("hotkey-19" :unreachable) ("hotkey-21" :unreachable)))
+             ("manna-cadet-advantage360-linux"
+              (("hotkey-18" :physical) ("hotkey-20" :physical)
+               ("hotkey-19" :physical) ("hotkey-21" :physical)))))
+    (destructuring-bind (composition hotkeys) specification
+      (multiple-value-bind (unit placement realization)
+          (ivory-key.cli:load-project-composition-for-compilation
+           "manna-cadet-project.ivory" composition)
+        (multiple-value-bind (request issues)
+            (ivory-key.cli::analyze-normalized-layout
+             (ivory-key.cli::compiler-unit-normalized unit) placement
+             :vocabulary
+             (ivory-key.cli::compiler-realization-vocabulary realization)
+             :selector-policy
+             (ivory-key.cli::compiler-realization-selector-policy realization))
+          (let ((coverage
+                  (getf (ivory-key.backend::lowering-request-metadata request)
+                        :input-coverage))
+                (native-only
+                  '("left" "right" "up" "down" "home" "page-up"
+                    "control-plane-alt" "hotkey-18" "hotkey-20" "hotkey-19"
+                    "hotkey-21")))
+            (is-equal 72 (length coverage))
+            (dolist (row hotkeys)
+              (destructuring-bind (position disposition) row
+                (is-equal (list :position position :disposition disposition)
+                          (find position coverage :test #'string=
+                                :key (lambda (record)
+                                       (getf record :position))))))
+            (dolist (position native-only)
+              (is (null (find position
+                              (ivory-key.backend::lowering-request-entries request)
+                              :test #'string=
+                              :key #'ivory-key.backend:key-entry-position))))
+            (is issues)
+            ;; Neither variant can turn physical evidence into an artifact:
+            ;; the still-unselected profile semantics retain the deterministic
+            ;; existing refusal.
+            (is-equal
+             :unsupported-kanata-selector-action-plan
+             (compiler-stage-code-from
+              (lambda ()
+                (ivory-key.cli::make-lowering-request-from-normalized-layout
+                 (ivory-key.cli::compiler-unit-normalized unit) placement
+                 :vocabulary
+                 (ivory-key.cli::compiler-realization-vocabulary realization)
+                 :selector-policy
+                 (ivory-key.cli::compiler-realization-selector-policy
+                  realization)))))))))))
+
 (deftest compiler-project-explain-refuses-unsafe-output-vocabulary-spelling
   ;; Opaque spelling safety remains an adapter concern.  Explain follows the
   ;; same pipeline as compile after analysis and therefore refuses this map
@@ -1765,7 +1833,7 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                (compiler-test-write
                 directory "buffered.ivory"
                 (source
-                 "(kanata-buffered-allocations (route q q) (action q-tap (tap q) (hold modifier control lctl) (routes q)))")))
+                 "(kanata-buffered-allocations (route q q) (action q-tap (alias q-tap-alias) (tap q) (hold modifier control lctl) (routes q)))")))
              (realization (ivory-key.cli::decode-realization-source path))
              (allocation
                (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
@@ -1789,7 +1857,7 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
   (pipeline kanata xkb)
   (allow-grades exact)
   (forbid-shell-actions yes)
-  (kanata-buffered-allocations (route q q) (action q-tap (tap q) (hold modifier control lctl) (routes q))))")))
+  (kanata-buffered-allocations (route q q) (action q-tap (alias q-tap-alias) (tap q) (hold modifier control lctl) (routes q))))")))
         (is-equal :kanata-buffered-allocation-without-buffered-policy
                   (compiler-stage-code-from
                    (lambda ()

@@ -72,13 +72,53 @@ selected layer fails the report before it can print `Unchecked differences: 0`.
 This closes the primary-alias/layer inventory gap; it does not assign semantics
 to a refused class.
 
+### Canonical frozen native-route ledger
+
+The truth-table tool now has a separate `routes` render for the complete,
+ordered primary native-input surface:
+
+```sh
+sbcl --script tools/manna-truth-table.lisp routes \
+  /home/tay/src/dotfiles/keyboard/manna-cadet
+```
+
+It hash-gates the two layered sources, preserves every `defsrc` index, and
+requires exact `normal`/`fun` coverage. Its canonical digest is
+`24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`.
+The closed partition is:
+
+| Code | Stable source-route class | A2 | A360 | Evidence disposition |
+|---|---|---:|---:|---|
+| C1 | context-key/direct identity | 39 | 39 | source-classified; runtime unproved |
+| C2 | direct physical modifier | 3 | 3 | source-classified; runtime unproved |
+| C3 | residual direct named key | 7 | 7 | source-classified; runtime unproved; includes A2 `menu` / A360 `caps` |
+| C4 | renamed direct local key | 0 | 4 | exact 360 `K18/K20/K19/K21` → `F18/F20/F19/F21`; runtime unproved |
+| C5 | `tap-hold-release` owner | 16 | 16 | source-selected; policy/runtime refused |
+| C6 | direct carrier selector | 2 | 2 | exact `lctl → @gr/85` and `rctl → @top/84`; runtime unproved |
+| C7 | stateful/control-plane | 1 | 1 | A2 `lalt → lrld` and A360 `lalt → @GoGame`; unresolved/refused |
+| F1 | function carrier output | 29 | 29 | source-classified; runtime unproved |
+| F2 | transparent to normal | 39 | 43 | source-classified; runtime unproved |
+
+C5 deliberately includes the source-selected `@gdel` and `@rtop` rows as well
+as the fourteen primary owners. That closes their *source route* disposition;
+it does not add them to ADR 0004's positive runtime evidence or select their
+timed policy. The active 72-row Advantage 360 `game` layer is arity-checked but
+remains a single explicit unresolved/refused surface outside the C/F semantic
+partition.
+
+Both hash-frozen files also say `process-unmapped-keys yes`. Consequently the
+140 ordered `defsrc` rows are a closed source ledger, not a closed set of all
+physical inputs Kanata may process: an external input absent from `defsrc`
+remains an unresolved/refused foreign-input route. The ledger grants no replay,
+simulator, compiler, backend, XKB, client, or live-device claim.
+
 ### Remaining evidence and tooling work
 
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
 |---|---|---|---|
-| §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers above, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; neither source inventory selects behavior | implementable review tooling remains |
+| §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; no source inventory selects behavior | implementable review tooling remains |
 | §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, four direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed/unselected tap-holds, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
-| §13.3 complete physical placement | 51 physically covered Manna selector overrides, four immediate direct holders/selectors, the mode-key position, and an explicit typed-unreachable `<LSGT>` record on both devices | obtain additional device/event evidence for the residual common controls and A2 `lrld`; no direct primary `defsrc` provenance exists for `<LSGT>` | requires new evidence, not a topology guess |
+| §13.3 complete physical placement | 51 physically covered Manna selector overrides, four immediate direct holders/selectors, the mode-key position, an explicit typed-unreachable `<LSGT>` record on both devices, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
 | §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths. Proposed ADR 0003 also has a source-decoded/reference-simulated no-delay 14+2 fixture: every literal tap/deadline row, immutable foreign capture, early-owner-up tap fallback, all five modifier families, case, script/plane capture/release, both release orders for every paired hold family, and a foreign interaction armed independently before its later own tap | project the still-unselected policy onto an active reviewed Manna composition, then prove complete timed, overlay, selector-visibility, and generated-backend traces; a shared foreign-UP cross-interaction ordering remains deliberately unselected | blocked by profile selection and lowering choices |
 | §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
@@ -268,7 +308,9 @@ timeout, tap action, and hold action.  It says the `tap-hold-release` variant
 activates the hold action early when a different key is pressed and released;
 otherwise the hold timeout is the deadline for the hold action.  The frozen
 files set `process-unmapped-keys yes` and `concurrent-tap-hold yes` in both
-variants.  The former makes Kanata process unmapped keys for tap-hold actions;
+variants.  The former makes Kanata process unmapped keys for tap-hold actions
+and is now an explicit boundary of the canonical native-route ledger: inputs
+outside the ordered `defsrc` table are not silently classified;
 the official [sample configuration](https://github.com/jtroo/kanata/blob/main/cfg_samples/kanata.kbd)
 says the latter changes how near-simultaneous tap-hold timeouts expire.
 
@@ -290,9 +332,13 @@ unblock Manna lowering.
 separate proposed, non-default `kanata-1-12-buffered` route from the
 hash-pinned Kanata-1.12 oracle.  It records the oracle's delayed foreign-input
 ordering and first/final-owner lifetime facts alongside the closed 14+2 source
-inventory. A positive evidence ledger admits only the fourteen primary
-tap-holds to the buffered structural contract; the Delete/Enter selector pair
-still refuses because it lacks direct oracle traces. A strict derived
+inventory. A positive buffered-interaction evidence ledger admits only the
+fourteen primary tap-holds to the buffered structural contract; the
+Delete/Enter selector pair
+still refuses because it lacks direct oracle traces. The separate native-route
+ledger nevertheless records `@gdel` and `@rtop` in C5 because both frozen
+normal layers select those physical rows; source selection is not runtime
+evidence. A strict derived
 normalized contract and bounded direct-named-key dispatch transaction now
 represent the proven prefix subset without adding source replay syntax. It is still not
 a `.ivory` realization, selects no profile, has no exact Kanata lowering, and

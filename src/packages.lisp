@@ -325,6 +325,7 @@
    #:realization-kanata-buffered-action-allocation
    #:make-realization-kanata-buffered-action-allocation
    #:realization-kanata-buffered-action-interaction
+   #:realization-kanata-buffered-action-alias-token
    #:realization-kanata-buffered-action-tap-token
    #:realization-kanata-buffered-action-hold
    #:realization-kanata-buffered-action-foreign-route-positions
@@ -502,6 +503,7 @@
    #:make-kanata-defcfg-requirements
    #:kanata-buffered-interaction-action
    #:kanata-buffered-interaction-action-contract
+   #:kanata-buffered-interaction-action-alias
    #:kanata-buffered-interaction-action-owner
    #:kanata-buffered-interaction-action-tap-hold
    #:kanata-buffered-interaction-action-foreign-routes
@@ -511,6 +513,17 @@
    #:validate-kanata-buffered-interaction-action
    #:kanata-action-canonical-data
    #:kanata-buffered-interaction-action-canonical-data
+   #:kanata-buffered-config
+   #:kanata-buffered-config-defcfg
+   #:kanata-buffered-config-aliases
+   #:kanata-buffered-config-layer-cells
+   #:kanata-buffered-layer-cell
+   #:kanata-buffered-layer-cell-position
+   #:kanata-buffered-layer-cell-input-token
+   #:kanata-buffered-layer-cell-action
+   #:make-kanata-buffered-config
+   #:validate-kanata-buffered-config
+   #:kanata-buffered-config-canonical-data
    #:kanata-action-validation-error #:kanata-action-validation-error-code
    #:kanata-action-validation-error-message
    #:resource-pool #:make-resource-pool #:reserve-resource #:allocate-resource
@@ -570,6 +583,7 @@
    #:make-xkb-backend #:xkb-plan-realizations
    #:make-kanata-backend #:kanata-plan-realizations
    #:kanata-plan-buffered-actions
+   #:kanata-plan-buffered-config
    #:make-qmk-backend #:qmk-plan-keyboard #:qmk-plan-layout
    #:qmk-plan-layers #:qmk-plan-realizations
    #:pipeline-artifact-kind #:pipeline-artifact-relative-path
