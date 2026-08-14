@@ -200,8 +200,9 @@ The former profile-wide `(interaction-compatibility MODE)` spelling is invalid.
 The two mode values are closed identifiers. `modern-no-delay` names the proposed ADR 0003
 foreign-event contract, while `kanata-1-12-buffered` names the versioned ADR
 0004 observation. Both currently remain backend refusals: the former differs
-from Kanata 1.12 event delivery, and the latter lacks an abstract typed
-buffer/ordered-replay operation.
+from Kanata 1.12 event delivery, while the latter has only a strict derived
+normalized contract and reference-simulator transaction—not an exact Kanata
+action/lifecycle lowering.
 
 ## Simulation event documents
 

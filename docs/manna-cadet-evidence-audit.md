@@ -289,10 +289,13 @@ unblock Manna lowering.
 separate proposed, non-default `kanata-1-12-buffered` route from the
 hash-pinned Kanata-1.12 oracle.  It records the oracle's delayed foreign-input
 ordering and first/final-owner lifetime facts alongside the closed 14+2 source
-inventory.  The selector pair still lacks direct oracle traces.  The present
-model has no pending-input buffer or ordered replay, so it is deliberately not
-a `.ivory` realization, does not select a profile, and cannot make a
-source-era equivalence claim.
+inventory. A positive evidence ledger admits only the fourteen primary
+tap-holds to the buffered structural contract; the Delete/Enter selector pair
+still refuses because it lacks direct oracle traces. A strict derived
+normalized contract and bounded direct-named-key dispatch transaction now
+represent the proven prefix subset without adding source replay syntax. It is still not
+a `.ivory` realization, selects no profile, has no exact Kanata lowering, and
+cannot make a source-era equivalence claim.
 
 The direct physical Shift pair is now materialized separately.  If an
 owner-scoped `tap-hold-release` lifecycle is selected without changing the

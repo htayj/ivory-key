@@ -187,8 +187,11 @@ The selection is carried as typed model metadata so `planned`, `backend`, and
 `explain` output can identify the intended contract. It does not authorize a
 Kanata action. The modern route is unsupported because Kanata 1.12 buffers and
 redispatches pending foreign input, contrary to its no-delay rule. The
-versioned buffered route is unimplemented because the abstract IR has no
-closed pending-input ownership, cancellation, and ordered-replay operation.
+versioned buffered route now has a closed, derived normalized contract and a
+bounded reference dispatch transaction for one direct named-key foreign route.
+That reference route refuses text, symbols, no-output, overlays, and timed or
+state-changing foreign routes. It has no backend action/lifecycle IR or pinned
+generated-Kanata lowering differential.
 In either case named instances receive the mode-specific refusal, all other
 interactions retain the generic refusal, and the Kanata backend refuses before
 emission; no raw `tap-hold-release` text is inferred. Positive realization is

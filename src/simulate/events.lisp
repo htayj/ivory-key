@@ -60,3 +60,18 @@ lifecycle effect caused the observation)."
   (candidate nil :read-only t)
   (details nil :read-only t)
   (provenance nil :read-only t))
+
+(defstruct (semantic-key-transition
+             (:constructor make-semantic-key-transition
+                 (&key time kind key transaction-id origin original-index)))
+  "One normative named-key edge, separate from the legacy output projection.
+
+KIND is :PRESS or :RELEASE.  Transaction metadata is present only when a
+finite buffered-dispatch contract ordered the edge; ordinary legacy emission
+retains NIL metadata.  This record never represents another physical event."
+  (time 0 :type timestamp :read-only t)
+  (kind :press :type keyword :read-only t)
+  key
+  transaction-id
+  origin
+  original-index)

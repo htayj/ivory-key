@@ -267,6 +267,36 @@
    #:normalize-layout
    #:normalized-binding-entry-for-context
    #:normalized-layout-binding-for-context #:normalized-layout-key
+   ;; Derived, backend-neutral interaction compatibility evidence.
+   #:normalized-interaction-compatibility-contract
+   #:interaction-compatibility-contract-mode
+   #:interaction-compatibility-contract-interaction
+   #:interaction-compatibility-contract-owner
+   #:interaction-compatibility-contract-origin
+   #:interaction-compatibility-role-reference
+   #:interaction-compatibility-role-reference-role
+   #:interaction-compatibility-role-reference-candidate
+   #:interaction-compatibility-role-reference-origin
+   #:interaction-compatibility-held-effect-signature
+   #:interaction-compatibility-held-effect-signature-kind
+   #:interaction-compatibility-held-effect-signature-identity
+   #:interaction-compatibility-held-effect-signature-state
+   #:interaction-compatibility-held-effect-signature-release
+   #:interaction-compatibility-contract-provenance
+   #:interaction-compatibility-provenance-interaction-origin
+   #:interaction-compatibility-provenance-timeout-origin
+   #:interaction-compatibility-provenance-foreign-release-origin
+   #:interaction-compatibility-provenance-tap-origin
+   #:release-trigger-interaction-compatibility-contract
+   #:release-trigger-interaction-compatibility-contract-role-references
+   #:release-trigger-interaction-compatibility-contract-deadline
+   #:release-trigger-interaction-compatibility-contract-capture-name
+   #:release-trigger-interaction-compatibility-contract-held-effect-signature
+   #:release-trigger-interaction-compatibility-contract-tap-key
+   #:release-trigger-interaction-compatibility-contract-provenance
+   #:pending-foreign-interval-contract
+   #:modern-no-delay-interaction-compatibility-contract
+   #:derive-interaction-compatibility-contracts
    ;; Backend-independent realization intent.
    #:realization-profile #:make-realization-profile
    #:realization-profile-name #:realization-profile-pipeline
@@ -318,6 +348,11 @@
    #:sim-action #:make-sim-action #:emit-action #:latch-action #:set-axis-action
    #:clear-latch-action #:sim-effect #:make-sim-effect #:sim-case #:make-sim-case
    #:sim-interaction #:make-sim-interaction
+   #:sim-interaction-route-kind
+   #:semantic-key-transition #:semantic-key-transition-time
+   #:semantic-key-transition-kind #:semantic-key-transition-key
+   #:semantic-key-transition-transaction-id #:semantic-key-transition-origin
+   #:semantic-key-transition-original-index
    #:simulator #:make-simulator #:simulator-feed-event #:simulator-advance-to
    #:simulator-result #:simulator-events #:simulator-trace #:simulator-outputs
    #:simulator-latches-alist #:simulator-axes-alist #:simulator-active-effect-names
@@ -325,12 +360,16 @@
    #:simulation-result #:make-simulation-result #:simulation-result-trace
    #:simulation-result-outputs #:simulation-result-latches #:simulation-result-axes
    #:simulation-result-active-effects #:simulation-result-candidates
+   #:simulation-result-semantic-transitions
+   #:simulation-result-dispatch-transactions
    #:simulate-events #:simulation-error #:malformed-event-stream
    #:simulation-ambiguity #:simulation-latch-reservation-conflict
    #:simulation-latch-reservation-conflict-axis
    #:simulation-latch-reservation-conflict-generation
    #:simulation-latch-reservation-conflict-existing-candidate
    #:simulation-latch-reservation-conflict-requested-candidate
+   #:buffered-dispatch-refusal #:buffered-dispatch-refusal-code
+   #:buffered-dispatch-refusal-transaction #:buffered-dispatch-refusal-event
    ;; Declarative-model adapter.
    #:model-simulation-compilation-error
    #:model-simulation-compilation-error-feature

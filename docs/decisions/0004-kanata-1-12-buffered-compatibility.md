@@ -27,13 +27,13 @@ unselected, and this decision does not add a default.  The required nonempty
 unrelated interaction in the same composition.  Unlisted interactions retain
 their ordinary generic refusal.
 
-No `.ivory` profile is checked in for this policy yet.  The current source
-model can recognize the finite captured foreign press/release pattern, but it
-has neither a typed pending-input buffer nor a replay/ordered redispatch
-behavior.  The whole-layout adapter consequently dispatches an ordinary
-foreign binding at its physical `down`; it cannot delay that dispatch until a
-tap-hold outcome.  Creating a realization declaration now would falsely imply
-that the contract is representable or lowerable.
+No `.ivory` profile is checked in for this policy yet. The model now derives a
+typed, backend-neutral contract only from the exact normalized three-candidate
+shape, and the reference simulator can execute its bounded finite dispatch
+transaction when a caller explicitly supplies the policy. This is reference
+semantics, not a source construct or a positive backend realization. Creating
+a Manna realization declaration now would still falsely imply that Kanata
+lowering and full migration equivalence are proven.
 
 ## Provenance and frozen alias inventory
 
@@ -122,22 +122,79 @@ to the settled held effect, not to a pending candidate.  A pending foreign
 interval must never acquire a hold speculatively.  A post-commit owner
 cancellation must release exactly its contribution.
 
+## Selected implementation boundary
+
+The first implementation uses a finite dispatch transaction at the boundary
+between physical evidence and logical binding dispatch. It is not an
+interaction effect and not a general replay queue. Effects begin too late to
+withhold a speculative foreign press; making `B` a participant would falsely
+claim it; and cloning a physical event would let deadlines, pressed-state
+validation, or another timed interaction observe input that never occurred.
+
+Physical `down`/`up` events therefore remain immutable and appear exactly once
+in the pattern evidence stream. A routed dispatch notice refers back to the
+original physical index and records a separate dispatch-frontier sequence.
+Redispatch may start exactly one eligible direct ordinary named-key binding,
+but it must not advance time, mutate physical pressed state, re-feed the
+simulator, or start an overlay or timed interaction. The foreign interval is
+in temporary dispatch custody, not in the committed candidate's participant
+claims.
+
+The finite transaction has these closed states:
+
+- `armed`: the selected owner interaction is pending and no foreign input is
+  withheld;
+- `withheld-down`: the first eligible foreign `down` is recorded and ordinary
+  dispatch is suppressed; and
+- `down-redispatched-awaiting-up`: an early owner release has redispatched the
+  foreign `down`, but the corresponding physical `up` has not arrived; and
+- `complete`: the transaction records its disposition and, when custody was
+  acquired, the original foreign `down` and terminal `up` positions, indices,
+  and times.
+
+A deadline reached in `withheld-down` is deliberately refused. The oracle does
+not establish whether Kanata flushes, holds, cancels, or reclassifies that
+prefix, so choosing one would invent compatibility semantics. Likewise, every
+policy-selected owner position is excluded from the eligible foreign domain.
+This permits the separately proven multiple-owner modifier/function lifetime
+while preventing one selected owner from accidentally becoming another
+owner's single buffered `B`. If one ordinary foreign `down` would be eligible
+for more than one armed transaction, the simulator refuses rather than using
+layout, interaction, or host iteration order.
+
+The early-owner-release prefix also exposes a limitation in the former output
+model: one atomic `(:named-key ...)` cannot prove the required tap press,
+foreign press, tap release ordering. The bounded contract therefore records
+typed semantic named-key `press` and `release` transitions with transaction
+identity and provenance. Existing non-policy named-key behaviors remain
+atomic; source authors do not receive a generic press/release or replay macro.
+The old output list may remain a compatibility projection, but the ordered
+transitions are normative for this policy.
+
+The initial redispatch domain is intentionally small: one direct,
+context-free ordinary binding whose result is a single named key. Text,
+symbols, no-output, overlays, timed-interaction participants, selector or state
+changes, modifier operations, commands, arbitrary sequences, unknown
+positions, and unbound positions refuse. This is the only route exercised by
+the pinned Kanata differential. The boundary can grow only with separate
+semantic and differential evidence.
+
 ## Explicit refusal boundary
 
 The oracle does not authorize a general event queue.  Until separately proven,
 the profile must refuse `gdel` and `rtop`, multiple foreign positions, repeated
-foreign presses, foreign interactions or overlays, nested buffering, a new
-owner while a foreign interval is pending, replay into another timed
-interaction, source forms that request arbitrary replay, and any backend that
-cannot preserve the listed order.  It also does not prove a 360 state-machine
-trace, live keyboard events, XKB/client semantics, or the historic source-era
-Kanata scheduler.
+foreign presses, foreign timed interactions, state-changing or latch-sensitive
+overlays, nested buffering, a new owner while a foreign interval is pending,
+replay into another timed interaction, source forms that request arbitrary
+replay, and any backend that cannot preserve the listed order.  It also does
+not prove a 360 state-machine trace, live keyboard events, XKB/client semantics,
+or the historic source-era Kanata scheduler.
 
-The present model deliberately refuses this route.  Its finite `capture`
-records only a position and down-event index for matching; it neither withholds
-ordinary dispatch nor has a `buffer` or `replay` behavior.  The focused decoder
-and simulator regression therefore require such proposed source forms to fail
-closed rather than silently behaving as the modern no-delay route.
+The public source language still deliberately has no `buffer` or `replay`
+behavior. The representation is a derived normalized compatibility contract,
+and the dispatch transaction exists only at the reference simulator's
+physical-to-logical routing frontier. Proposed source forms requesting replay
+continue to fail closed rather than silently acquiring this policy.
 
 ## Consequences and acceptance gates
 
@@ -148,7 +205,12 @@ may inherit from or silently replace the other.  The selected realization
 remains unlowerable until each pipeline stage proves the same pending-input
 and output-order contract.
 
-This decision remains Proposed until all of the following are true:
+This decision remains Proposed. The typed policy, positive fourteen-instance
+evidence ledger, strict structural gate, and bounded named-key reference
+transaction implement a reviewed subset of the model/reference work below.
+They do not by themselves satisfy the whole-layout, cancellation, backend, or
+selected-profile gates. It becomes Accepted only when all of the following are
+true:
 
 - the typed policy clause is decoded and resolved without creating a default;
 - the model gains a closed pending-input/replay representation and rejects all

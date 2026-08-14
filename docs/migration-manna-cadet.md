@@ -111,11 +111,14 @@ checked Kanata-1.12 state-machine oracle records bounded current behavior, but
 reveals pending foreign-event buffering that differs from the proposed modern
 no-replay route.  [ADR 0004](decisions/0004-kanata-1-12-buffered-compatibility.md)
 records a separate proposed non-default `kanata-1-12-buffered` contract and
-the complete 14+2 source inventory; the alternate selector pair still lacks a
-direct oracle trace.  It is intentionally unencoded: the current model cannot
-buffer or ordered-replay a foreign press interval, so no `.ivory` realization
-or default policy is created.  Neither source selects a Manna compatibility
-policy or closes the timing, selector, or modifier equivalence gaps above.
+the complete 14+2 source inventory. Its positive evidence ledger admits the
+fourteen primary tap-holds and refuses the alternate selector pair, which
+lacks a direct oracle trace. A strict derived normalized contract and bounded
+direct-named-key reference transaction encode only the proven prefix subset,
+without exposing generic replay syntax. No `.ivory` realization or default policy is created,
+and no exact Kanata lowering exists. Neither source selects a Manna
+compatibility policy or closes the selector, modifier, or deployment gaps
+above.
 
 Until all of those steps are complete, Manna Cadet remains the active external
 configuration and Ivory Key remains a non-deploying implementation effort.

@@ -348,23 +348,28 @@ and physical mappings ambiguous.
     0))
 
 (defun normalized-project-layout-for-simulation (project-path composition-name)
-  "Load one project once and return its selected normalized layout for simulation.
+  "Return the selected normalized layout and explicit interaction policy.
 
 The project composition still establishes that one resolved layout, device,
-and realization belong together.  Simulation deliberately consumes only the
-already validated layout: device placement and realization policy are context,
-not a request to lower a backend, prove physical equivalence, or deploy.
+and realization belong together. Device placement and backend policy remain
+non-lowering context, but an explicitly selected interaction-compatibility
+policy is semantic authority for the bounded reference transaction.
 "
   (let* ((project (ivory-key.project:load-project project-path))
          (composition (ivory-key.project:project-composition
                        project composition-name :errorp t))
          (layout (ivory-key.project:project-realization-composition-layout
-                  composition)))
+                  composition))
+         (realization (ivory-key.project:project-realization-composition-realization
+                       composition)))
     (handler-case
         ;; LOAD-PROJECT already decoded, resolved, and validated this layout.
         ;; Keep normalization as the explicit in-memory simulation boundary;
         ;; never route the selected device/profile through compiler lowering.
-        (ivory-key.model:normalize-layout layout :validate nil)
+        (values
+         (ivory-key.model:normalize-layout layout :validate nil)
+         (ivory-key.model:realization-profile-interaction-compatibility-policy
+          realization))
       (ivory-key.model:semantic-error (condition)
         (%stage-error :normalize (ivory-key.model:semantic-error-code condition)
                       "~A" (ivory-key.model:semantic-error-message condition)))
@@ -382,26 +387,29 @@ not a request to lower a backend, prove physical equivalence, or deploy.
         (project-option-values options "simulate")
       (reject-mixed-project-options project-path (list layout-path topology-path)
                                     "simulate")
-      (let* ((normalized
-               (if project-path
-                   (normalized-project-layout-for-simulation
-                    project-path composition-name)
-                   (compiler-unit-normalized
-                    (load-layout-for-compilation
-                     (required-option options "--layout") :topology-path topology-path))))
-             ;; The fixture decoder is a separately bounded, closed source
-             ;; vocabulary.  It has no path to CL:READ, evaluation, backend
-             ;; lowering, deployment, or an additional project traversal.
-             (events (ivory-key.simulate::decode-simulation-event-stream-file events-path))
-             (result
-               (ivory-key.simulate::simulate-normalized-layout-event-stream
-                normalized events)))
-        ;; Both the result and trace are rendered by the adapter rather than
-        ;; host object printers, so scripts get a deterministic report.  Any
-        ;; source or adapter refusal escapes to MAIN and returns nonzero.
-        (write-string (ivory-key.simulate::simulation-result-dump-string result)
-                      *standard-output*)
-        0))))
+      (multiple-value-bind (normalized interaction-policy)
+          (if project-path
+              (normalized-project-layout-for-simulation project-path composition-name)
+              (values
+               (compiler-unit-normalized
+                (load-layout-for-compilation
+                 (required-option options "--layout") :topology-path topology-path))
+               nil))
+        ;; The fixture decoder is a separately bounded, closed source
+        ;; vocabulary. It has no path to CL:READ, evaluation, backend
+        ;; lowering, deployment, or an additional project traversal.
+        (let* ((events
+                 (ivory-key.simulate::decode-simulation-event-stream-file events-path))
+               (result
+                 (ivory-key.simulate::simulate-normalized-layout-event-stream
+                  normalized events
+                  :interaction-compatibility-policy interaction-policy)))
+          ;; Both the result and trace are rendered by the adapter rather than
+          ;; host object printers, so scripts get a deterministic report. Any
+          ;; source or adapter refusal escapes to MAIN and returns nonzero.
+          (write-string (ivory-key.simulate::simulation-result-dump-string result)
+                        *standard-output*)
+          0)))))
 
 (defun print-usage (&optional (stream *standard-output*))
   (format stream "Usage: ivory-key COMMAND [ARGUMENTS...]~%~%")

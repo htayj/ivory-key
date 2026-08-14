@@ -36,7 +36,7 @@ keeps simulator input independent of surface syntax and backend vocabulary."
 (defstruct (pattern-match-context
              (:constructor make-pattern-match-context
                  (&key events start-index anchor-index captures context
-                       latch-snapshot)))
+                       latch-snapshot excluded-foreign-positions)))
   "The finite prefix against which a candidate is evaluated."
   (events #() :type vector)
   (start-index 0 :type fixnum)
@@ -47,7 +47,10 @@ keeps simulator input independent of surface syntax and backend vocabulary."
   ;; Candidate-owned anchor-time snapshots.  Latches shadow ordinary context,
   ;; exactly as they do for runtime behavior selection and consumption.
   (context nil :type list)
-  (latch-snapshot nil :type list))
+  (latch-snapshot nil :type list)
+  ;; Selected pending owners are never foreign input to one another.  This is
+  ;; candidate-local match evidence, not global pressed-key state.
+  (excluded-foreign-positions nil :type list))
 
 (defstruct (capture-binding
             (:constructor make-capture-binding (position down-index)))
@@ -161,7 +164,10 @@ BETWEEN is a two-element list of start and closing patterns."
            (equal (captured-position-value context wanted) actual))
       (and (consp wanted)
            (eq (first wanted) :other-than)
-           (not (equal (second wanted) actual)))))
+           (not (equal (second wanted) actual))
+           (not (member actual
+                        (pattern-match-context-excluded-foreign-positions context)
+                        :test #'equal)))))
 
 (defun event-pattern-matches-p (pattern event context)
   (and (eq (event-pattern-event-kind pattern) (timed-event-kind event))

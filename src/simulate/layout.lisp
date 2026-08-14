@@ -135,7 +135,26 @@ axis and latch snapshot, exactly as compiled interaction entries do.
              "Binding ~S has no entry for the captured context." source))
           (%apply-compiled-actions machine candidate (cdr selected))))))))
 
-(defun compile-normalized-ordinary-binding (binding)
+(defun %direct-buffered-route-entry (binding)
+  "Return BINDING's sole direct named-key entry, or NIL.
+
+This is the complete route shape that can be placed in a selected buffered
+foreign transaction.  Keeping the predicate shared by whole-layout validation
+and lowering prevents a contextful table from being accepted as a route then
+silently lowered through the ordinary context callback.
+"
+  (let ((entries (ivory-key.model::normalized-binding-entries binding)))
+    (when (and (null (ivory-key.model::normalized-binding-axes binding))
+               (= (length entries) 1))
+      (let ((entry (first entries)))
+        (when (and (null (ivory-key.model::context-tuple-pairs
+                          (ivory-key.model::normalized-entry-tuple entry)))
+                   (typep (ivory-key.model::normalized-entry-behavior entry)
+                          'ivory-key.model::named-key-output))
+          entry)))))
+
+(defun %compile-normalized-ordinary-binding
+    (binding routed-binding dispatch-plan-token)
   "Compile one disjoint normalized ordinary BINDING into exact simulator IR.
 
 The synthetic interaction commits on the position's DOWN event.  This is the
@@ -148,29 +167,71 @@ fallback timing.
     (%normalized-layout-simulation-error
      :invalid-normalized-binding binding
      "Expected a normalized binding, got ~S." binding))
+  (when (and routed-binding (not (eq routed-binding binding)))
+    (%normalized-layout-simulation-error
+     :forged-routed-dispatch-binding binding
+     "Routed dispatch authority does not retain this exact normalized binding."))
+  (when (and routed-binding (null dispatch-plan-token))
+    (%normalized-layout-simulation-error
+     :missing-routed-dispatch-plan-token binding
+     "Routed dispatch binding has no whole-layout plan token."))
   (let* ((position (model-identifier->simulation-value
                     (ivory-key.model::normalized-binding-position binding)))
          (axes (mapcar #'model-identifier->simulation-value
                        (ivory-key.model::normalized-binding-axes binding)))
+         (entries (ivory-key.model::normalized-binding-entries binding))
          (name (list :ordinary-binding position)))
-    (make-sim-interaction
-     :name name
-     :participants (list position)
-     :consulted-latches axes
-     :arbitration :priority
-     :cases
-     (list
-      (make-sim-case
+    (apply (if routed-binding
+               #'make-routed-dispatch-ordinary-interaction
+               #'make-sim-interaction)
+           (append
+            (list :name name
+                  :participants (list position)
+                  :route-kind :ordinary-binding
+                  :consulted-latches axes
+                  :arbitration :priority
+                  :cases
+                  (list
+                   (make-sim-case
        :name name
        :pattern (down-pattern position)
        :commit :when-matched
-       :actions (%exact-normalized-entry-actions
-                 (ivory-key.model::normalized-binding-entries binding) binding)
-       :consulted-latches axes)))))
+       ;; A direct, context-free named key is the only ordinary route eligible
+       ;; for selected buffered foreign custody.  Richer bindings retain the
+       ;; callback dispatch and are deliberately refused at that boundary.
+       :actions
+       (let ((entry (%direct-buffered-route-entry binding)))
+         (if entry
+             (compile-model-behavior
+              (ivory-key.model::normalized-entry-behavior entry))
+             (%exact-normalized-entry-actions entries binding)))
+       :consulted-latches axes)))
+            (and routed-binding
+                 (list :dispatch-plan-token dispatch-plan-token))))))
+
+(defun compile-normalized-ordinary-binding (binding)
+  "Compile BINDING without buffered foreign-route authority."
+  (%compile-normalized-ordinary-binding binding nil nil))
+
+(defun %compile-normalized-ordinary-binding-with-route
+    (binding routed-binding dispatch-plan-token)
+  "Internally compile an identity-proven direct ordinary foreign route."
+  (%compile-normalized-ordinary-binding binding routed-binding dispatch-plan-token))
+
+(defun %compile-normalized-ordinary-bindings-with-routes
+    (bindings routed-bindings dispatch-plan-token)
+  "Internal complete-layout compiler for exact routed binding objects."
+  (mapcar (lambda (binding)
+            (let ((routed (find binding routed-bindings :test #'eq)))
+              (if routed
+                  (%compile-normalized-ordinary-binding-with-route
+                   binding routed dispatch-plan-token)
+                  (compile-normalized-ordinary-binding binding))))
+          bindings))
 
 (defun compile-normalized-ordinary-bindings (bindings)
   "Compile ordinary normalized BINDINGS in canonical layout order."
-  (mapcar #'compile-normalized-ordinary-binding bindings))
+  (%compile-normalized-ordinary-bindings-with-routes bindings nil nil))
 
 (defun %interaction-participant-names (interaction)
   (mapcar #'model-identifier->simulation-value
@@ -437,6 +498,7 @@ the simulator's string-valued candidate context without backend lowering.
     (make-sim-interaction
      :name name
      :participants (list position-name)
+     :route-kind :overlay-binding
      :consulted-latches consulted-latches
      :arbitration :priority
      :cases
@@ -492,7 +554,79 @@ the simulator's string-valued candidate context without backend lowering.
           (%normalized-layout-binding-at layout position))))
    (%normalized-layout-ordinary-positions layout)))
 
-(defun compile-normalized-layout-simulation (layout)
+(defun %assert-buffered-route-bindings-safe (layout)
+  "Prove every possible foreign route has the direct named-key shape."
+  (dolist (position (%normalized-layout-ordinary-positions layout))
+    (when (some (lambda (patch) (%normalized-patch-binding-at patch position))
+                (ivory-key.model::normalized-layout-patches layout))
+      (%normalized-layout-simulation-error
+       :unsupported-buffered-foreign-overlay position
+       "Buffered dispatch refuses patched position ~A; foreign custody requires one direct base named-key binding."
+       (model-identifier->simulation-value position)))
+    (let ((base (%normalized-layout-binding-at layout position)))
+      (unless base
+        (%normalized-layout-simulation-error
+         :unsupported-buffered-overlay-without-fallback position
+         "Buffered dispatch position ~A has no unconditional base binding."
+         (model-identifier->simulation-value position)))
+      (unless (%direct-buffered-route-entry base)
+        (%normalized-layout-simulation-error
+         :unsupported-buffered-foreign-route base
+         "Buffered dispatch requires position ~A to have no axes, exactly one empty-context entry, and one named-key output."
+         (model-identifier->simulation-value position))))))
+
+(defun %buffered-route-axis-names (layout)
+  (remove-duplicates
+   (mapcan (lambda (position)
+             (%normalized-overlay-position-axis-names layout position))
+           (%normalized-layout-ordinary-positions layout))
+   :test #'string=))
+
+(defun %assert-buffered-route-latch-transitions-safe (layout)
+  (let ((axes (%buffered-route-axis-names layout)))
+    (when (some (lambda (behavior)
+                  (%behavior-latches-one-of-p behavior axes))
+                (%normalized-layout-behaviors layout))
+      (%normalized-layout-simulation-error
+       :unsupported-buffered-route-latch-transition layout
+       "Buffered foreign routing cannot inspect dynamically latched axes ~{~A~^, ~}."
+       axes))))
+
+(defun %interaction-compatibility-contracts (layout policy)
+  (and policy
+       (ivory-key.model:derive-interaction-compatibility-contracts policy layout)))
+
+(defun %buffered-contracts (contracts)
+  (remove-if-not
+   (lambda (contract)
+     (typep contract 'ivory-key.model:pending-foreign-interval-contract))
+   contracts))
+
+(defun %assert-buffered-contract-owner-disjoint (contracts interactions)
+  "Refuse a selected pending owner shared by any other timed interaction.
+
+The raw machine keeps the same guard for hand-built IR.  Whole-layout
+compilation can prove the overlap earlier, before publishing partial simulator
+IR or allowing one selected owner to be observed as another's foreign key.
+"
+  (dolist (contract (%buffered-contracts contracts))
+    (let* ((selected (ivory-key.model:interaction-compatibility-contract-interaction
+                      contract))
+           (owner (model-identifier->simulation-value
+                   (ivory-key.model:interaction-compatibility-contract-owner contract))))
+      (dolist (interaction interactions)
+        (when (and (not (eq interaction selected))
+                   (member owner (%interaction-participant-names interaction)
+                           :test #'string=))
+          (%normalized-layout-simulation-error
+           :selected-owner-interaction-overlap interaction
+           "Selected buffered owner ~A also participates in interaction ~A; pending routing has no multi-owner semantics."
+           owner
+           (model-identifier->simulation-value
+            (ivory-key.model::normalized-interaction-name interaction))))))))
+
+(defun compile-normalized-layout-simulation
+    (layout &key interaction-compatibility-policy)
   "Compile a safe whole-layout slice into simulator interactions and defaults.
 
 The first value is the unified list of synthetic ordinary-binding and compiled
@@ -505,14 +639,28 @@ positions that participate in timed interactions remain refused because their
 fallback ownership is not specified.
 "
   (%require-normalized-layout layout)
-  (let ((bindings (ivory-key.model::normalized-layout-bindings layout))
-        (interactions (ivory-key.model::normalized-layout-interactions layout)))
-    (declare (ignore bindings))
+  (let* ((bindings (ivory-key.model::normalized-layout-bindings layout))
+         (interactions (ivory-key.model::normalized-layout-interactions layout))
+         (contracts (%interaction-compatibility-contracts
+                     layout interaction-compatibility-policy))
+         (buffered-contracts (%buffered-contracts contracts))
+         (dispatch-plan-token (and buffered-contracts
+                                   (make-symbol "BUFFERED-DISPATCH-PLAN"))))
     (%assert-overlay-latch-transitions-safe layout)
+    (when buffered-contracts
+      (%assert-buffered-route-bindings-safe layout)
+      (%assert-buffered-route-latch-transitions-safe layout)
+      (%assert-buffered-contract-owner-disjoint contracts interactions))
     (%assert-disjoint-normalized-binding-positions
      (%normalized-layout-ordinary-positions layout) interactions)
-    (values (append (compile-normalized-overlay-ordinary-bindings layout)
-                    (compile-normalized-interactions interactions))
+    (values (append (if buffered-contracts
+                       (%compile-normalized-ordinary-bindings-with-routes
+                        bindings bindings dispatch-plan-token)
+                       (compile-normalized-overlay-ordinary-bindings layout))
+                    (%compile-normalized-interactions-with-contracts
+                     interactions
+                     :interaction-compatibility-contracts contracts
+                     :dispatch-plan-token dispatch-plan-token))
             (%normalized-layout-default-axes layout))))
 
 (defun %normalized-layout-event (layout event active-positions)
@@ -544,7 +692,8 @@ fallback ownership is not specified.
            interactions)
    :test #'string=))
 
-(defun simulate-normalized-layout-events (layout events &key axes latches until)
+(defun simulate-normalized-layout-events
+    (layout events &key axes latches until interaction-compatibility-policy)
   "Simulate normalized LAYOUT against explicit timed EVENTS and semantic context.
 
 AXES overrides declared defaults only for named, declared axis states; LATCHES
@@ -560,8 +709,19 @@ temporal patterns.
   (%require-normalized-layout layout)
   (let ((normalized-latches (%normalized-layout-latches layout latches)))
     (%assert-overlay-input-latches-safe layout normalized-latches)
+    (when (and interaction-compatibility-policy
+               (eq (ivory-key.model:realization-interaction-compatibility-policy-mode
+                    interaction-compatibility-policy)
+                   :kanata-1-12-buffered))
+      (dolist (latch normalized-latches)
+        (when (member (car latch) (%buffered-route-axis-names layout) :test #'string=)
+          (%normalized-layout-simulation-error
+           :unsupported-buffered-route-latch-context latch
+           "Buffered foreign routing cannot inspect initial latch for axis ~A."
+           (car latch)))))
     (multiple-value-bind (interactions defaults)
-      (compile-normalized-layout-simulation layout)
+      (compile-normalized-layout-simulation
+       layout :interaction-compatibility-policy interaction-compatibility-policy)
       (declare (ignore defaults))
       (let ((active-positions (%layout-simulation-active-positions interactions)))
         (simulate-events interactions
@@ -573,7 +733,8 @@ temporal patterns.
                          :latches normalized-latches
                          :until until)))))
 
-(defun simulate-model-layout-events (layout events &key axes latches until)
+(defun simulate-model-layout-events
+    (layout events &key axes latches until interaction-compatibility-policy)
   "Normalize a decoded model LAYOUT, then simulate its supported whole-layout slice.
 
 This is the decoded-layout convenience entry point.  It does not reparse
@@ -585,4 +746,5 @@ SIMULATE-NORMALIZED-LAYOUT-EVENTS.
      :invalid-layout layout "Expected a model layout, got ~S." layout))
   (simulate-normalized-layout-events
    (ivory-key.model::normalize-layout layout) events
-   :axes axes :latches latches :until until))
+   :axes axes :latches latches :until until
+   :interaction-compatibility-policy interaction-compatibility-policy))

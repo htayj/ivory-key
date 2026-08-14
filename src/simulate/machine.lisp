@@ -67,6 +67,16 @@
                      (held-axis-state-conflict-existing-state condition)
                      (held-axis-state-conflict-requested-state condition)))))
 
+(define-condition buffered-dispatch-refusal (simulation-error)
+  ((code :initarg :code :reader buffered-dispatch-refusal-code)
+   (transaction :initarg :transaction :reader buffered-dispatch-refusal-transaction)
+   (event :initarg :event :reader buffered-dispatch-refusal-event))
+  (:report (lambda (condition stream)
+             (format stream "Buffered dispatch refuses ~S for transaction ~S at ~S."
+                     (buffered-dispatch-refusal-code condition)
+                     (buffered-dispatch-refusal-transaction condition)
+                     (buffered-dispatch-refusal-event condition)))))
+
 (defstruct (sim-action
              (:constructor %make-sim-action (&key kind target value resolver)))
   "A backend-neutral action used by a normalized simulator fixture or IR.
@@ -87,6 +97,9 @@ contributions; they may run only while a SIM-EFFECT is active."
     (error "Unknown simulator action kind ~S." kind))
   (when (and resolver (not (functionp resolver)))
     (error "An action resolver must be a function."))
+  (when (and (eq kind :emit) (consp value) (eq (first value) :named-key)
+             (not (and (stringp (second value)) (null (cddr value)))))
+    (error "A :NAMED-KEY simulator output must contain exactly one string name."))
   (%make-sim-action :kind kind :target target :value value :resolver resolver))
 
 (defun emit-action (value &key resolver)
@@ -149,9 +162,10 @@ observable reversible lifetime."
   (consulted-latches nil :type list))
 
 (defstruct (sim-interaction
-             (:constructor make-sim-interaction
+             (:constructor %make-sim-interaction
                  (&key name participants cases (priority 0) (arbitration :priority)
-                       consulted-latches)))
+                       consulted-latches (route-kind :timed)
+                       buffered-dispatch-contract dispatch-plan-token)))
   "A declarative interaction and its mutually competing cases.
 
 ARBITRATION is :PRIORITY or :LONGEST-MATCH.  A priority is never inferred
@@ -161,7 +175,64 @@ from host iteration order."
   (cases nil :type list)
   (priority 0 :type integer)
   (arbitration :priority)
-  (consulted-latches nil :type list))
+  (consulted-latches nil :type list)
+  ;; :TIMED remains the historical/default route.  Only routed DOWN notices
+  ;; may start :ORDINARY-BINDING or :OVERLAY-BINDING interactions.
+  (route-kind :timed :type keyword)
+  ;; Internal selected finite contract.  NIL is conservative: no buffering.
+  buffered-dispatch-contract
+  ;; Opaque, per-whole-layout identity shared only by selected timed and
+  ;; eligible ordinary IR.  It prevents capability splicing across plans.
+  dispatch-plan-token)
+
+(defun make-sim-interaction
+    (&key name participants cases (priority 0) (arbitration :priority)
+       consulted-latches (route-kind :timed) buffered-dispatch-contract)
+  "Construct raw simulator IR without selected buffered-dispatch authority."
+  (when buffered-dispatch-contract
+    (error "Raw SIM-INTERACTION construction cannot attach a buffered dispatch contract."))
+  (%make-sim-interaction :name name :participants participants :cases cases
+                         :priority priority :arbitration arbitration
+                         :consulted-latches consulted-latches :route-kind route-kind))
+
+(defun make-routed-dispatch-ordinary-interaction
+    (&key name participants cases (priority 0) (arbitration :priority)
+       consulted-latches (route-kind :ordinary-binding) dispatch-plan-token)
+  "Internal complete-layout constructor for one eligible ordinary route."
+  (unless (eq route-kind :ordinary-binding)
+    (error "Routed dispatch capability is limited to an ordinary binding."))
+  (unless dispatch-plan-token
+    (error "Routed dispatch requires an opaque whole-layout plan token."))
+  (%make-sim-interaction
+   :name name :participants participants :cases cases :priority priority
+   :arbitration arbitration :consulted-latches consulted-latches
+   :route-kind :ordinary-binding :dispatch-plan-token dispatch-plan-token))
+
+(defun make-buffered-sim-interaction
+    (&key name participants cases (priority 0) (arbitration :priority)
+       consulted-latches (route-kind :timed) buffered-dispatch-contract dispatch-plan-token)
+  "Internal compiler constructor for a derived pending-input contract."
+  (unless dispatch-plan-token
+    (error "Buffered dispatch requires an opaque whole-layout plan token."))
+  (%make-sim-interaction
+   :name name :participants participants :cases cases :priority priority
+   :arbitration arbitration :consulted-latches consulted-latches
+   :route-kind route-kind :buffered-dispatch-contract buffered-dispatch-contract
+   :dispatch-plan-token dispatch-plan-token))
+
+(defstruct (buffered-dispatch-transaction
+             (:constructor make-buffered-dispatch-transaction
+                 (&key id interaction owner-position owner-index state
+                       contract withheld-event withheld-index origin deferred-key
+                       committed-role committed-candidate disposition
+                       terminal-foreign-position terminal-foreign-index
+                       terminal-foreign-time)))
+  "Finite, one-foreign-key routing state; never a second physical stream."
+  id interaction owner-position owner-index
+  contract
+  (state :armed :type keyword)
+  withheld-event withheld-index origin deferred-key committed-role committed-candidate
+  disposition terminal-foreign-position terminal-foreign-index terminal-foreign-time)
 
 (defstruct (latch-cell (:constructor make-latch-cell (value generation)))
   value
@@ -197,20 +268,25 @@ from host iteration order."
 
 (defstruct (simulation-result
              (:constructor make-simulation-result
-                 (&key outputs trace latches axes active-effects candidates)))
+                 (&key outputs trace latches axes active-effects candidates
+                       semantic-transitions dispatch-transactions)))
   (outputs nil :type list)
   (trace nil :type list)
   (latches nil :type list)
   (axes nil :type list)
   (active-effects nil :type list)
-  (candidates nil :type list))
+  (candidates nil :type list)
+  (semantic-transitions nil :type list)
+  (dispatch-transactions nil :type list))
 
 (defstruct (simulator
              (:constructor %make-simulator
                  (&key interactions now events-reversed trace-reversed outputs-reversed
                        candidates pressed latches axes active-effects claimed-events
                        held-axis-contributions held-modifier-contributions
-                       next-candidate-id next-latch-generation)))
+                       next-candidate-id next-latch-generation
+                       transactions-reversed next-transaction-id
+                       semantic-transitions-reversed)))
   (interactions nil :type list)
   (now 0 :type timestamp)
   (events-reversed nil :type list)
@@ -229,7 +305,10 @@ from host iteration order."
   (active-effects nil :type list)
   (claimed-events (make-hash-table :test #'eql))
   (next-candidate-id 0 :type integer)
-  (next-latch-generation 0 :type integer))
+  (next-latch-generation 0 :type integer)
+  (transactions-reversed nil :type list)
+  (next-transaction-id 0 :type integer)
+  (semantic-transitions-reversed nil :type list))
 
 (defvar *simulation-execution-provenance* nil
   "Dynamically bound while a candidate or lifecycle effect performs actions.
@@ -245,6 +324,15 @@ callback protocol.")
 Only an active effect may own a held axis or modifier contribution.  Binding
 this dynamically keeps SIM-ACTION compact while preserving identity through
 callbacks selected from normalized behavior tables.")
+
+(defvar *deferred-semantic-key-releases* :inactive
+  "Either :INACTIVE or the explicitly selected transaction's release list.")
+
+(defvar *semantic-key-transition-transaction* nil
+  "The validated buffered transaction currently authorizing named-key edges.")
+
+(defvar *semantic-key-transition-origin* nil)
+(defvar *semantic-key-transition-original-index* nil)
 
 (defun canonical-pattern-position (position)
   "Return POSITION in the closed deterministic pattern-dump vocabulary."
@@ -365,7 +453,49 @@ is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
   (dolist (interaction interactions)
     (unless (eq (sim-interaction-arbitration interaction) :priority)
       (error 'unproved-simulation-arbitration
-             :arbitration (sim-interaction-arbitration interaction))))
+             :arbitration (sim-interaction-arbitration interaction)))
+    (unless (member (sim-interaction-route-kind interaction)
+                    '(:timed :ordinary-binding :overlay-binding) :test #'eq)
+      (error "Unknown simulator route kind ~S."
+             (sim-interaction-route-kind interaction)))
+    (when (and (sim-interaction-buffered-dispatch-contract interaction)
+               (not (eq (sim-interaction-route-kind interaction) :timed)))
+      (error "Only a :TIMED interaction may select buffered dispatch."))
+    (let ((contract (sim-interaction-buffered-dispatch-contract interaction)))
+      (when contract
+        (unless (typep contract 'ivory-key.model:pending-foreign-interval-contract)
+          (error "Buffered dispatch requires a derived pending-foreign contract, not ~S."
+                 contract))
+        ;; A contract identity is a logical source string.  Do not accept a
+        ;; host symbol merely because its printer happens to spell the same:
+        ;; that would reintroduce package/interning-dependent routing.
+        (unless (and (stringp (sim-interaction-name interaction))
+                     (string=
+                      (sim-interaction-name interaction)
+                      (ivory-key.model:identifier-name
+                       (ivory-key.model:normalized-interaction-name
+                        (ivory-key.model:interaction-compatibility-contract-interaction
+                         contract)))))
+          (error "Buffered dispatch contract does not name simulator interaction ~S."
+                 (sim-interaction-name interaction)))
+        (unless (sim-interaction-dispatch-plan-token interaction)
+          (error "Buffered dispatch contract was not attached by complete layout compilation.")))))
+  (let ((selected-tokens
+          (remove nil
+                  (mapcar #'sim-interaction-dispatch-plan-token
+                          (remove-if-not #'sim-interaction-buffered-dispatch-contract
+                                         interactions)))))
+    (when (and selected-tokens
+               (not (every (lambda (token) (eq token (first selected-tokens)))
+                           (rest selected-tokens))))
+      (error "Selected buffered interactions belong to different dispatch plans."))
+    (let ((plan-token (first selected-tokens)))
+      (dolist (interaction interactions)
+        (let ((token (sim-interaction-dispatch-plan-token interaction)))
+          (when (and token (not (eq token plan-token)))
+            (error "Privileged ordinary route belongs to a different dispatch plan."))
+          (when (and (null plan-token) token)
+            (error "Privileged ordinary route has no selected buffered dispatch plan."))))))
   (let ((machine (%make-simulator :interactions interactions)))
     (dolist (entry latches)
       (setf (gethash (car entry) (simulator-latches machine))
@@ -388,6 +518,51 @@ is :CANDIDATE-DO for ordinary actions, or a structured lifecycle identity."
 
 (defun simulator-outputs (machine)
   (nreverse (copy-list (simulator-outputs-reversed machine))))
+
+(defun simulator-semantic-transitions (machine)
+  (nreverse (copy-list (simulator-semantic-transitions-reversed machine))))
+
+(defun record-semantic-key-transition (machine kind key &key transaction origin original-index)
+  (push (make-semantic-key-transition
+         :time (simulator-now machine) :kind kind :key key
+         :transaction-id (and transaction (buffered-dispatch-transaction-id transaction))
+         :origin origin :original-index original-index)
+        (simulator-semantic-transitions-reversed machine))
+  (trace-entry machine :semantic-key-transition
+               :details (list :kind kind :key key
+                              :transaction (and transaction
+                                                (buffered-dispatch-transaction-id transaction))
+                              :origin origin :original-index original-index)
+               :provenance (list :route-kind :semantic-key-transition
+                                 :origin origin
+                                 :transaction (and transaction
+                                                   (buffered-dispatch-transaction-id transaction))))
+  key)
+
+(defun named-key-output-p (value)
+  (and (consp value) (eq (first value) :named-key) (stringp (second value))
+       (null (cddr value))))
+
+(defun record-named-key-output (machine value &key transaction origin original-index)
+  "Preserve legacy VALUE while adding normative press/release edges.
+
+The bounded transaction contract may defer exactly the selected owner's
+release; all non-transactional named key actions remain atomic for legacy
+callers and add an adjacent semantic pair."
+  (push value (simulator-outputs-reversed machine))
+  ;; Legacy named-key outputs predate this selected contract and deliberately
+  ;; remain projection-only.  No semantic edge is inferred from them.
+  (when transaction
+    (let ((key (second value)))
+      (record-semantic-key-transition machine :press key
+                                      :transaction transaction :origin origin
+                                      :original-index original-index)
+      (if (eq *deferred-semantic-key-releases* :inactive)
+          (record-semantic-key-transition machine :release key
+                                          :transaction transaction :origin origin
+                                          :original-index original-index)
+          (push (list key transaction origin original-index)
+                *deferred-semantic-key-releases*)))))
 
 (defun simulator-latches-alist (machine)
   (mapcar (lambda (entry) (cons (car entry) (latch-cell-value (cdr entry))))
@@ -568,6 +743,16 @@ release; intermediate releases only reduce ownership."
 (defun simulator-event-vector (machine)
   (coerce (simulator-events machine) 'vector))
 
+(defun selected-buffered-owner-positions (machine)
+  "Return every selected pending owner's logical position in stable IR order."
+  (remove-duplicates
+   (mapcan (lambda (interaction)
+             (if (sim-interaction-buffered-dispatch-contract interaction)
+                 (copy-list (sim-interaction-participants interaction))
+                 nil))
+           (simulator-interactions machine))
+   :test #'equal))
+
 (defun candidate-pattern-context (machine candidate)
   (let ((events (simulator-event-vector machine)))
     (make-pattern-match-context :events events
@@ -576,7 +761,11 @@ release; intermediate releases only reduce ownership."
                                 :captures (simulation-candidate-captures candidate)
                                 :context (simulation-candidate-context candidate)
                                 :latch-snapshot
-                                (simulation-candidate-latch-snapshot candidate))))
+                                (simulation-candidate-latch-snapshot candidate)
+                                :excluded-foreign-positions
+                                (and (sim-interaction-buffered-dispatch-contract
+                                      (simulation-candidate-interaction candidate))
+                                     (selected-buffered-owner-positions machine)))))
 
 (defun candidate-all-deadline-patterns (case)
   (remove-duplicates
@@ -700,7 +889,14 @@ closed before the second snapshot becomes viable.
   (let ((value (action-value action machine candidate)))
     (ecase (sim-action-kind action)
       (:emit
-       (push value (simulator-outputs-reversed machine))
+       (if (named-key-output-p value)
+           (record-named-key-output
+            machine value :transaction *semantic-key-transition-transaction*
+            :origin (and *semantic-key-transition-transaction*
+                         *semantic-key-transition-origin*)
+            :original-index (and *semantic-key-transition-transaction*
+                                 *semantic-key-transition-original-index*))
+           (push value (simulator-outputs-reversed machine)))
        (trace-entry machine :action :interaction (simulation-candidate-interaction candidate)
                     :case (simulation-candidate-case candidate) :candidate candidate
                     :details (list :emit value)))
@@ -975,7 +1171,379 @@ closed before the second snapshot becomes viable.
   (trace-entry machine (if (eq (timed-event-kind event) :deadline) :deadline :event)
                :event event))
 
+(defun buffered-dispatch-transactions (machine)
+  (reverse (copy-list (simulator-transactions-reversed machine))))
+
+(defun active-buffered-transaction (machine)
+  (find-if (lambda (transaction)
+             (member (buffered-dispatch-transaction-state transaction)
+                     '(:withheld-down :down-redispatched-awaiting-up)
+                     :test #'eq))
+           (simulator-transactions-reversed machine)))
+
+(defun armed-buffered-transactions (machine)
+  (remove-if-not (lambda (transaction)
+                   (eq (buffered-dispatch-transaction-state transaction) :armed))
+                 (simulator-transactions-reversed machine)))
+
+(defun buffered-owner-transaction-for-event (machine event)
+  (and (eq (timed-event-kind event) :up)
+       (find-if
+        (lambda (transaction)
+          (and (member (buffered-dispatch-transaction-state transaction)
+                       '(:armed :withheld-down) :test #'eq)
+               (equal (timed-event-position event)
+                      (buffered-dispatch-transaction-owner-position transaction))))
+        (simulator-transactions-reversed machine))))
+
+(defun buffered-contract-role-for-candidate (transaction candidate)
+  "Resolve a simulator case through the derived normalized-role evidence."
+  (find-if
+   (lambda (reference)
+     (equal (model-identifier->simulation-value
+             (ivory-key.model:normalized-candidate-name
+              (ivory-key.model:interaction-compatibility-role-reference-candidate reference)))
+            (sim-case-name (simulation-candidate-case candidate))))
+   (ivory-key.model:release-trigger-interaction-compatibility-contract-role-references
+    (buffered-dispatch-transaction-contract transaction))))
+
+(defun buffered-transaction-committed-candidate (machine transaction)
+  (find-if
+   (lambda (candidate)
+     (and (eq (simulation-candidate-status candidate) :committed)
+          (eq (simulation-candidate-interaction candidate)
+              (buffered-dispatch-transaction-interaction transaction))
+          (= (simulation-candidate-anchor-index candidate)
+             (buffered-dispatch-transaction-owner-index transaction))))
+   (simulator-candidates machine)))
+
+(defun complete-armed-buffered-transactions (machine event)
+  (dolist (transaction (armed-buffered-transactions machine))
+    (let ((candidate (buffered-transaction-committed-candidate machine transaction)))
+      (when candidate
+        (let ((role (buffered-contract-role-for-candidate transaction candidate)))
+          (unless role
+            (buffered-dispatch-refuse :unproved-committed-role transaction event))
+          (setf (buffered-dispatch-transaction-state transaction) :complete
+                (buffered-dispatch-transaction-committed-candidate transaction) candidate
+                (buffered-dispatch-transaction-committed-role transaction)
+                (ivory-key.model:interaction-compatibility-role-reference-role role))
+          (trace-entry machine :dispatch-resolved :event event
+                       :interaction (buffered-dispatch-transaction-interaction transaction)
+                       :case (simulation-candidate-case candidate) :candidate candidate
+                       :details (list :transaction
+                                      (buffered-dispatch-transaction-id transaction)
+                                      :disposition :no-foreign-custody
+                                      :role (buffered-dispatch-transaction-committed-role transaction)
+                                      :origin :selected-timed-owner)
+                       :provenance (list :route-kind :timed
+                                         :transaction
+                                         (buffered-dispatch-transaction-id transaction)
+                                         :origin :selected-timed-owner)))))))
+
+(defun selected-buffered-interactions-at (machine position)
+  (remove-if-not
+   (lambda (interaction)
+     (and (eq (sim-interaction-route-kind interaction) :timed)
+          (sim-interaction-buffered-dispatch-contract interaction)
+          (member position (sim-interaction-participants interaction) :test #'equal)))
+   (simulator-interactions machine)))
+
+(defun timed-interactions-at (machine position)
+  (remove-if-not (lambda (interaction)
+                   (and (eq (sim-interaction-route-kind interaction) :timed)
+                        (member position (sim-interaction-participants interaction) :test #'equal)))
+                 (simulator-interactions machine)))
+
+(defun start-buffered-transaction (machine interaction event index)
+  (let ((transaction
+          (make-buffered-dispatch-transaction
+           :id (incf (simulator-next-transaction-id machine))
+           :interaction interaction :owner-position (timed-event-position event)
+           :owner-index index
+           :contract (sim-interaction-buffered-dispatch-contract interaction)
+           :origin :selected-timed-owner)))
+    (push transaction (simulator-transactions-reversed machine))
+    (trace-entry machine :dispatch-armed :event event :interaction interaction
+                 :details (list :transaction (buffered-dispatch-transaction-id transaction)
+                                :owner-index index :origin :selected-timed-owner)
+                 :provenance (list :route-kind :timed
+                                   :transaction (buffered-dispatch-transaction-id transaction)
+                                   :origin :selected-timed-owner))
+    transaction))
+
+(defun buffered-dispatch-refuse (code transaction event)
+  (error 'buffered-dispatch-refusal :code code :transaction transaction :event event))
+
+(defun buffered-dispatch-before-physical-event (machine event)
+  "Check the closed one-owner/one-foreign transaction boundary before append.
+
+The physical stream remains immutable: refusal happens before we publish an
+ambiguous event, and accepted events are appended exactly once by the caller."
+  (let* ((position (timed-event-position event))
+         (selected (and (eq (timed-event-kind event) :down)
+                        (selected-buffered-interactions-at machine position)))
+         (armed (and (eq (timed-event-kind event) :down)
+                     (armed-buffered-transactions machine)))
+         (transaction (active-buffered-transaction machine)))
+    (when (> (length selected) 1)
+      (buffered-dispatch-refuse :multiple-eligible-owners nil event))
+    (when (and selected
+               (some (lambda (interaction)
+                       (not (member interaction selected :test #'eq)))
+                     (timed-interactions-at machine position)))
+      (buffered-dispatch-refuse :selected-owner-overlap nil event))
+    ;; Establish the complete custody boundary before pressed state, the
+    ;; physical evidence vector, or trace is mutated. A caller that catches a
+    ;; refusal may therefore inspect the unchanged simulator safely.
+    (when (and armed (null selected))
+      ;; An unselected raw TIMED route at B would otherwise observe the
+      ;; physical event while it is still eligible for foreign custody.  The
+      ;; bounded contract has no arbitration semantics for that splice, so
+      ;; reject before publishing B to the event frontier.
+      (when (timed-interactions-at machine position)
+        (buffered-dispatch-refuse :foreign-timed-interaction (first armed) event))
+      (let ((routes (routed-interactions-at machine position)))
+        (cond ((null routes)
+               (buffered-dispatch-refuse :unroutable-foreign (first armed) event))
+              ((> (length routes) 1)
+               (buffered-dispatch-refuse :multiple-routed-bindings
+                                         (first armed) event))
+              ((not (direct-named-key-routed-case (first routes) position (first armed)))
+               (buffered-dispatch-refuse :unsupported-buffered-foreign-route
+                                         (first armed) event))
+              ((> (length armed) 1)
+               (buffered-dispatch-refuse :multiple-eligible-owners nil event)))))
+    (when transaction
+      (let ((owner (buffered-dispatch-transaction-owner-position transaction))
+            (withheld (buffered-dispatch-transaction-withheld-event transaction)))
+        (case (buffered-dispatch-transaction-state transaction)
+          (:armed
+           (when (and (eq (timed-event-kind event) :down)
+                      (not (equal position owner)))
+             (when (selected-buffered-interactions-at machine position)
+               (buffered-dispatch-refuse :new-owner transaction event))))
+          (:withheld-down
+           (cond
+             ((and (eq (timed-event-kind event) :down)
+                   (not (equal position owner)))
+              (buffered-dispatch-refuse :second-foreign transaction event))
+             ((and (eq (timed-event-kind event) :up)
+                   (not (or (equal position owner)
+                            (equal position (timed-event-position withheld)))))
+              (buffered-dispatch-refuse :mismatched-terminal transaction event))))
+          (:down-redispatched-awaiting-up
+           (unless (and (eq (timed-event-kind event) :up)
+                        (equal position (timed-event-position withheld)))
+             (buffered-dispatch-refuse :nested-or-mismatched-terminal
+                                       transaction event))))))))
+
+(defun maybe-withhold-buffered-down (machine event index)
+  (when (eq (timed-event-kind event) :down)
+    (let* ((position (timed-event-position event))
+           (selected (selected-buffered-interactions-at machine position))
+           (routes (routed-interactions-at machine position))
+           (armed (armed-buffered-transactions machine)))
+      ;; A second selected owner is another independently armed candidate set,
+      ;; not foreign input.  Custody begins only for one output-only B route.
+      (when (and armed (null selected))
+        (cond
+          ;; Defense in depth for callers that invoke this helper through a
+          ;; future processing path after the pre-append check above.
+          ((timed-interactions-at machine position)
+           (buffered-dispatch-refuse :foreign-timed-interaction (first armed) event))
+          ((null routes)
+           (buffered-dispatch-refuse :unroutable-foreign (first armed) event))
+          ((> (length routes) 1)
+           (buffered-dispatch-refuse :multiple-routed-bindings (first armed) event))
+          ((not (direct-named-key-routed-case (first routes) position (first armed)))
+           (buffered-dispatch-refuse :unsupported-buffered-foreign-route
+                                     (first armed) event))
+          ((> (length armed) 1)
+           (buffered-dispatch-refuse :multiple-eligible-owners nil event))
+          (t
+           (let ((transaction (first armed)))
+      (setf (buffered-dispatch-transaction-state transaction) :withheld-down
+            (buffered-dispatch-transaction-withheld-event transaction) event
+            (buffered-dispatch-transaction-withheld-index transaction) index
+            (buffered-dispatch-transaction-origin transaction) :withheld-foreign-down)
+      (trace-entry machine :dispatch-withheld :event event
+                   :interaction (buffered-dispatch-transaction-interaction transaction)
+                   :details (list :transaction (buffered-dispatch-transaction-id transaction)
+                                  :original-index index :original-time (timed-event-time event)
+                                  :origin :withheld-foreign-down)
+                   :provenance (list :route-kind :timed
+                                     :transaction (buffered-dispatch-transaction-id transaction)
+                                     :origin :withheld-foreign-down))
+      transaction)))))))
+
+(defun routed-interactions-at (machine position)
+  (remove-if-not
+   (lambda (interaction)
+     (and (member (sim-interaction-route-kind interaction)
+                  '(:ordinary-binding :overlay-binding) :test #'eq)
+          (member position (sim-interaction-participants interaction) :test #'equal)))
+   (simulator-interactions machine)))
+
+(defun direct-named-key-routed-case (interaction position transaction)
+  "Return the one direct named-key ordinary route case, or NIL.
+
+This checkpoint deliberately excludes callback/context dispatch, text,
+symbols, no-output actions, and overlays from foreign custody.
+"
+  (let ((cases (sim-interaction-cases interaction)))
+    (and (eq (sim-interaction-route-kind interaction) :ordinary-binding)
+         (eq (sim-interaction-dispatch-plan-token interaction)
+             (sim-interaction-dispatch-plan-token
+              (buffered-dispatch-transaction-interaction transaction)))
+         (= (length cases) 1)
+         (let ((case (first cases)))
+           (and (eq (sim-case-commit case) :when-matched)
+                (null (sim-case-effects case))
+                (null (sim-case-commit-actions case))
+                (= (length (sim-case-actions case)) 1)
+                (let ((action (first (sim-case-actions case))))
+                  (and (eq (sim-action-kind action) :emit)
+                       (null (sim-action-resolver action))
+                       (named-key-output-p (sim-action-value action))))
+                (let ((pattern (sim-case-pattern case)))
+                  (and (eq (event-pattern-kind pattern) :event)
+                       (eq (event-pattern-event-kind pattern) :down)
+                       (equal (event-pattern-position pattern) position)))
+                case)))))
+
+(defun routed-dispatch-down (machine transaction)
+  "Execute one delayed route notice without cloning/re-feeding a physical event."
+  (let* ((event (buffered-dispatch-transaction-withheld-event transaction))
+         (index (buffered-dispatch-transaction-withheld-index transaction))
+         (position (timed-event-position event))
+         (routes (routed-interactions-at machine position)))
+    (when (> (length routes) 1)
+      (buffered-dispatch-refuse :multiple-routed-bindings transaction event))
+    (when routes
+      (let* ((interaction (first routes))
+             (case (or (direct-named-key-routed-case interaction position transaction)
+                       (buffered-dispatch-refuse :unsupported-buffered-foreign-route
+                                                 transaction event)))
+             (candidate
+               (%make-simulation-candidate
+                :id 0 :interaction interaction :case case :anchor-index index
+                :context (simulator-axes-alist machine)
+                ;; The selected route contract explicitly excludes latches.
+                :latch-snapshot nil :captures (make-hash-table :test #'equal))))
+        (trace-entry machine :redispatch :event event :interaction interaction :case case
+                     :details (list :kind :down
+                                    :transaction (buffered-dispatch-transaction-id transaction)
+                                    :original-index index :original-time (timed-event-time event)
+                                    :dispatch-frontier (1- (length (simulator-events machine)))
+                                    :origin (buffered-dispatch-transaction-origin transaction))
+                     :provenance (list :route-kind (sim-interaction-route-kind interaction)
+                                       :transaction (buffered-dispatch-transaction-id transaction)
+                                       :origin (buffered-dispatch-transaction-origin transaction)))
+        (let ((*semantic-key-transition-transaction* transaction)
+              (*semantic-key-transition-origin* :routed-down)
+              (*semantic-key-transition-original-index* index)
+              (*deferred-semantic-key-releases* nil))
+          (%apply-compiled-actions machine candidate (sim-case-actions case))
+          (setf (buffered-dispatch-transaction-deferred-key transaction)
+                (nreverse *deferred-semantic-key-releases*)))))
+    (setf (buffered-dispatch-transaction-state transaction)
+          :down-redispatched-awaiting-up)))
+
+(defun routed-dispatch-up (machine transaction event)
+  (let ((withheld (buffered-dispatch-transaction-withheld-event transaction)))
+    (setf (buffered-dispatch-transaction-terminal-foreign-position transaction)
+          (timed-event-position event)
+          (buffered-dispatch-transaction-terminal-foreign-index transaction)
+          (1- (length (simulator-events machine)))
+          (buffered-dispatch-transaction-terminal-foreign-time transaction)
+          (timed-event-time event))
+    (trace-entry machine :redispatch :event event
+                 :details (list :kind :up :transaction (buffered-dispatch-transaction-id transaction)
+                                :original-index (1- (length (simulator-events machine)))
+                                :original-time (timed-event-time event)
+                                :withheld-down-index (buffered-dispatch-transaction-withheld-index transaction)
+                                :withheld-down-time (timed-event-time withheld)
+                                :dispatch-frontier (1- (length (simulator-events machine)))
+                                :origin :routed-physical-up)
+                 :provenance (list :route-kind :routed-up
+                                   :transaction (buffered-dispatch-transaction-id transaction)
+                                   :origin :routed-physical-up))
+    (let ((up-index (1- (length (simulator-events machine)))))
+      (dolist (release (buffered-dispatch-transaction-deferred-key transaction))
+      (destructuring-bind (key ignored-transaction origin original-index) release
+        (declare (ignore ignored-transaction origin original-index))
+        (record-semantic-key-transition machine :release key :transaction transaction
+                                        :origin :routed-up :original-index up-index)))
+    (setf (buffered-dispatch-transaction-deferred-key transaction) nil
+          (buffered-dispatch-transaction-state transaction) :complete))))
+
+(defun buffered-dispatch-after-prefix (machine event deferred-releases)
+  "Advance the finite transaction only after normal timed candidate selection."
+  (let ((transaction (active-buffered-transaction machine)))
+    (when transaction
+      (case (buffered-dispatch-transaction-state transaction)
+        (:withheld-down
+         (when (or (and (eq (timed-event-kind event) :up)
+                        (equal (timed-event-position event)
+                               (buffered-dispatch-transaction-owner-position transaction)))
+                   (and (eq (timed-event-kind event) :up)
+                        (equal (timed-event-position event)
+                               (timed-event-position
+                                (buffered-dispatch-transaction-withheld-event transaction)))))
+           (let* ((candidate (buffered-transaction-committed-candidate machine transaction))
+                  (role (and candidate
+                             (buffered-contract-role-for-candidate transaction candidate))))
+             (unless role
+               (buffered-dispatch-refuse :unproved-committed-role transaction event))
+             (setf (buffered-dispatch-transaction-committed-candidate transaction) candidate
+                   (buffered-dispatch-transaction-committed-role transaction)
+                   (ivory-key.model:interaction-compatibility-role-reference-role role)))
+           (let ((disposition
+                   (if (equal (timed-event-position event)
+                              (buffered-dispatch-transaction-owner-position transaction))
+                       :tap
+                       :foreign-release-hold)))
+             (setf (buffered-dispatch-transaction-disposition transaction)
+                   disposition)
+           (trace-entry
+            machine :dispatch-resolved :event event
+            :interaction (buffered-dispatch-transaction-interaction transaction)
+            :details
+            (list :transaction (buffered-dispatch-transaction-id transaction)
+                  :disposition
+                  disposition
+                  :role (buffered-dispatch-transaction-committed-role transaction)
+                  :foreign-down-index
+                  (buffered-dispatch-transaction-withheld-index transaction)
+                  :origin (buffered-dispatch-transaction-origin transaction))
+            :provenance
+            (list :route-kind :timed
+                  :transaction (buffered-dispatch-transaction-id transaction)
+                  :origin (buffered-dispatch-transaction-origin transaction)))
+           (routed-dispatch-down machine transaction)
+           ;; The selected tap press must precede routed B-DOWN, but its release
+           ;; is intentionally after that notice and before B's later UP.
+           (unless (eq deferred-releases :inactive)
+             (dolist (release (nreverse deferred-releases))
+               (destructuring-bind (key ignored-transaction origin original-index) release
+                 (declare (ignore ignored-transaction))
+                 (record-semantic-key-transition machine :release key :transaction transaction
+                                                 :origin origin :original-index original-index))))
+           (when (and (eq (timed-event-kind event) :up)
+                      (equal (timed-event-position event)
+                             (timed-event-position
+                              (buffered-dispatch-transaction-withheld-event transaction))))
+             (routed-dispatch-up machine transaction event)))))
+        (:down-redispatched-awaiting-up
+         (when (and (eq (timed-event-kind event) :up)
+                    (equal (timed-event-position event)
+                           (timed-event-position
+                            (buffered-dispatch-transaction-withheld-event transaction))))
+           (routed-dispatch-up machine transaction event)))))))
+
 (defun process-physical-event (machine event)
+  (buffered-dispatch-before-physical-event machine event)
   (let ((position (timed-event-position event)))
     (ecase (timed-event-kind event)
       (:down
@@ -987,20 +1555,66 @@ closed before the second snapshot becomes viable.
          (error 'malformed-event-stream :event event :reason "up without matching down"))
        (remhash position (simulator-pressed machine)))))
   (append-event machine event)
-  (when (eq (timed-event-kind event) :down)
-    (let ((anchor-index (1- (length (simulator-events machine)))))
+  (let ((index (1- (length (simulator-events machine)))))
+    (when (eq (timed-event-kind event) :down)
+      (let ((selected (selected-buffered-interactions-at machine
+                                                          (timed-event-position event))))
+        (when (> (length selected) 1)
+          (buffered-dispatch-refuse :multiple-eligible-owners nil event))
+        (when selected
+          (start-buffered-transaction machine (first selected) event index)))
+      ;; Raw physical DOWN starts TIMED routes only.  Ordinary/overlay routes
+      ;; enter solely through ROUTED-DISPATCH-DOWN, preserving one physical
+      ;; stream and preventing redispatch from starting timed candidates.
       (dolist (interaction (simulator-interactions machine))
-        (when (member (timed-event-position event)
-                      (sim-interaction-participants interaction) :test #'equal)
+        (when (and (eq (sim-interaction-route-kind interaction) :timed)
+                   (member (timed-event-position event)
+                           (sim-interaction-participants interaction) :test #'equal))
           (dolist (case (sim-interaction-cases interaction))
-            (start-candidate machine interaction case anchor-index))))))
-  (update-candidates-for-current-prefix machine))
+            (start-candidate machine interaction case index))))
+      (let ((withheld (maybe-withhold-buffered-down machine event index)))
+        ;; Outside selected custody, ordinary and overlay interactions retain
+        ;; the historical candidate path, including latch snapshots and
+        ;; context commitment.  Custody suppresses only this one routed DOWN.
+        (unless withheld
+          (dolist (interaction (simulator-interactions machine))
+            (when (and (member (sim-interaction-route-kind interaction)
+                               '(:ordinary-binding :overlay-binding) :test #'eq)
+                       (member (timed-event-position event)
+                               (sim-interaction-participants interaction) :test #'equal))
+              (dolist (case (sim-interaction-cases interaction))
+                (start-candidate machine interaction case index)))))))
+    (let* ((owner-transaction (buffered-owner-transaction-for-event machine event))
+           (selected-owner-up-p
+             (not (null owner-transaction)))
+           (*semantic-key-transition-transaction*
+             (and selected-owner-up-p owner-transaction))
+           (*semantic-key-transition-origin*
+             (and selected-owner-up-p :selected-timed-action))
+           (*semantic-key-transition-original-index*
+             (and selected-owner-up-p
+                  (buffered-dispatch-transaction-owner-index owner-transaction)))
+           (*deferred-semantic-key-releases*
+             (if (and selected-owner-up-p
+                      (eq (buffered-dispatch-transaction-state owner-transaction)
+                          :withheld-down))
+                 nil
+                 :inactive)))
+      (update-candidates-for-current-prefix machine)
+      (buffered-dispatch-after-prefix machine event *deferred-semantic-key-releases*)
+      (complete-armed-buffered-transactions machine event))))
 
 (defun process-deadline (machine time)
   (setf (simulator-now machine) time)
+  (let ((transaction (active-buffered-transaction machine)))
+    (when (and transaction
+               (eq (buffered-dispatch-transaction-state transaction) :withheld-down))
+      (buffered-dispatch-refuse :pending-at-deadline transaction
+                                (make-deadline-event time))))
   (let ((event (make-deadline-event time)))
     (append-event machine event)
-    (update-candidates-for-current-prefix machine)))
+    (update-candidates-for-current-prefix machine)
+    (complete-armed-buffered-transactions machine event)))
 
 (defun next-deadline-through (machine limit)
   (let ((times nil))
@@ -1036,6 +1650,117 @@ still held at that deadline, a deliberate and testable boundary rule."
   (process-physical-event machine event)
   machine)
 
+(defun %canonical-source-span-projection (span)
+  "Project source provenance without retaining a source-file host object."
+  (when span
+    (list :source
+          (let ((source (ivory-key.source:source-span-source span)))
+            (and source (ivory-key.source:source-file-name source)))
+          :start-byte (ivory-key.source:source-span-start-byte span)
+          :end-byte (ivory-key.source:source-span-end-byte span)
+          :start-line (ivory-key.source:source-span-start-line span)
+          :start-column (ivory-key.source:source-span-start-column span)
+          :end-line (ivory-key.source:source-span-end-line span)
+          :end-column (ivory-key.source:source-span-end-column span)
+          :import-stack
+          (mapcar #'%canonical-source-span-projection
+                  (ivory-key.source:source-span-import-stack span)))))
+
+(defun %canonical-source-origin-projection (origin)
+  "Return a closed logical-name/span projection of ORIGIN, or NIL."
+  (when origin
+    (list :definition
+          (%canonical-source-span-projection
+           (ivory-key.source:source-origin-definition-span origin))
+          :uses
+          (mapcar #'%canonical-source-span-projection
+                  (ivory-key.source:source-origin-use-spans origin)))))
+
+(defun %canonical-held-effect-signature (signature)
+  "Project one model-held signature into the result dump vocabulary."
+  (list :kind (ivory-key.model:interaction-compatibility-held-effect-signature-kind
+               signature)
+        :identity
+        (model-identifier->simulation-value
+         (ivory-key.model:interaction-compatibility-held-effect-signature-identity
+          signature))
+        :state
+        (let ((state (ivory-key.model:interaction-compatibility-held-effect-signature-state
+                      signature)))
+          (and state (model-identifier->simulation-value state)))
+        :release (ivory-key.model:interaction-compatibility-held-effect-signature-release
+                  signature)))
+
+(defun %canonical-buffered-contract-projection (contract)
+  "Return CONTRACT as closed, deterministic evidence rather than CLOS IR.
+
+The result boundary deliberately carries only the facts that authorized a
+bounded dispatch transaction.  Source files, normalized objects, and pathname
+identity remain on the model side of this projection.
+"
+  (let ((provenance
+          (ivory-key.model:release-trigger-interaction-compatibility-contract-provenance
+           contract)))
+    (list :mode (ivory-key.model:interaction-compatibility-contract-mode contract)
+          :interaction
+          (model-identifier->simulation-value
+           (ivory-key.model:normalized-interaction-name
+            (ivory-key.model:interaction-compatibility-contract-interaction contract)))
+          :owner
+          (model-identifier->simulation-value
+           (ivory-key.model:interaction-compatibility-contract-owner contract))
+          :deadline
+          (ivory-key.model:release-trigger-interaction-compatibility-contract-deadline
+           contract)
+          :capture
+          (model-identifier->simulation-value
+           (ivory-key.model:release-trigger-interaction-compatibility-contract-capture-name
+            contract))
+          :held-signature
+          (%canonical-held-effect-signature
+           (ivory-key.model:release-trigger-interaction-compatibility-contract-held-effect-signature
+            contract))
+          :tap-key
+          (model-identifier->simulation-value
+           (ivory-key.model:release-trigger-interaction-compatibility-contract-tap-key
+            contract))
+          :roles
+          (mapcar
+           (lambda (reference)
+             (list :role (ivory-key.model:interaction-compatibility-role-reference-role
+                          reference)
+                   :candidate
+                   (model-identifier->simulation-value
+                    (ivory-key.model:normalized-candidate-name
+                     (ivory-key.model:interaction-compatibility-role-reference-candidate
+                      reference)))
+                   :origin
+                   (%canonical-source-origin-projection
+                    (ivory-key.model:interaction-compatibility-role-reference-origin
+                     reference))))
+           (ivory-key.model:release-trigger-interaction-compatibility-contract-role-references
+            contract))
+          :origin
+          (%canonical-source-origin-projection
+           (ivory-key.model:interaction-compatibility-contract-origin contract))
+          :provenance
+          (list :interaction
+                (%canonical-source-origin-projection
+                 (ivory-key.model:interaction-compatibility-provenance-interaction-origin
+                  provenance))
+                :timeout
+                (%canonical-source-origin-projection
+                 (ivory-key.model:interaction-compatibility-provenance-timeout-origin
+                  provenance))
+                :foreign-release
+                (%canonical-source-origin-projection
+                 (ivory-key.model:interaction-compatibility-provenance-foreign-release-origin
+                  provenance))
+                :tap
+                (%canonical-source-origin-projection
+                 (ivory-key.model:interaction-compatibility-provenance-tap-origin
+                  provenance))))))
+
 (defun simulator-result (machine)
   (make-simulation-result
    :outputs (simulator-outputs machine)
@@ -1043,7 +1768,35 @@ still held at that deadline, a deliberate and testable boundary rule."
    :latches (simulator-latches-alist machine)
    :axes (simulator-axes-alist machine)
    :active-effects (simulator-active-effect-names machine)
-   :candidates (reverse (copy-list (simulator-candidates machine)))))
+   :candidates (reverse (copy-list (simulator-candidates machine)))
+   :semantic-transitions (simulator-semantic-transitions machine)
+   :dispatch-transactions
+   (mapcar
+    (lambda (transaction)
+      (let ((withheld (buffered-dispatch-transaction-withheld-event transaction)))
+        (list :id (buffered-dispatch-transaction-id transaction)
+              :state (buffered-dispatch-transaction-state transaction)
+              :owner (buffered-dispatch-transaction-owner-position transaction)
+              :owner-index (buffered-dispatch-transaction-owner-index transaction)
+              :foreign-position (and withheld (timed-event-position withheld))
+              :foreign-down-index
+              (buffered-dispatch-transaction-withheld-index transaction)
+              :foreign-down-time (and withheld (timed-event-time withheld))
+              :terminal-foreign-position
+              (buffered-dispatch-transaction-terminal-foreign-position transaction)
+              :terminal-foreign-index
+              (buffered-dispatch-transaction-terminal-foreign-index transaction)
+              :terminal-foreign-time
+              (buffered-dispatch-transaction-terminal-foreign-time transaction)
+              :disposition (buffered-dispatch-transaction-disposition transaction)
+              :committed-role (buffered-dispatch-transaction-committed-role transaction)
+              ;; Result/dump output has a deliberately closed value vocabulary:
+              ;; retain evidence as canonical data, never as CLOS references.
+              :contract
+              (%canonical-buffered-contract-projection
+               (buffered-dispatch-transaction-contract transaction))
+              :origin (buffered-dispatch-transaction-origin transaction))))
+    (buffered-dispatch-transactions machine))))
 
 (defun simulate-events (interactions events &key latches axes until)
   "Run EVENTS through a fresh reference machine and return a SIMULATION-RESULT.

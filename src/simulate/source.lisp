@@ -232,7 +232,8 @@ loosens those limits for command-line event fixtures.
 "
   (decode-simulation-event-stream-forms (ivory-key.syntax:parse-file pathname)))
 
-(defun simulate-normalized-layout-event-stream (layout stream)
+(defun simulate-normalized-layout-event-stream
+    (layout stream &key interaction-compatibility-policy)
   "Drive supported normalized LAYOUT semantics with a checked source STREAM.
 
 Any refusal from the whole-layout adapter is deliberately allowed to escape
@@ -246,7 +247,8 @@ ambiguous ownership into an approximate simulation.
    layout (simulation-event-stream-events stream)
    :axes (simulation-event-stream-axes stream)
    :latches (simulation-event-stream-latches stream)
-   :until (simulation-event-stream-until stream)))
+   :until (simulation-event-stream-until stream)
+   :interaction-compatibility-policy interaction-compatibility-policy))
 
 (defun %safe-simulation-dump-value-p (value)
   "True only for the closed scalar/cons vocabulary produced by this adapter.
@@ -334,6 +336,23 @@ addresses or backend keycodes.
     (format stream "trace~%")
     (dolist (entry (simulation-result-trace result))
       (%write-simulation-trace-entry entry stream))
+    (format stream "semantic-transitions~%")
+    (dolist (transition (simulation-result-semantic-transitions result))
+      (write-string "  " stream)
+      (%write-simulation-value
+       (list :time (semantic-key-transition-time transition)
+             :kind (semantic-key-transition-kind transition)
+             :key (semantic-key-transition-key transition)
+             :transaction (semantic-key-transition-transaction-id transition)
+             :origin (semantic-key-transition-origin transition)
+             :original-index (semantic-key-transition-original-index transition))
+       stream)
+      (terpri stream))
+    (format stream "dispatch-transactions~%")
+    (dolist (transaction (simulation-result-dispatch-transactions result))
+      (write-string "  " stream)
+      (%write-simulation-value transaction stream)
+      (terpri stream))
     (format stream "latches~%")
     (dolist (entry (simulation-result-latches result))
       (write-string "  " stream)

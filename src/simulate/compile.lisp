@@ -685,8 +685,9 @@ fail-closed for callers that compile model objects directly."
          (mapcar #'model-identifier->simulation-value
                  (ivory-key.model::normalized-candidate-context-axes candidate)))))))
 
-(defun compile-normalized-interaction (interaction)
-  "Compile a normalized interaction into a simulator interaction."
+(defun %compile-normalized-interaction
+    (interaction buffered-dispatch-contract dispatch-plan-token)
+  "Internal normalized compiler; CONTRACT is either NIL or identity-checked."
   (unless (typep interaction 'ivory-key.model::normalized-interaction)
     (%simulation-compilation-error
      :invalid-normalized-interaction interaction
@@ -696,22 +697,82 @@ fail-closed for callers that compile model objects directly."
     (%validate-simulation-interaction-scope
      participants (ivory-key.model::normalized-interaction-observe interaction)
      (ivory-key.model::normalized-interaction-anchor interaction) interaction)
-    (make-sim-interaction
-     :name (model-identifier->simulation-value
-            (ivory-key.model::normalized-interaction-name interaction))
-     :participants (mapcar #'model-identifier->simulation-value participants)
-     :arbitration :priority
-     :cases
-     (mapcar (lambda (candidate)
-               (compile-normalized-interaction-candidate
-                candidate interaction
-                :priority (%candidate-priority
-                           (ivory-key.model::normalized-candidate-name candidate) arbitration)))
-             (ivory-key.model::normalized-interaction-candidates interaction)))))
+    (if buffered-dispatch-contract
+        (make-buffered-sim-interaction
+         :name (model-identifier->simulation-value
+                (ivory-key.model::normalized-interaction-name interaction))
+         :participants (mapcar #'model-identifier->simulation-value participants)
+         :route-kind :timed
+         :buffered-dispatch-contract buffered-dispatch-contract
+         :dispatch-plan-token dispatch-plan-token
+         :arbitration :priority
+         :cases
+         (mapcar (lambda (candidate)
+                   (compile-normalized-interaction-candidate
+                    candidate interaction
+                    :priority (%candidate-priority
+                               (ivory-key.model::normalized-candidate-name candidate) arbitration)))
+                 (ivory-key.model::normalized-interaction-candidates interaction)))
+        (make-sim-interaction
+         :name (model-identifier->simulation-value
+                (ivory-key.model::normalized-interaction-name interaction))
+         :participants (mapcar #'model-identifier->simulation-value participants)
+         :route-kind :timed
+         :arbitration :priority
+         :cases
+         (mapcar (lambda (candidate)
+                   (compile-normalized-interaction-candidate
+                    candidate interaction
+                    :priority (%candidate-priority
+                               (ivory-key.model::normalized-candidate-name candidate) arbitration)))
+                 (ivory-key.model::normalized-interaction-candidates interaction))))))
+
+(defun compile-normalized-interaction (interaction)
+  "Compile normalized INTERACTION without buffered-dispatch authority.
+
+Selected pending routing is intentionally unavailable through this exported
+entry point: its contract is derived only while compiling a complete layout.
+"
+  (%compile-normalized-interaction interaction nil nil))
+
+(defun %compile-normalized-interaction-with-contract
+    (interaction contract dispatch-plan-token)
+  "Internally compile one exact normalized contract/object pair.
+
+Matching source names or candidate spellings is insufficient authority: the
+derived contract must retain the exact normalized object selected by the
+complete layout derivation.
+"
+  (unless (and (typep contract 'ivory-key.model:pending-foreign-interval-contract)
+               (eq (ivory-key.model:interaction-compatibility-contract-interaction
+                    contract)
+                   interaction))
+    (%simulation-compilation-error
+     :forged-buffered-dispatch-contract interaction
+     "Buffered dispatch contract does not retain this exact normalized interaction."))
+  (unless dispatch-plan-token
+    (%simulation-compilation-error
+     :missing-buffered-dispatch-plan-token interaction
+     "Selected buffered interaction has no whole-layout dispatch plan token."))
+  (%compile-normalized-interaction interaction contract dispatch-plan-token))
+
+(defun %compile-normalized-interactions-with-contracts
+    (interactions &key interaction-compatibility-contracts dispatch-plan-token)
+  "Internal complete-layout compilation with derived contract identities."
+  (mapcar (lambda (interaction)
+            (let ((contract
+                    (find interaction interaction-compatibility-contracts
+                          :test #'eq
+                          :key #'ivory-key.model:interaction-compatibility-contract-interaction)))
+              (if (typep contract 'ivory-key.model:pending-foreign-interval-contract)
+                  (%compile-normalized-interaction-with-contract
+                   interaction contract dispatch-plan-token)
+                  (compile-normalized-interaction interaction))))
+          interactions))
 
 (defun compile-normalized-interactions (interactions)
-  "Compile normalized model interactions in canonical order into simulator IR."
-  (mapcar #'compile-normalized-interaction interactions))
+  "Compile normalized interactions without buffered-dispatch authority."
+  (%compile-normalized-interactions-with-contracts interactions))
 
 (defun model-layout-simulator-axes (layout)
   "Return LAYOUT's default axis state as simulator (axis . state) pairs."
