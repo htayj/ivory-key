@@ -42,6 +42,115 @@
     (ivory-key.simulate::model-simulation-compilation-error (condition)
       (ivory-key.simulate::model-simulation-compilation-error-feature condition))))
 
+(deftest simulation-manna-direct-selectors-hold-and-release-exactly
+  "The two direct primary selector paths have no tap-hold timing to infer.
+
+Greek and Top are each immediate one-participant held interactions.  The
+Delete/Enter aliases remain outside this trace because their 200 ms commitment
+and cancellation policy is not yet a Manna model decision.
+"
+  (let* ((layout (ivory-key.model:decode-layout-forms
+                  (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (result
+           (layout-simulation-result
+            normalized
+            (list (layout-simulation-event 0 :down "greek")
+                  (layout-simulation-event 1 :down "q")
+                  (layout-simulation-event 2 :up "q")
+                  (layout-simulation-event 3 :down "top")
+                  (layout-simulation-event 4 :down "q")
+                  (layout-simulation-event 5 :up "q")
+                  (layout-simulation-event 6 :up "greek")
+                  (layout-simulation-event 7 :down "q")
+                  (layout-simulation-event 8 :up "q")
+                  (layout-simulation-event 9 :up "top")
+                  (layout-simulation-event 10 :down "q")
+                  (layout-simulation-event 11 :up "q")))))
+    (layout-simulation-assert-equal
+     '((:named-symbol "greek-small-theta")
+       (:named-symbol "upcaret")
+       (:named-symbol "upcaret")
+       (:text "q"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "each immediate selector changes only its held axis and release restores it")
+    (layout-simulation-assert-equal
+     '(("case" . "plain") ("function" . "inactive")
+       ("plane" . "base") ("script" . "roman"))
+     (ivory-key.simulate::simulation-result-axes result)
+     "both selector exit effects restore their documented initial state")
+    (let ((kinds (mapcar #'ivory-key.simulate::simulation-trace-entry-kind
+                         (ivory-key.simulate::simulation-result-trace result))))
+      (layout-simulation-assert-equal 2 (count :held-axis-acquire kinds)
+                                      "two held selectors acquire exactly once")
+      (layout-simulation-assert-equal 2 (count :axis-set kinds)
+                                      "the two direct selector resets remain base transitions")
+      (layout-simulation-assert-equal 2 (count :effect-exit kinds)
+                                      "both selector releases are explicit lifecycle exits"))))
+
+(deftest simulation-manna-direct-case-holders-release-by-owner
+  "The two unchanged physical Shift sources share one held case state.
+
+This exercises the normalized whole-layout simulator, not a direct machine
+fixture.  It proves both source-release orders: the first release restores the
+base state only underneath the remaining held contribution, and the final
+release exposes plain case.
+"
+  (let* ((layout (ivory-key.model:decode-layout-forms
+                  (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (result
+           (layout-simulation-result
+            normalized
+            (list (layout-simulation-event 0 :down "case-left-shift")
+                  (layout-simulation-event 1 :down "q")
+                  (layout-simulation-event 2 :up "q")
+                  (layout-simulation-event 3 :down "case-right-shift")
+                  (layout-simulation-event 4 :up "case-left-shift")
+                  (layout-simulation-event 5 :down "q")
+                  (layout-simulation-event 6 :up "q")
+                  (layout-simulation-event 7 :up "case-right-shift")
+                  (layout-simulation-event 8 :down "q")
+                  (layout-simulation-event 9 :up "q")
+                  (layout-simulation-event 10 :down "case-left-shift")
+                  (layout-simulation-event 11 :down "case-right-shift")
+                  (layout-simulation-event 12 :up "case-right-shift")
+                  (layout-simulation-event 13 :down "q")
+                  (layout-simulation-event 14 :up "q")
+                  (layout-simulation-event 15 :up "case-left-shift")
+                  (layout-simulation-event 16 :down "q")
+                  (layout-simulation-event 17 :up "q")))))
+    (layout-simulation-assert-equal
+     '((:text "Q") (:text "Q") (:text "q") (:text "Q") (:text "q"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "either first Shift release retains the other owner's shifted case state")
+    (layout-simulation-assert-equal
+     '(("case" . "plain") ("function" . "inactive")
+       ("plane" . "base") ("script" . "roman"))
+     (ivory-key.simulate::simulation-result-axes result)
+     "each final Shift release reveals the documented plain base state")
+    (let* ((trace (ivory-key.simulate::simulation-result-trace result))
+           (case-releases
+             (remove-if-not
+              (lambda (entry)
+                (and (eq :held-axis-release
+                         (ivory-key.simulate::simulation-trace-entry-kind entry))
+                     (string= "case"
+                              (first
+                               (ivory-key.simulate::simulation-trace-entry-details
+                                entry)))))
+              trace)))
+      (layout-simulation-assert-equal 4 (length case-releases)
+                                      "both two-owner sequences release case exactly twice")
+      (layout-simulation-assert-equal '(nil t nil t)
+                                      (mapcar (lambda (entry)
+                                                (getf
+                                                 (ivory-key.simulate::simulation-trace-entry-details
+                                                  entry)
+                                                 :last))
+                                              case-releases)
+                                      "the first release in either order is non-final"))))
+
 (deftest simulation-layout-dispatches-normalized-ordinary-bindings-with-context
   (let* ((case-axis (ivory-key.model::make-context-axis
                      "case" '("plain" "shifted")))

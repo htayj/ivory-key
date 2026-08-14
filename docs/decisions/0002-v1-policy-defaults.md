@@ -46,7 +46,7 @@ it does not mean that a parser is permitted to silently delete source data.
 | P-09 | Concurrent consumers of one latch | One proven consumer; concurrent multi-consumer use is refused pending reservation semantics. |
 | P-10 | Context-observation time | Anchor-down snapshot only; no source override. |
 | P-11 | Patch precedence and simultaneous activation | Explicit global precedence, transparent fall-through, and equal-precedence conflict refusal. |
-| P-12 | Manna candidate priorities | None are selected because Manna has no active transcribed timed interactions. |
+| P-12 | Manna candidate priorities | No timed-candidate priority is selected; four exact immediate held interactions need no priority. |
 | P-13 | Layout versus device/profile timing | Timings belong to an interaction declaration; no override/default mechanism exists. |
 | P-14 | Left/right modifier distinction | Five modifier identities are source-neutral; side is not application-visible V1 meaning. |
 
@@ -189,20 +189,23 @@ equal-time deadline-before-release boundary.
 **Decision.**  V1 permits ordinary output only at a candidate's explicit
 commit: `:do` and any `:commit-effect` actions execute there.  Before commit,
 `:enter` and `:while` may not emit irreversible text, named output, or command
-output.  A claimed held effect must have explicit normal teardown that its
-selected adapter can preserve; when cancellation needs distinct teardown, it
-must be declared as `:cancel` rather than inferred.  The current semantic
-validator already requires a nonempty `:exit` for a nonempty `:while`.
+output.  A source `hold-modifier` or `hold-axis-state` is permitted only in
+`:while` and is owner-scoped: the simulator releases exactly that contribution
+on normal exit or cancellation, so no manual release token or generated name
+is required.  Direct `set-axis-state` remains a base-state transition and does
+not release another owner's hold.  When cancellation needs additional distinct
+behavior, it must be declared as `:cancel` rather than inferred.
 
 There is no cumulative milestone-output declaration.  A feature that needs
 output at several provisional milestones, output rollback, or cumulative
 emission remains reserved and must be refused rather than encoded as a series
 of premature taps.
 
-**Evidence.**  Semantic validation rejects irreversible entry/while behaviors
-and a `:while` without `:exit`.  The simulator executes `:do` and
-`:commit-effect` only after commitment and maintains separately traceable effect
-entry, exit, and cancellation transitions.
+**Evidence.**  Semantic validation rejects irreversible entry/while behaviors,
+source holds outside `:while`, and non-held `:while` behavior without an exact
+release contract.  The simulator executes `:do` and `:commit-effect` only
+after commitment, maintains owner-scoped held contributions, and records
+separately traceable effect entry, exit, and cancellation transitions.
 
 ### P-09 — multiple pending consumers of one latched axis
 
@@ -265,19 +268,24 @@ transitions.
 
 ### P-12 — Manna interaction-candidate priorities
 
-**Decision.**  There are no normative Manna home-row, thumb, function-activator,
-Top/Greek, game, or chord candidate priorities in V1.  The current Manna
-fixture contains zero active generic timed interactions.  It therefore assigns
-no placeholder priority and does not infer one from Kanata's
-`concurrent-tap-hold`, `tap-hold-release`, `first-release`, or source order.
+**Decision.** There are no normative Manna home-row, thumb, function-activator,
+Top/Greek tap-hold, game, or chord candidate priorities in V1. The current
+Manna fixture has four exact immediate one-participant held interactions:
+direct `lshift` / `rshift` case holders and direct `lctl` Greek / `rctl` Top
+selectors. They use no timing or candidate priority. The two case holders use
+owner-scoped held-axis lifetime, so either first release leaves the other
+holder active. This does not select a priority for any timed interaction or
+infer one from Kanata's `concurrent-tap-hold`, `tap-hold-release`,
+`first-release`, or source order.
 
 Any future Manna timed interaction must declare an explicit candidate policy
 under P-05, satisfy P-06 through P-10, and be covered by event-trace tests
 before a migration claim.  The 45 ms chord rows remain P-04 regression-only.
 
-**Evidence.**  The evidence audit lists the observed home-row, thumb, selector,
-and chord parameters as unresolved or regression-only and states that no
-active generic interaction remains in the fixture.
+**Evidence.** The evidence audit records the unchanged direct Shift source
+tokens and XKB `Shift_L` / `Shift_R` mapping, and the whole-layout simulator
+checks both two-owner release orders. It separately lists the home-row, thumb,
+selector tap-hold, and chord parameters as unresolved or regression-only.
 
 ### P-13 — timing ownership and overrides
 

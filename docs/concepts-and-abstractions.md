@@ -46,15 +46,22 @@ capability planner
 
 That separation is the heart of Ivory Key.
 
-For example, the abstract layout says:
+For example, a candidate's abstract lifecycle can say:
 
 ```lisp
-(hold-modifier meta)
+(:while (hold-modifier meta))
 ```
 
 The Linux realization might decide that Kanata should emit a particular
 carrier keycode and XKB should place it in `Mod1`. None of that machinery
 contaminates the abstract layout.
+
+The hold is owned by that candidate effect, not by a generated backend token:
+its contribution releases on the effect's normal exit or cancellation, and a
+second physical holder of `meta` keeps it active until it too exits.  A direct
+`set-axis-state` is a separate base-state transition; a live axis hold overlays
+it.  V1 refuses competing held states for one axis rather than inventing a
+source-order policy.
 
 ## 2. Logical positions versus physical keys
 
@@ -533,7 +540,9 @@ to an interaction that latches an ordinary behavioral axis:
 (define-behavior shift-key (axis state)
   (by-axis shift-latch
     (plain
-      (hold-axis-state axis state))
+      ;; A binding may set a base state; a source hold belongs in a candidate
+      ;; effect's :while list, where it has an owner and terminal release.
+      (set-axis-state axis state))
     (latch
       (latch-axis-state axis state))))
 

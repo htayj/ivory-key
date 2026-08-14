@@ -42,17 +42,21 @@ without allowing the reference clock to advance."
 
 (defstruct (simulation-trace-entry
              (:constructor make-simulation-trace-entry
-                 (&key time kind event interaction case candidate details)))
+                 (&key time kind event interaction case candidate details provenance)))
   "One explainable transition of the reference machine.
 
 KIND is one of :EVENT, :CANDIDATE-START, :DEADLINE, :COMMIT, :CANCEL,
 :EFFECT-ENTER, :EFFECT-EXIT, :EFFECT-CANCEL, :ACTION, or :LATCH-CONSUMED.
-The retained interaction/case/candidate references make a trace an oracle for
-which source interpretation caused an observable result."
+The retained interaction/case/candidate references identify the interpretation
+that caused a transition.  PROVENANCE is a closed, deterministic plist for
+observable transitions.  It names the canonical source pattern, candidate
+transition, commit point, and responsible effect (or :CANDIDATE-DO when no
+lifecycle effect caused the observation)."
   (time 0 :type timestamp :read-only t)
   (kind :event :type keyword :read-only t)
   (event nil :read-only t)
   (interaction nil :read-only t)
   (case nil :read-only t)
   (candidate nil :read-only t)
-  (details nil :read-only t))
+  (details nil :read-only t)
+  (provenance nil :read-only t))

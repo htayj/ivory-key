@@ -29,6 +29,7 @@
                           :test #'ivory-key.model:identifier=
                           :key #'ivory-key.model:binding-position))
          (t-table (ivory-key.model:binding-behavior t-binding))
+         (interactions (ivory-key.model:layout-interactions layout))
          (overlays (ivory-key.model:layout-overlays layout))
          (function-overlay (find "primary-function" overlays
                                  :test #'ivory-key.model:identifier=
@@ -49,8 +50,22 @@
     ;; The mechanically frozen table covers exactly 52 static XKB positions.
     ;; The primary layered function table is a sparse patch; its two tap-hold
     ;; activators and older 45 ms chord behavior are intentionally absent.
+    ;; Direct physical Shift holders and the Greek/Top selectors are separate,
+    ;; exact single-key held interactions, not ordinary bindings or inferred
+    ;; tap-holds.
     (is-equal 52 (length (ivory-key.model:layout-bindings layout)))
-    (is-equal 0 (length (ivory-key.model:layout-interactions layout)))
+    (is-equal '("hold-case-left-shift" "hold-case-right-shift"
+                "hold-greek-selector" "hold-top-selector")
+              (mapcar (lambda (interaction)
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:interaction-name interaction)))
+                      interactions))
+    (is-equal '(("case-left-shift") ("case-right-shift")
+                ("greek") ("top"))
+              (mapcar (lambda (interaction)
+                        (mapcar #'ivory-key.model:identifier-name
+                                (ivory-key.model:interaction-participants interaction)))
+                      interactions))
     (is-equal 1 (length overlays))
     (is-equal 29 (length (ivory-key.model:overlay-patch-bindings function-overlay)))
     (is (typep (ivory-key.model:patch-binding-behavior mode-key)
@@ -84,7 +99,7 @@
   (axis latch (:states plain latch) (:resolution behavioral))
   (define-behavior select-axis (axis state)
     (by-axis latch
-      (plain (hold-axis-state axis state))
+      (plain (set-axis-state axis state))
       (latch (latch-axis-state axis state))))
   (define-behavior forward-axis (axis state)
     (select-axis axis state))

@@ -157,7 +157,9 @@ IR."
   "Create explicit lifecycle effects for one candidate.
 
 All values are lists of complete model behaviors.  The semantic validator
-rejects unsafe irreversible entry/while effects and unpaired held effects."
+rejects unsafe irreversible entry/while effects.  Source HOLD-MODIFIER and
+HOLD-AXIS-STATE are valid only in :WHILE and release automatically when their
+owning effect exits or is cancelled."
   (make-instance 'interaction-effects :entry (copy-list entry)
                  :commit (copy-list commit) :while (copy-list while)
                  :exit (copy-list exit) :cancel (copy-list cancel)))

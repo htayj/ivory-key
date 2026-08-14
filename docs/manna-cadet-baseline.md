@@ -99,15 +99,28 @@ tables that have an evidenced device placement, while preserving physical
 Kanata events for XKB to translate. This remains a refused partial proposal,
 not a generatable replacement.
 
-The Kinesis topology has the 52 static positions, the directly evidenced
-`greek` selector, and a shared `mode-key` whose inactive result differs by
-device. Both device files place 51 static positions (every table except
-`<LSGT>`), the Greek selector, and the common mode-key location:
+The Kinesis topology has the 52 static positions, two direct physical case
+holders, directly evidenced `greek` and `top` selectors, and a shared
+`mode-key` whose inactive result differs by device. Both device files place 51
+static positions (every table except `<LSGT>`), the two direct case holders,
+the two direct selectors, and the common mode-key location:
+
+| Device | Physical source | XKB output |
+|---|---|---|
+| Advantage 2 | `lshift` | `LFSH` / `Shift_L` |
+| Advantage 2 | `rshift` | `RTSH` / `Shift_R` |
+| Advantage 360 | `lshift` | `LFSH` / `Shift_L` |
+| Advantage 360 | `rshift` | `RTSH` / `Shift_R` |
 
 | Device | Physical source | XKB selector output |
 |---|---|---|
 | Advantage 2 | `lctl` | `ZEHA` |
 | Advantage 360 | `lctl` | `ZEHA` |
+
+| Device | Physical source | XKB selector output |
+|---|---|---|
+| Advantage 2 | `rctl` | `LVL3` / `Mode_switch` |
+| Advantage 360 | `rctl` | `LVL3` / `Mode_switch` |
 
 | Device | Mode-key source | XKB spelling outside function patch |
 |---|---|---|
@@ -142,12 +155,21 @@ lowering or deployment is claimed.
 - The common function output table is transcribed as one patch with precedence
   100. Its two activators, and the Advantage 360-only game layer, still need
   explicit patch-axis entry/exit behavior and precedence policy.
-- Home-row and thumb aliases have 200 ms tap-holds (250 ms for left Super),
-  but their commitment/cancellation behavior is not yet transcribed.
+- The two primary files have the same 14 selected `tap-hold-release` aliases:
+  the two case aliases, all five semantic modifier families, and the two
+  function activators. Their exact positions, literal hold actions, and 200/200
+  timings (250/250 only for `a → lmet`) are data-checked against the frozen
+  sources in [manna-cadet-evidence-audit.md](manna-cadet-evidence-audit.md).
+  The source does not pin a Kanata runtime or complete simultaneous-event
+  policy, so no lifecycle equivalence is claimed.
 - The older chorded files are excluded from the primary layered migration
   and remain regression evidence only.
-- Top with Greek has an observed symbol selection but unresolved consumed-
-  modifier/application-state semantics.
+- Direct `lshift` / `rshift`, `lctl`, and `rctl` now have separately modeled
+  immediate held lifecycles. The two Shift holders use owner-scoped release so
+  the first release does not clear the other holder; this is model/simulation
+  evidence, not a complete historical-runtime equivalence claim. Delete/Enter
+  are distinct 200 ms tap-holds and remain unresolved. Top with Greek still has
+  unresolved consumed-modifier/application-state semantics for backend lowering.
 - The selected Linux profile now maps every named symbol and command through
   its realization-owned vocabulary; the function activators and selector/
   modifier semantics remain unresolved.

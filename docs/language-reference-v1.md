@@ -150,8 +150,16 @@ nonempty `sequence` applies its
 abstract children in order; a nonempty `simultaneous` represents one abstract
 composition without assigning target ordering.
 
-`hold-modifier` means a semantic modifier operation, not a fixed host mask.
-The axis operations name abstract state transitions.  The reference adapter
+`hold-modifier` means an owner-scoped semantic modifier hold, not a fixed host
+mask.  `hold-axis-state` likewise names an owner-scoped abstract axis state.
+Both forms are valid only in a candidate's `:while` list: their owning effect
+acquires them on entry and releases them automatically on normal exit or
+cancellation.  Multiple owners of the same modifier or the same axis/state
+keep it active until the final owner releases.  `set-axis-state` remains an
+ordinary direct/base transition; an active axis hold temporarily overlays it,
+so one effect's reset cannot release another effect's hold.  Different held
+states for the same axis are refused rather than ordered implicitly.  The axis
+operations otherwise name abstract state transitions.  The reference adapter
 only accepts the subset it can lower exactly for the chosen whole-layout path;
 unsupported operations are an explicit refusal, never a silently ignored
 transition.  `by-axis` supplies one behavior for each selected state after
@@ -359,14 +367,18 @@ matched.  A pattern commit commits when that separate pattern becomes matched.
 it: there is no proven V1 scheduler for waiting out all future alternatives.
 
 Lifecycle options are syntactically decoded as explicit lists.  `:enter` and
-`:while` begin a speculative held effect.  Irreversible output in either is
-rejected by semantic validation.  A nonempty `:while` requires a nonempty
-`:exit`; `:cancel` is not a substitute for that normal-release boundary.  On
-normal exit, exit effects run; on candidate cancellation, cancellation effects
-run.  `:commit-effect` is performed with `:do` at commitment by the reference
-adapter.  An adapter that cannot preserve any requested effect lifetime
-refuses the layout; it must not turn a held effect into a tap or drop its
-cancellation.
+`:while` begin a speculative effect, and irreversible output in either is
+rejected by semantic validation.  The closed V1 source hold forms
+`hold-modifier` and `hold-axis-state` are permitted only in `:while`; they use
+the effect as their release owner, so no matching `:exit` release token is
+written or inferred.  The simulator releases exactly that owner's holds on
+both normal exit and cancellation.  `:exit` and `:cancel` may still contain
+other direct behavior, including `set-axis-state`; that changes the base state
+but is not a hold contribution.  A non-held `:while` behavior is refused
+rather than assigned an invented teardown.  `:commit-effect` is performed with
+`:do` at commitment by the reference adapter.  An adapter that cannot preserve
+any requested effect lifetime refuses the layout; it must not turn a held
+effect into a tap or drop its cancellation.
 
 **P-ARBITRATION-01 — no accidental winner.**  Conflicting candidate commits
 are invalid unless their explicit arbitration rule distinguishes them.  A
@@ -416,7 +428,7 @@ without treating illustration as an unqualified implementation claim.
 | `(level-order case script plane)` | Implemented only when it names exactly the product axes once; `case` varies fastest. |
 | `(modifiers control meta super hyper alt)` | Implemented semantic names only; no target slots are implied. |
 | `(binding q (at ...))`, `(unicode "q")`, `(named-symbol up-caret)`, `none`, and `(inherit (...))` | Implemented table forms, subject to P-AXIS-COVERAGE-01 and output-vocabulary requirements at realization time. |
-| `(interaction a-home-row ...)`, `:participants`, `:observe any-position`, `case`, `:match`, `:commit`, `:do`, `(down ...)`, `(up ...)`, `sequence`, `and`, `either`, `duration`, `without`, `(other-than ...)`, `(deadline integer ...)`, and `(hold-modifier super)` | Implemented source forms within the restrictions in sections 2.1–2.4.  The whole illustrated interaction is not currently conformant: it has reserved `:context-at` and named durations, its `hold` case lacks required `:do`, and its nonempty `:while` lacks required `:exit`. |
+| `(interaction a-home-row ...)`, `:participants`, `:observe any-position`, `case`, `:match`, `:commit`, `:do`, `(down ...)`, `(up ...)`, `sequence`, `and`, `either`, `duration`, `without`, `(other-than ...)`, `(deadline integer ...)`, and `(hold-modifier super)` | Implemented source forms within the restrictions in sections 2.1–2.4.  The whole illustrated interaction is not currently conformant because it has reserved `:context-at` and named durations; its `hold` case has an owner-scoped `:while` release contract and does not need an explicit release form. |
 | `(:context-at (down a))` | Reserved and rejected.  P-CONTEXT-01 supplies anchor-down capture without a surface option. |
 | `(deadline home-row :after ...)` | Reserved because `home-row` is not an integer duration policy.  Use a literal integer millisecond value for current conformance. |
 | `(:arbitration (priority hold tap))` | Implemented deterministic priority spelling, highest first, provided both names are candidates and semantic ambiguity validation accepts it. |

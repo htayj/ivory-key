@@ -55,6 +55,52 @@
                         label kind interaction case)
     entry))
 
+(defun plan-matrix-trace-provenance (entry)
+  (ivory-key.simulate:simulation-trace-entry-provenance entry))
+
+(defun plan-matrix-assert-complete-trace-provenance (result label)
+  "Check the Phase 4 provenance invariant for all observable matrix records."
+  (let ((trace (plan-matrix-trace result)))
+    (dolist (entry trace)
+      (when (ivory-key.simulate::simulation-trace-entry-candidate entry)
+        (let ((provenance (plan-matrix-trace-provenance entry)))
+          (plan-matrix-assert provenance
+                              "~A: candidate trace entry ~S lacks provenance."
+                              label entry)
+          (dolist (field '(:source-pattern :candidate-transition
+                           :commit-point :responsible-effect))
+            (plan-matrix-assert (member field provenance :test #'eq)
+                                "~A: candidate trace entry ~S lacks ~S."
+                                label entry field)))))
+    (let ((emissions
+            (remove-if-not
+             (lambda (entry)
+               (and (eq :action
+                        (ivory-key.simulate::simulation-trace-entry-kind entry))
+                    (eq :emit (first
+                               (ivory-key.simulate::simulation-trace-entry-details entry)))))
+             trace)))
+      (plan-matrix-assert-equal (length (plan-matrix-outputs result))
+                                (length emissions)
+                                (format nil "~A: every output has one action trace" label))
+      (dolist (entry emissions)
+        (plan-matrix-assert (plan-matrix-trace-provenance entry)
+                            "~A: output trace ~S lacks provenance." label entry)))
+    (dolist (effect-name (ivory-key.simulate:simulation-result-active-effects result))
+      (let ((entry (find effect-name trace :test #'equal
+                         :key (lambda (candidate-entry)
+                                (and (eq :effect-enter
+                                         (ivory-key.simulate::simulation-trace-entry-kind
+                                          candidate-entry))
+                                     (ivory-key.simulate::simulation-trace-entry-details
+                                      candidate-entry))))))
+        (plan-matrix-assert entry
+                            "~A: active held effect ~S lacks its entry trace."
+                            label effect-name)
+        (plan-matrix-assert (plan-matrix-trace-provenance entry)
+                            "~A: active held effect ~S lacks provenance."
+                            label effect-name)))))
+
 (defun plan-matrix-simulation-feature (thunk)
   (handler-case
       (progn (funcall thunk)
@@ -128,7 +174,9 @@
                       index))
              (plan-matrix-assert-trace-responsibility
               result :action '(:ordinary-binding "q") '(:ordinary-binding "q")
-              "ordinary eight-state dispatch"))))
+             "ordinary eight-state dispatch")
+             (plan-matrix-assert-complete-trace-provenance
+              result (format nil "ordinary eight-state dispatch ~D" index)))))
 
 ;;; Context capture and tap/hold boundaries ----------------------------------
 
@@ -410,6 +458,86 @@
     (plan-matrix-assert-trace-responsibility
      result :effect-exit "cumulative" "immediate-and-held" "effect exit")))
 
+(deftest simulation-plan-matrix-trace-provenance-covers-output-and-held-state
+  (let* ((held-effect
+           (ivory-key.simulate::make-sim-effect
+            :name "held"
+            :enter-actions (list (ivory-key.simulate::emit-action :held-enter))
+            :exit-actions (list (ivory-key.simulate::emit-action :held-exit))))
+         (commit-case
+           (ivory-key.simulate::make-sim-case
+            :name "explicit-commit"
+            :pattern (ivory-key.simulate::down-pattern "c")
+            :commit (ivory-key.simulate::deadline-pattern 10
+                                                        :after-position "c"
+                                                        :while-down "c")
+            :actions (list (ivory-key.simulate::emit-action :after-commit))))
+         (held-case
+           (ivory-key.simulate::make-sim-case
+            :name "held-case"
+            :pattern (ivory-key.simulate::down-pattern "h")
+            :enter-at (ivory-key.simulate::down-pattern "h")
+            :exit-at (ivory-key.simulate::up-pattern "h")
+            :effects (list held-effect)))
+         (interactions
+           (list
+            (ivory-key.simulate::make-sim-interaction
+             :name "explicit" :participants '("c") :cases (list commit-case))
+            (ivory-key.simulate::make-sim-interaction
+             :name "held" :participants '("h") :cases (list held-case))))
+         (completed
+           (ivory-key.simulate::simulate-events
+            interactions
+            (list (plan-matrix-event 0 :down "c")
+                  (plan-matrix-event 20 :up "c")
+                  (plan-matrix-event 30 :down "h")
+                  (plan-matrix-event 40 :up "h"))))
+         (active
+           (ivory-key.simulate::simulate-events
+            interactions (list (plan-matrix-event 0 :down "h")))) )
+    (plan-matrix-assert-complete-trace-provenance completed
+                                                  "completed commit/effect lifecycle")
+    (plan-matrix-assert-complete-trace-provenance active "active held state")
+    (plan-matrix-assert-equal '(:after-commit :held-enter :held-exit)
+                              (plan-matrix-outputs completed)
+                              "commit and effect outputs remain ordered")
+    (plan-matrix-assert-equal '("held")
+                              (ivory-key.simulate:simulation-result-active-effects active)
+                              "a truncated valid prefix retains its held effect")
+    (let* ((trace (plan-matrix-trace completed))
+           (commit-output
+             (find :after-commit trace
+                   :test #'equal
+                   :key (lambda (entry)
+                          (second (ivory-key.simulate::simulation-trace-entry-details entry)))))
+           (effect-enter
+             (find :effect-enter trace
+                   :key #'ivory-key.simulate::simulation-trace-entry-kind))
+           (effect-exit
+             (find :effect-exit trace
+                   :key #'ivory-key.simulate::simulation-trace-entry-kind)))
+      (plan-matrix-assert-equal
+       '(:source-pattern (:event :down "c")
+         :candidate-transition :committed
+         :commit-point (:deadline 10 :after-position "c" :while-down "c")
+         :responsible-effect :candidate-do)
+       (plan-matrix-trace-provenance commit-output)
+       "ordinary output identifies a distinct source pattern and commit point")
+      (plan-matrix-assert-equal
+       '(:source-pattern (:event :down "h")
+         :candidate-transition :effect-entered
+         :commit-point :when-matched
+         :responsible-effect (:effect "held" :phase :entry))
+       (plan-matrix-trace-provenance effect-enter)
+       "held entry identifies its lifecycle effect")
+      (plan-matrix-assert-equal
+       '(:source-pattern (:event :up "h")
+         :candidate-transition :effect-exited
+         :commit-point :when-matched
+         :responsible-effect (:effect "held" :phase :exit))
+       (plan-matrix-trace-provenance effect-exit)
+       "held exit identifies its closing source pattern and lifecycle effect"))))
+
 (deftest simulation-plan-matrix-ownership-cancellation-and-latch-nonconsumption
   (let* ((short
            (ivory-key.simulate::make-sim-interaction
@@ -598,4 +726,5 @@
                         (equal '("shift-latch" "latch" 1)
                                (ivory-key.simulate::simulation-trace-entry-details entry))))
                  (plan-matrix-trace result))
-           "Greek consumes the shift-latch generation, not ordinary A"))))))
+           "Greek consumes the shift-latch generation, not ordinary A")
+          (plan-matrix-assert-complete-trace-provenance result label))))))

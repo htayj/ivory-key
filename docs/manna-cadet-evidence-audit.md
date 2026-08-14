@@ -22,7 +22,8 @@ The labels below are deliberately narrow:
 
 The completed evidence tranche is deliberately limited to the 52 static XKB
 tables, the five semantic-modifier names, both primary layered physical
-placements, and the 29 output positions of the common primary function table.
+placements, the two direct immediate selector lifecycles, and the 29 output
+positions of the common primary function table.
 The latter is represented as the abstract `function` patch axis in
 `layouts/manna-cadet.ivory`; it contains command identities or Unicode scalar
 outputs, never XKB keysyms, Kanata aliases, or carrier numbers.  The function
@@ -110,9 +111,9 @@ alternate meanings for a `none` cell:
 | `super` | XKB `Mod4` maps `<LWIN>`; home-row `a` and `;` aliases hold `lmet` | identity transcribed; 250 ms left-side exception unresolved |
 | `hyper` | XKB `Mod2` maps `<RWIN>`; `esc` and apostrophe aliases hold `rmet` | identity transcribed; tap-hold commitment unresolved |
 | `alt` | XKB `Mod3` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` | identity transcribed; tap-hold commitment unresolved |
-| `case` | `<LFSH>` and `<RTSH>` map to Shift | static product-state evidence; physical holding behavior not separately transcribed |
-| `script` / Greek | `<ZEHA>` maps to Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` selector is transcribed in device evidence; `del` tap-hold is unresolved |
-| `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | static table transcribed; trigger timing and modifier/group visibility unresolved |
+| `case` | `<LFSH>` and `<RTSH>` map to `Shift_L` / `Shift_R`; both primary normal layers leave `lshift` / `rshift` unchanged | two exact immediate owner-scoped holders set `case=shifted`; the home-row `f` / `j` tap-holds remain unresolved |
+| `script` / Greek | `<ZEHA>` maps to Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact immediate held `script → greek` interaction, with release to `roman`; `del` tap-hold remains unresolved |
+| `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact immediate held `plane → top` interaction, with release to `base`; Enter tap-hold and application-visible group/modifier policy remain unresolved |
 | Caps Lock / Menu slot | A2 source has `menu`; 360 source has `caps` at the same logical location | inactive result is device-specific and not placed in the common layout; active function result is transcribed as `mode-key → alt-mode` |
 
 The XKB comment's modifier-slot description is evidence of the historical
@@ -121,6 +122,79 @@ abstract layout.  Carrier 84's source comment calls it “iso level 3,” while
 the XKB symbols file says `Mode_switch` performs `SetGroup +1`; the latter is
 why `plane` remains a selector/lowering issue rather than a sixth semantic
 modifier.
+
+### Frozen primary tap-hold table
+
+Both frozen primary `deflayer normal` forms select the same 14
+`tap-hold-release` aliases below.  `position` is both the literal tap action
+and the corresponding `defsrc` token; the table records the literal Kanata
+hold action rather than normalizing right-hand aliases to a different spelling.
+
+| Semantic family | Alias / position | Tap-repress / hold timeout (ms) | Literal tap action | Literal hold action |
+|---|---|---:|---|---|
+| case | `@Sf` / `f` | 200 / 200 | `f` | `lshift` |
+| case | `@Sj` / `j` | 200 / 200 | `j` | `lshift` |
+| control | `@Cd` / `d` | 200 / 200 | `d` | `lctl` |
+| control | `@Ck` / `k` | 200 / 200 | `k` | `lctl` |
+| meta | `@Ms` / `s` | 200 / 200 | `s` | `lalt` |
+| meta | `@Ml` / `l` | 200 / 200 | `l` | `lalt` |
+| super | `@sa` / `a` | 250 / 250 | `a` | `lmet` |
+| super | `@s;` / `;` | 200 / 200 | `;` | `lmet` |
+| hyper | `@eoam` / `esc` | 200 / 200 | `esc` | `rmet` |
+| hyper | `@qoam` / `'` | 200 / 200 | `'` | `rmet` |
+| alt | `@Hro` / `bspc` | 200 / 200 | `bspc` | `ralt` |
+| alt | `@Hsp` / `spc` | 200 / 200 | `spc` | `ralt` |
+| function | `@HscL` / `end` | 200 / 200 | `end` | `(layer-while-held fun)` |
+| function | `@HscR` / `pgdn` | 200 / 200 | `pgdn` | `(layer-while-held fun)` |
+
+The dedicated `lshift` and `rshift` `defsrc` tokens also occur unchanged in
+each primary normal layer.  They are immediate physical case holders, not
+tap-holds.  The fixture transcribes them as the owner-scoped
+`hold-case-left-shift` and `hold-case-right-shift` interactions: the
+whole-layout simulator proves that either first release leaves the other owner
+holding `case=shifted`, and the final release exposes `case=plain`.  This is
+the selected Ivory Key immediate-held lifecycle, not a claim of complete
+historical Kanata/XKB runtime equivalence.  The unused `osft` and `csft`
+aliases do not alter this table; they are declared but not selected by either
+primary normal layer.
+
+The current official [Kanata configuration documentation](https://github.com/jtroo/kanata/blob/main/docs/config.adoc)
+defines the four `tap-hold` fields in this order: tap-repress timeout, hold
+timeout, tap action, and hold action.  It says the `tap-hold-release` variant
+activates the hold action early when a different key is pressed and released;
+otherwise the hold timeout is the deadline for the hold action.  The frozen
+files set `process-unmapped-keys yes` and `concurrent-tap-hold yes` in both
+variants.  The former makes Kanata process unmapped keys for tap-hold actions;
+the official [sample configuration](https://github.com/jtroo/kanata/blob/main/cfg_samples/kanata.kbd)
+says the latter changes how near-simultaneous tap-hold timeouts expire.
+
+This is a source-plus-documentation interpretation, not yet a frozen runtime
+oracle: a narrow search of frozen commit
+`e5f7e81cdb6e30a7735cdcab622ede29007e379b` finds no Kanata binary/version,
+package pin, or lock file (its README only links upstream).  Neither primary
+file supplies a total order for equal-time events, multi-owner release, or the
+precise concurrent-tap-hold scheduler.  No Ivory Key interaction is added from
+these rows until an owner selects that complete policy.
+
+The direct physical Shift pair is now materialized separately.  If an
+owner-scoped `tap-hold-release` lifecycle is selected without changing the
+evidenced positions/actions, these are the remaining exact source-derived
+interaction instances to materialize (all common to Advantage 2 and Advantage
+360):
+
+| Family | Future instance identities |
+|---|---|
+| case tap-holds | `tap-hold-case-f`, `tap-hold-case-j` |
+| control | `tap-hold-control-d`, `tap-hold-control-k` |
+| meta | `tap-hold-meta-s`, `tap-hold-meta-l` |
+| super | `tap-hold-super-a`, `tap-hold-super-semicolon` |
+| hyper | `tap-hold-hyper-escape`, `tap-hold-hyper-apostrophe` |
+| alt | `tap-hold-alt-backspace`, `tap-hold-alt-space` |
+| function | `tap-hold-function-end`, `tap-hold-function-pgdn` |
+
+Those are planned source identities only. They still require the complete
+operator policy above and backend lowering that preserves the selected
+semantics.
 
 ## Primary layered function overlay
 
@@ -149,23 +223,26 @@ The mnemonic document directly corroborates the mnemonic placements it names.
 Its “remaining … chord-derived neighborhood” sentence is supporting evidence
 only; the primary layered table itself is the authority for every row above.
 
-## Interactions, timing, and overlays not yet modeled
+## Interactions, timing, and overlays
 
 | Source feature | Exact observed parameters | Classification |
 |---|---|---|
-| Home-row modifiers | eight `tap-hold-release`: `f/d/s/a`, `j/k/l/;`; 200/200 ms except `a` at 250/250 ms | unresolved: source action exists, but tap/hold commitment, interruption, cancellation, and output ordering have not been equivalently specified |
-| Thumb Alt | Backspace and Space `tap-hold-release 200 200` | unresolved for the same reason |
-| Function activation | End and PgDn `tap-hold-release 200 200` to `layer-while-held fun` | overlay table transcribed; activation explicitly unresolved/refused |
+| Direct Greek selector | `lctl → @gr → (arbitrary-code 85)` in both primary normal layers | transcribed as immediate one-participant `hold-greek-selector`; it holds `script=greek` and explicitly restores `roman` on release |
+| Direct Top selector | `rctl → @top → (arbitrary-code 84)` in both primary normal layers | transcribed as immediate one-participant `hold-top-selector`; it holds `plane=top` and explicitly restores `base` on release |
+| Direct physical case holders | `lshift` and `rshift` are unchanged at their `defsrc` indexes in both primary normal layers; XKB maps `<LFSH>` / `<RTSH>` to `Shift_L` / `Shift_R` | transcribed as `hold-case-left-shift` / `hold-case-right-shift`; owner-scoped hold state keeps `case=shifted` until the last release |
+| Case and five semantic modifier tap-holds | exact 12 alias rows in the frozen-primary table above: 200/200 ms except `a → lmet` at 250/250 ms | raw aliases, literal output actions, and current Kanata early-hold rule are recorded; version-pinned commitment/arbitration and owner-scoped release remain unresolved |
+| Function activation | End and PgDn `tap-hold-release 200 200` to `layer-while-held fun` | both exact aliases are recorded; overlay table transcribed, but activation remains explicitly unresolved/refused |
 | Escape / apostrophe Hyper | `tap-hold-release 200 200` | unresolved |
 | Number-row Shift aliases | `osft` and `csft`, `tap-hold-release 0 0`, are declared but unused by either primary normal layer | excluded as inactive aliases until an owner selects a behavior |
 | Top / Greek tap-holds | Enter → Top and Delete → Greek, both `tap-hold-release 200 200` | unresolved |
 | 360 game layer | enters at `lalt`; exits at that same location; `K18` is ordered `up` then `del`, `K19` the reverse, `K20` repeats `kp7` at 50, and `del`/`pgdn`/Enter have 200/200 Alt/Super/Control tap-holds | unresolved, Advantage-360-only overlay; not a common Manna layout fact |
 | Older chords | 29 pairs, each `45 first-release ()` | regression-only; the old `i`+`o → stop-output` pair is not an active primary interaction |
 
-The primary `defcfg` also sets `concurrent-tap-hold yes` and
-`process-unmapped-keys yes`.  They are Kanata runtime policy, not enough by
-themselves to derive the model's candidate commitment/arbitration rules.
-Accordingly, there are no active generic interactions in the Manna fixture.
+The primary `defcfg` settings are evidence about the observed Kanata policy,
+not a version-pinned complete model candidate/arbitration rule.
+The fixture has exactly four active immediate held interactions: two direct
+selectors and the two direct physical case holders. It has no transcribed Manna
+tap-hold, chord, or function-activation interaction.
 The previously checked-in `latch-latch` `on-tap` binding is removed: the frozen
 primary source only says “press both to latch?” in a comment and supplies
 neither positions nor an executable alias.  It is excluded, not converted to
@@ -205,24 +282,29 @@ guessed.
 ## Checked-in consequences and review gates
 
 - `layouts/manna-cadet.ivory` has 52 static bindings, one function patch with
-  29 entries, and zero active timed interactions.
-- The shared topology has the 52 static positions, the immediate Greek
-  selector, and the common `mode-key`.  Each device has 53 explicit placements;
-  the `mode-key` maps to `MENU`/`menu` on A2 and `CAPS`/`caps` on 360.
+  29 entries, and four active immediate held interactions. It has no Manna
+  tap-hold or chord interaction.
+- The shared topology has the 52 static positions, two direct physical case
+  holders, immediate Greek and Top selectors, and the common `mode-key`. Each
+  device has 56 explicit placements; the `mode-key` maps to `MENU`/`menu` on
+  A2 and `CAPS`/`caps` on 360.
 - `manna-cadet-advantage360-linux` is a second project composition.  It selects
   the frozen 360 placement only; it does not select or implement the game
   layer.
 - The migration regression test verifies the frozen five-file hash set and
-  deterministic static truth table.  It also checks the evidence-based fixture
-  counts and rejects a reintroduction of the old chord or comment-only latch as
-  active Manna semantics.
+  deterministic static truth table. It also data-checks all 14 primary
+  `tap-hold-release` aliases, their normal-layer selection, direct Shift
+  holders, and relevant `defcfg` policy without making them active Manna
+  semantics.
 
 The compiler can inspect a deterministic partial lowering: 51 placed static
 tables, all 29 function carriers, their 29 XKB `I(N+8)` carrier key entries,
 and a physical Kanata pass-through/function-layer proposal. It refuses final
 compilation before any artifact write. The deterministic first refusal is
-`:unsupported-semantic-modifiers`; the remaining independent blockers are the
-case/script/plane selector allocations, unplaced `<LSGT>`, and missing function
+`:unsupported-semantic-modifiers`; the four direct held interactions have no
+current backend lowering even though their model lifecycle is simulated. The
+remaining independent blockers are selector/case backend realization and
+application visibility, unplaced `<LSGT>`, and missing function
 activation/timing/arbitration semantics.
 
 Before a Phase 7 migration claim, reviewers still need an explicit decision

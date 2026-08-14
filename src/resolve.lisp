@@ -105,6 +105,10 @@ recursive template edge a stable, explicit error rather than a stack overflow."
                (command-output
                 (make-command-output
                  (%template-identifier (command-name node) environment "COMMAND")))
+               (held-modifier-behavior
+                (make-held-modifier-operation
+                 (%template-identifier (modifier-operation-modifier node) environment
+                                       "held modifier")))
                (modifier-operation-behavior
                 (make-modifier-operation
                  (modifier-operation node)
@@ -596,9 +600,9 @@ handles the references whose target is a typed model declaration."
               (rest form))))
     ((string= (%form-name form) "hold-modifier")
      (%require-form-arity form 2 2 :malformed-behavior "HOLD-MODIFIER behavior")
-     (%template-aware-instance 'modifier-operation-behavior :modifier (second form) parameters
+     (%template-aware-instance 'held-modifier-behavior :modifier (second form) parameters
                                "HOLD-MODIFIER"
-                               (lambda (modifier) (make-modifier-operation :press modifier))))
+                               #'make-held-modifier-operation))
     ((member (%form-name form) '("hold-axis-state" "latch-axis-state" "lock-axis-state"
                                  "set-axis-state") :test #'string=)
      (%require-form-arity form 3 3 :malformed-behavior "axis-state operation")

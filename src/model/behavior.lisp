@@ -70,6 +70,22 @@ by an interaction effect lifecycle rather than encoded in this object."
   (make-instance 'modifier-operation-behavior :operation operation
                  :modifier (ensure-identifier modifier)))
 
+(defclass held-modifier-behavior (modifier-operation-behavior) ()
+  (:documentation
+   "The source-level HOLD-MODIFIER behavior.
+
+Its effect owner and release boundary are supplied by a containing :WHILE
+lifecycle effect.  It is distinct from a raw modifier-operation-behavior so
+validation can refuse a source hold placed where no exact release exists."))
+
+(defun make-held-modifier-operation (modifier)
+  "Make the source-level semantic hold for MODIFIER.
+
+This constructor is intentionally internal until the public model API adopts a
+separate lifecycle builder.  The decoder and resolver preserve the subtype."
+  (make-instance 'held-modifier-behavior :operation :press
+                 :modifier (ensure-identifier modifier)))
+
 (defclass axis-operation-behavior (behavior)
   ((operation :initarg :operation :reader axis-operation)
    (axis :initarg :axis :reader axis-operation-axis)

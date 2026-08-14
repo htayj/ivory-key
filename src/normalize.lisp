@@ -209,6 +209,10 @@ state just because some unrelated axis exists in the layout."
     (list :entry (variants (effect-entry-behaviors effects))
           :commit (variants (effect-commit-behaviors effects))
           :while (variants (effect-while-behaviors effects))
+          ;; Validation admits :WHILE only for source holds.  Preserve its
+          ;; release contract in normalized IR so simulator lowering cannot
+          ;; mistake it for an ordinary entry action.
+          :while-release :owner-terminal
           :exit (variants (effect-exit-behaviors effects))
           :cancel (variants (effect-cancel-behaviors effects)))))
 

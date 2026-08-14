@@ -87,12 +87,173 @@
     ("command" "repeat" "UE00E" 226)
     ("command" "end" "UE00D" 240)))
 
+;; Each row records a semantic family, the alias selected by both primary
+;; normal layers, its physical/tap source token, its literal hold action, then
+;; Kanata's tap-repress and hold timeouts.  These are source facts only: this
+;; migration test must not turn them into an Ivory Key lifecycle policy.
+(defparameter +frozen-primary-tap-hold-rows+
+  '(("case" "Sf" "f" "lshift" 200 200)
+    ("case" "Sj" "j" "lshift" 200 200)
+    ("control" "Cd" "d" "lctl" 200 200)
+    ("control" "Ck" "k" "lctl" 200 200)
+    ("meta" "Ms" "s" "lalt" 200 200)
+    ("meta" "Ml" "l" "lalt" 200 200)
+    ("super" "sa" "a" "lmet" 250 250)
+    ("super" "s;" ";" "lmet" 200 200)
+    ("hyper" "eoam" "esc" "rmet" 200 200)
+    ("hyper" "qoam" "'" "rmet" 200 200)
+    ("alt" "Hro" "bspc" "ralt" 200 200)
+    ("alt" "Hsp" "spc" "ralt" 200 200)
+    ("function" "HscL" "end" "(layer-while-held fun)" 200 200)
+    ("function" "HscR" "pgdn" "(layer-while-held fun)" 200 200)))
+
+(defparameter +frozen-primary-direct-case-holders+ '("lshift" "rshift"))
+(defparameter +frozen-primary-tap-hold-policy+
+  '("process-unmapped-keysyes" "concurrent-tap-holdyes"))
+
+(defparameter +frozen-primary-kanata-files+
+  '("kanata/kinesis.advantage2.layered.kanata.kbd"
+    "kanata/kinesis.advantage360.layered.kanata.kbd"))
+
+(defparameter +frozen-direct-case-xkb-rows+
+  '(("LFSH" "Shift_L") ("RTSH" "Shift_R")))
+(defparameter +frozen-direct-case-xkb-file+ "xkb/symbols/spacecadet")
+
+(defun compact-source-line (line)
+  "Remove comments and horizontal source formatting without reading code."
+  (let ((end (or (search ";;" line) (length line))))
+    (coerce (loop for character across (subseq line 0 end)
+                  unless (member character '(#\Space #\Tab #\Return))
+                    collect character)
+            'string)))
+
+(defun primary-normal-layer (source relative)
+  "Return the finite primary normal-layer source slice, or signal clearly."
+  (let ((start (search "(deflayer normal" source)))
+    (unless start
+      (error "Frozen primary source ~A has no normal layer." relative))
+    (subseq source start
+            (or (search "(deflayer" source
+                        :start2 (+ start (length "(deflayer normal")))
+                (length source)))))
+
+(defun primary-defsrc (source relative)
+  "Return the finite physical-source declaration, or signal clearly."
+  (let* ((start (search "(defsrc" source))
+         (end (and start (position #\) source :start start))))
+    (unless (and start end (< start end))
+      (error "Frozen primary source ~A has no finite defsrc declaration."
+             relative))
+    (subseq source start (1+ end))))
+
+(defun physical-source-token-p (token defsrc)
+  "Recognize TOKEN as one exact whitespace/parenthesis-delimited defsrc key."
+  (loop with length = (length defsrc)
+        for start = 0 then (1+ end)
+        while (< start length)
+        for end = (or (position-if
+                       (lambda (character)
+                         (member character
+                                 '(#\Space #\Tab #\Newline #\Return #\( #\))))
+                       defsrc :start start)
+                      length)
+        for candidate = (subseq defsrc start end)
+        thereis (string= token candidate)))
+
+(defun form-tokens (source)
+  "Split one finite comment-free source form without reading it as Lisp."
+  (loop with length = (length source)
+        for start = 0 then (1+ end)
+        while (< start length)
+        for end = (or (position-if
+                       (lambda (character)
+                         (member character
+                                 '(#\Space #\Tab #\Newline #\Return #\( #\))))
+                       source :start start)
+                      length)
+        for candidate = (subseq source start end)
+        unless (string= candidate "")
+          collect candidate))
+
+(defun normal-action-at-physical-source (position defsrc normal-layer relative)
+  "Return the normal-layer action at POSITION's exact defsrc index."
+  (let* ((physical-order (rest (form-tokens defsrc)))
+         (normal-order (cddr (form-tokens normal-layer)))
+         (index (position position physical-order :test #'string=)))
+    (unless index
+      (error "Frozen primary source ~A lost physical source ~A."
+             relative position))
+    (unless (= (length physical-order) (length normal-order))
+      (error "Frozen primary source ~A changed defsrc/normal arity (~D/~D)."
+             relative (length physical-order) (length normal-order)))
+    (nth index normal-order)))
+
+(defun frozen-primary-tap-hold-evidence-p (root)
+  "Check raw primary source facts without executing or lowering them."
+  (dolist (relative +frozen-primary-kanata-files+ t)
+    (let* ((source (uiop:read-file-string
+                    (merge-pathnames relative (uiop:ensure-directory-pathname root))))
+           (lines (line-list source))
+           (compact-lines (mapcar #'compact-source-line lines))
+           (normal-layer (primary-normal-layer source relative))
+           (defsrc (primary-defsrc source relative)))
+      (dolist (policy +frozen-primary-tap-hold-policy+)
+        (unless (some (lambda (line) (search policy line)) compact-lines)
+          (error "Frozen primary source ~A lost policy ~A." relative policy)))
+      (dolist (row +frozen-primary-tap-hold-rows+)
+        (destructuring-bind (family alias position hold tap-repress hold-time) row
+          (let ((definition
+                  (compact-source-line
+                   (format nil "~A(tap-hold-release~D~D~A~A)"
+                           alias tap-repress hold-time position hold))))
+            (unless (some (lambda (line) (search definition line)) compact-lines)
+              (error "Frozen primary source ~A lost ~A tap-hold alias ~A."
+                     relative family alias))
+            (unless (physical-source-token-p position defsrc)
+              (error "Frozen primary source ~A lost physical source ~A for ~A."
+                     relative position alias))
+            (unless (string= (format nil "@~A" alias)
+                             (normal-action-at-physical-source
+                              position defsrc normal-layer relative))
+              (error "Frozen primary source ~A no longer maps ~A to @~A in normal."
+                     relative position alias)))))
+      (dolist (position +frozen-primary-direct-case-holders+)
+        (unless (and (physical-source-token-p position defsrc)
+                     (string= position
+                              (normal-action-at-physical-source
+                               position defsrc normal-layer relative)))
+          (error "Frozen primary source ~A lost direct case holder ~A."
+                 relative position))))))
+
+(defun frozen-direct-case-xkb-evidence-p (root)
+  "Check the two direct physical Shift mappings without parsing XKB."
+  (let* ((relative +frozen-direct-case-xkb-file+)
+         (source (uiop:read-file-string
+                  (merge-pathnames relative (uiop:ensure-directory-pathname root))))
+         (compact-lines (mapcar #'compact-source-line (line-list source))))
+    (dolist (row +frozen-direct-case-xkb-rows+ t)
+      (destructuring-bind (key keysym) row
+        (let ((definition
+                (compact-source-line
+                 (format nil "key <~A> { type=\"ONE_LEVEL\", [ ~A ] };"
+                         key keysym))))
+          (unless (some (lambda (line) (search definition line)) compact-lines)
+            (error "Frozen XKB source ~A lost direct Shift mapping ~A → ~A."
+                   relative key keysym)))))
+    (unless (some (lambda (line)
+                    (search "modifier_mapShift{<LFSH>,<RTSH>};" line))
+                  compact-lines)
+      (error "Frozen XKB source ~A lost both direct Shift modifier members."
+             relative))))
+
 (defun checked-in-fixture-evidence-p (derived-static-bindings)
   "Verify only mechanically checkable claims made by the migration fixture.
 
-Semantic activation remains deliberately outside this test: it has no frozen
-equivalence proof.  The source checkout supplied to MAIN is hash-verified
-separately before these checked-in counts are considered evidence."
+The checked-in fixture covers direct single-key held lifecycles.  The raw
+primary source aliases below preserve tap-hold parameters and usage without
+claiming an Ivory Key activation policy or lifecycle equivalence.  The source
+checkout supplied to MAIN is hash-verified before these checked-in counts and
+raw rows are considered evidence."
   (let ((layout (uiop:read-file-string (repository-file "layouts/manna-cadet.ivory")))
         (topology (uiop:read-file-string
                    (repository-file "topologies/kinesis-advantage.ivory")))
@@ -115,15 +276,42 @@ separately before these checked-in counts are considered evidence."
                  (search "(overlay primary-function" layout)
                  (search "(binding mode-key (command alt-mode))" layout))
       (error "Manna fixture lost the evidence-backed primary function patch."))
+    (unless (and (search "(interaction hold-case-left-shift" layout)
+                 (search "(:participants case-left-shift)" layout)
+                 (search "(interaction hold-case-right-shift" layout)
+                 (search "(:participants case-right-shift)" layout)
+                 (search "(hold-axis-state case shifted)" layout)
+                 (search "(set-axis-state case plain)" layout)
+                 (search "(interaction hold-greek-selector" layout)
+                 (search "(:participants greek)" layout)
+                 (search "(hold-axis-state script greek)" layout)
+                 (search "(set-axis-state script roman)" layout)
+                 (search "(interaction hold-top-selector" layout)
+                 (search "(:participants top)" layout)
+                 (search "(hold-axis-state plane top)" layout)
+                 (search "(set-axis-state plane base)" layout))
+      (error "Manna fixture lost an evidence-backed immediate held lifecycle."))
     (when (or (search "latch-latch" layout)
               (search "(:participants i o)" layout)
-              (search "(interaction" layout))
+              (/= 4 (count-substrings layout "(interaction")))
       (error "A comment-only latch or old chord was reintroduced as active Manna behavior."))
     (when (some (lambda (escape)
                   (search escape layout :test #'char-equal))
                 '("UE00" "arbitrary-code" "@sc-" "(keysym"))
       (error "Manna abstract layout contains a backend carrier or spelling escape hatch."))
-    (unless (and (search "(position mode-key)" topology)
+    (unless (and (search "(position case-left-shift" topology)
+                 (search "(position case-right-shift" topology)
+                 (search "(position greek" topology)
+                 (search "(position top" topology)
+                 (search "(position mode-key)" topology)
+                 (search "(place case-left-shift (:xkb \"LFSH\") (:kanata \"lshift\"))" advantage2)
+                 (search "(place case-right-shift (:xkb \"RTSH\") (:kanata \"rshift\"))" advantage2)
+                 (search "(place case-left-shift (:xkb \"LFSH\") (:kanata \"lshift\"))" advantage360)
+                 (search "(place case-right-shift (:xkb \"RTSH\") (:kanata \"rshift\"))" advantage360)
+                 (search "(place greek (:xkb \"ZEHA\") (:kanata \"lctl\"))" advantage2)
+                 (search "(place greek (:xkb \"ZEHA\") (:kanata \"lctl\"))" advantage360)
+                 (search "(place top (:xkb \"LVL3\") (:kanata \"rctl\"))" advantage2)
+                 (search "(place top (:xkb \"LVL3\") (:kanata \"rctl\"))" advantage360)
                  (search "(place mode-key (:xkb \"MENU\") (:kanata \"menu\"))" advantage2)
                  (search "(place mode-key (:xkb \"CAPS\") (:kanata \"caps\"))" advantage360)
                  (search "manna-cadet-advantage360-linux" realizations))
@@ -157,6 +345,8 @@ separately before these checked-in counts are considered evidence."
     (unless (search "3ef72eabdd26d2154481c1b8fd0becba50dfbb9a0ba50d0d37556930f92dc807"
                     verification)
       (error "Verification did not report the expected truth-table digest: ~A" verification))
+    (frozen-primary-tap-hold-evidence-p root)
+    (frozen-direct-case-xkb-evidence-p root)
     (unless (string= first-render second-render)
       (error "Truth-table rendering is not deterministic."))
     (unless (and (search "| `<AE01>` | `1` | `exclam` |" first-render)

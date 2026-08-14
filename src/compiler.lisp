@@ -51,7 +51,7 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
 
 (defstruct (compiler-realization
             (:constructor %make-compiler-realization
-                (name pipeline grades vocabulary)))
+                (name pipeline grades vocabulary selector-policy)))
   "The subset of a realization profile consumed by this bootstrap pipeline."
   name
   pipeline
@@ -59,7 +59,10 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
   ;; NIL means the established direct static table is selected.  A non-NIL
   ;; vocabulary is realization-owned data resolved by the project loader; it
   ;; is never inferred from a layout binding or direct source file.
-  vocabulary)
+  vocabulary
+  ;; A typed realization-owned allocation.  NIL is significant: no source
+  ;; profile may obtain native selectors by falling back to compiler guesses.
+  selector-policy)
 
 (defstruct (compiler-fidelity-issue
             (:constructor %make-compiler-fidelity-issue (feature code detail)))
@@ -312,7 +315,9 @@ list.
                      (ivory-key.model:realization-profile-name realization))))
     (let ((pipeline (ivory-key.model:realization-profile-pipeline realization))
           (grades (ivory-key.model:realization-profile-permitted-losses realization))
-          (vocabulary (ivory-key.model:realization-profile-vocabulary realization)))
+          (vocabulary (ivory-key.model:realization-profile-vocabulary realization))
+          (selector-policy
+            (ivory-key.model::realization-profile-selector-policy realization)))
       (unless (and (listp pipeline) (every #'stringp pipeline)
                    (listp grades) (every #'stringp grades))
         (%stage-error :decode :invalid-project-realization
@@ -352,7 +357,7 @@ list.
       (%make-compiler-realization
        (ivory-key.model:identifier-name
         (ivory-key.model:realization-profile-name realization))
-       (copy-list pipeline) (copy-list grades) vocabulary))))
+       (copy-list pipeline) (copy-list grades) vocabulary selector-policy))))
 
 (defun %project-layout-compiler-unit (project-path layout)
   "Normalize an already validated project layout without a second source load."
@@ -463,15 +468,147 @@ input and are not silently consumed here.
             (sort (remove-duplicates reserved-carriers :test #'=) #'<))
       placement)))
 
+(defun %compiler-syntax-form-name (node)
+  (and (ivory-key.syntax:syntax-list-p node)
+       (let ((head (first (ivory-key.syntax:syntax-list-children node))) )
+         (and (ivory-key.syntax:syntax-atom-p head)
+              (eq (ivory-key.syntax:syntax-atom-kind head) :identifier)
+              (string-downcase (ivory-key.syntax:syntax-atom-value head))))))
+
+(defun %compiler-syntax-identifier (node what)
+  (unless (and (ivory-key.syntax:syntax-atom-p node)
+               (eq (ivory-key.syntax:syntax-atom-kind node) :identifier))
+    (%stage-error :decode :invalid-realization-selector-policy
+                  "~A must be an Ivory Key identifier." what))
+  (ivory-key.syntax:syntax-atom-value node))
+
+(defun %compiler-syntax-integer (node what)
+  (unless (and (ivory-key.syntax:syntax-atom-p node)
+               (eq (ivory-key.syntax:syntax-atom-kind node) :integer))
+    (%stage-error :decode :invalid-realization-selector-policy
+                  "~A must be an Ivory Key integer." what))
+  (ivory-key.syntax:syntax-atom-value node))
+
+(defun %compiler-selector-policy-value (node choices what)
+  (let* ((name (%compiler-syntax-identifier node what))
+         (choice (assoc name choices :test #'string=)))
+    (unless choice
+      (%stage-error :decode :unknown-realization-selector-policy-value
+                    "~A has unsupported value ~S." what name))
+    (cdr choice)))
+
+(defun %decode-realization-selector-policy-source (node)
+  "Decode a policy from parser nodes without accepting source strings/actions.
+
+The project decoder has the same grammar.  The explicit-file compiler retains
+this small duplicate because it intentionally does not load an import graph;
+both paths construct the one public MODEL policy value.
+"
+  (unless (ivory-key.syntax:syntax-list-p node)
+    (%stage-error :decode :invalid-realization-selector-policy
+                  "SELECTOR-POLICY must be a list."))
+  (let ((static-types nil) (selectors nil) (carriers nil))
+    (dolist (clause (rest (ivory-key.syntax:syntax-list-children node)))
+      (unless (ivory-key.syntax:syntax-list-p clause)
+        (%stage-error :decode :invalid-realization-selector-policy
+                      "SELECTOR-POLICY clause must be a list."))
+      (let ((children (ivory-key.syntax:syntax-list-children clause)))
+        (labels ((arity (expected description)
+                   (unless (= (length children) expected)
+                     (%stage-error :decode :invalid-realization-selector-policy
+                                   "Malformed ~A selector policy clause." description))))
+          (cond
+            ((string= (or (%compiler-syntax-form-name clause) "") "static-type")
+             (arity 4 "STATIC-TYPE")
+             (push (ivory-key.model::make-realization-static-type
+                    (%compiler-syntax-identifier (second children) "STATIC-TYPE position")
+                    (%compiler-selector-policy-value
+                     (third children)
+                     '(("four-level" . :four-level)
+                       ("four-level-alphabetic" . :four-level-alphabetic))
+                     "STATIC-TYPE Group1 kind")
+                    (%compiler-selector-policy-value
+                     (fourth children) '(("two-level" . :two-level))
+                     "STATIC-TYPE Group2 kind")) static-types))
+            ((string= (or (%compiler-syntax-form-name clause) "") "selector")
+             (arity 6 "SELECTOR")
+             (push (ivory-key.model::make-realization-context-selector
+                    (%compiler-syntax-identifier (second children) "SELECTOR axis")
+                    (%compiler-syntax-identifier (third children) "SELECTOR state")
+                    (%compiler-selector-policy-value
+                     (fourth children)
+                     '(("shift" . :shift) ("level-three" . :level-three)
+                       ("group-two" . :group-two))
+                     "SELECTOR control")
+                    (%compiler-selector-policy-value
+                     (fifth children)
+                     '(("consumed" . :consumed) ("group-action" . :group-action))
+                     "SELECTOR consumption")
+                    (%compiler-selector-policy-value
+                     (sixth children)
+                     '(("core-shift" . :core-shift)
+                       ("consumed-level-three" . :consumed-level-three)
+                       ("unproved-group-two" . :unproved-group-two))
+                     "SELECTOR client semantics")) selectors))
+            ((string= (or (%compiler-syntax-form-name clause) "") "carrier")
+             (arity 6 "CARRIER")
+             (push (ivory-key.model::make-realization-direct-carrier
+                    (%compiler-syntax-identifier (second children) "CARRIER position")
+                    (%compiler-syntax-identifier (third children) "CARRIER axis")
+                    (%compiler-syntax-identifier (fourth children) "CARRIER state")
+                    (%compiler-syntax-integer (fifth children) "CARRIER Linux code")
+                    (%compiler-selector-policy-value
+                     (sixth children) '(("zeha" . :zeha) ("lvl3" . :lvl3))
+                     "CARRIER XKB key")) carriers))
+            (t
+             (%stage-error :decode :unknown-realization-selector-policy-clause
+                           "SELECTOR-POLICY has unsupported clause ~S."
+                           (%compiler-syntax-form-name clause)))))))
+    (handler-case
+        (ivory-key.model::make-realization-selector-policy
+         (nreverse static-types) (nreverse selectors) (nreverse carriers))
+      (ivory-key.model:semantic-error (condition)
+        (%stage-error :decode (ivory-key.model:semantic-error-code condition)
+                      "Could not decode selector policy: ~A"
+                      (ivory-key.model:semantic-error-message condition))))))
+
 (defun decode-realization-source (pathname)
   "Decode the policy subset needed to select the XKB + Kanata bootstrap path."
   (let* ((parsed (%parse-required-file pathname "realization"))
-         (form (%find-named-form (%parsed-values parsed) "define-realization" :decode))
+         (values (%parsed-values parsed))
+         (form (%find-named-form values "define-realization" :decode))
+         (syntax-form
+           (let ((matches
+                   (remove-if-not
+                    (lambda (node)
+                      (string= (or (%compiler-syntax-form-name node) "")
+                               "define-realization"))
+                    (ivory-key.syntax:syntax-parse-result-forms parsed))))
+             (unless (= (length matches) 1)
+               (%stage-error :decode :missing-declaration
+                             "Source contains no unique DEFINE-REALIZATION declaration."))
+             (first matches)))
          (name (%identifier-string (second form) :decode "Realization name"))
          (clauses (cddr form))
          (pipeline (%option-value clauses "pipeline"))
          (grades (%option-value clauses "allow-grades"))
-         (forbid-shell (%option-value clauses "forbid-shell-actions")))
+         (forbid-shell (%option-value clauses "forbid-shell-actions"))
+         (policy-nodes
+           (remove-if-not
+            (lambda (node)
+              (string= (or (%compiler-syntax-form-name node) "") "selector-policy"))
+            (cddr (ivory-key.syntax:syntax-list-children syntax-form))))
+         (selector-policy
+           (cond ((null policy-nodes) nil)
+                 ((rest policy-nodes)
+                 (%stage-error :decode :duplicate-realization-clause
+                                "Realization ~A repeats SELECTOR-POLICY." name))
+                 (t (handler-case
+                        (%decode-realization-selector-policy-source (first policy-nodes))
+                      (ivory-key.model:semantic-error (condition)
+                        (%stage-error :decode (ivory-key.model:semantic-error-code condition)
+                                      "Could not decode selector policy: ~A"
+                                      (ivory-key.model:semantic-error-message condition))))))))
     ;; Output vocabularies are project declarations and may be imported or
     ;; forward-referenced.  The one-file compiler intentionally has no
     ;; project graph to resolve them, so refusing is safer than discarding a
@@ -492,7 +629,8 @@ input and are not silently consumed here.
       (unless (member grade '("exact" "emulated" "lossy") :test #'string=)
         (%stage-error :decode :unknown-realization-grade
                       "Realization ~A allows unknown fidelity grade ~S." name grade)))
-    (%make-compiler-realization name (copy-list pipeline) (copy-list grades) nil)))
+    (%make-compiler-realization name (copy-list pipeline) (copy-list grades) nil
+                                selector-policy)))
 
 (defun %layout-topology-name (layout)
   (ivory-key.model:identifier-name
@@ -764,7 +902,7 @@ refusal; this function never synthesizes a tap-hold, layer switch, or timing.
             (sort allocations #'< :key (lambda (row) (getf row :carrier)))
             issues)))
 
-(defun analyze-normalized-layout (normalized placement &key vocabulary)
+(defun analyze-normalized-layout (normalized placement &key vocabulary selector-policy)
   "Return an inspectable lowering proposal and every blocking fidelity issue.
 
 The proposal retains only individually evidenced direct tables/carriers; a
@@ -776,6 +914,22 @@ compile gate.
 "
   (let ((issues nil)
         (entries nil))
+    (when selector-policy
+      (handler-case
+          (ivory-key.model::validate-realization-selector-policy selector-policy)
+        (ivory-key.model:semantic-error (condition)
+          (%stage-error :lower (ivory-key.model:semantic-error-code condition)
+                        "Invalid selector policy: ~A"
+                        (ivory-key.model:semantic-error-message condition)))))
+    ;; A policy may describe only source-derived carrier/type resources; it is
+    ;; not itself proof of the XKB client's group/modifier consumption rules.
+    ;; Preserve it on the inspectable request while keeping an explicit gate
+    ;; until the backend-specific realization proves that observable boundary.
+    (when selector-policy
+      (push (%make-compiler-fidelity-issue
+             :selector-policy :unproved-native-selector-client-semantics
+             "The typed selector policy is available for inspection, but native XKB group/modifier client semantics are not yet proven for exact emission.")
+            issues))
     (unless (string= (%layout-topology-name normalized)
                      (compiler-placement-topology placement))
       (push (%make-compiler-fidelity-issue
@@ -807,6 +961,23 @@ compile gate.
                (ivory-key.model:identifier-name (ivory-key.model:axis-name axis))
                :unsupported-context-selection
                "A product-axis selector needs an explicit realization allocation.")
+              issues)))
+    ;; Behavioral axes can select ordinary table entries just as product axes
+    ;; can.  The bootstrap XKB/Kanata bridge has no latch/hold/lock selector
+    ;; lowering or consumption proof, so a distinct table entry behind one of
+    ;; these axes must fail closed.  Patch axes are handled independently by
+    ;; %PATCH-LOWERING and receive their own activation refusal.
+    (dolist (axis (ivory-key.model:normalized-layout-axes normalized))
+      (when (and (eq (ivory-key.model:axis-resolution axis) :behavioral)
+                 (some (lambda (binding)
+                         (member (ivory-key.model:axis-name axis)
+                                 (ivory-key.model:normalized-binding-axes binding)
+                                 :test #'ivory-key.model:identifier=))
+                       (ivory-key.model:normalized-layout-bindings normalized)))
+        (push (%make-compiler-fidelity-issue
+               (ivory-key.model:identifier-name (ivory-key.model:axis-name axis))
+               :unsupported-context-selection
+               "A behavioral-axis selector needs an explicit latch/hold/lock realization and consumption proof.")
               issues)))
     (dolist (binding (ivory-key.model:normalized-layout-bindings normalized))
       (let* ((position (ivory-key.model:normalized-binding-position binding))
@@ -868,6 +1039,7 @@ compile gate.
                              :interactions nil
                              :metadata
                              (list :xkb-carrier-entries xkb-carrier-entries
+                                   :selector-policy selector-policy
                                    :kanata-source-order
                                    (mapcar (lambda (mapping)
                                              (cons (car mapping) (getf (cdr mapping) :kanata)))
@@ -876,10 +1048,12 @@ compile gate.
                                    :carrier-allocations carrier-allocations))
               issues))))
 
-(defun make-lowering-request-from-normalized-layout (normalized placement &key vocabulary)
+(defun make-lowering-request-from-normalized-layout (normalized placement
+                                                       &key vocabulary selector-policy)
   "Return a complete bootstrap lowering request or signal its first failure."
   (multiple-value-bind (request issues)
-      (analyze-normalized-layout normalized placement :vocabulary vocabulary)
+      (analyze-normalized-layout normalized placement :vocabulary vocabulary
+                                 :selector-policy selector-policy)
     (if (and request (null issues))
         request
         (let ((issue (first issues)))
@@ -903,7 +1077,9 @@ compile gate.
   (%require-compatible-realization realization)
   (let ((request (make-lowering-request-from-normalized-layout
                   (compiler-unit-normalized unit) placement
-                  :vocabulary (compiler-realization-vocabulary realization))))
+                  :vocabulary (compiler-realization-vocabulary realization)
+                  :selector-policy
+                  (compiler-realization-selector-policy realization))))
     (handler-case
         (ivory-key.backend:compile-xkb-kanata-request request :allow-lossy nil)
       (error (condition)
@@ -1690,7 +1866,9 @@ timed interaction it cannot lower exactly.
     (multiple-value-bind (request issues)
         (analyze-normalized-layout
          (compiler-unit-normalized unit) placement
-         :vocabulary (compiler-realization-vocabulary realization))
+         :vocabulary (compiler-realization-vocabulary realization)
+         :selector-policy
+         (compiler-realization-selector-policy realization))
       (format stream "Ivory Key capability explanation~%")
       (format stream "Layout: ~A~%Device: ~A~%Realization: ~A~%"
               (ivory-key.model:identifier-name

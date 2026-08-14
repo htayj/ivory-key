@@ -250,7 +250,27 @@
    #:realization-profile #:make-realization-profile
    #:realization-profile-name #:realization-profile-pipeline
    #:realization-profile-placement #:realization-profile-vocabulary
-   #:realization-profile-permitted-losses #:realization-profile-metadata))
+   #:realization-profile-permitted-losses
+   #:realization-profile-selector-policy #:realization-profile-metadata
+   #:realization-selector-policy #:make-realization-selector-policy
+   #:validate-realization-selector-policy
+   #:realization-selector-policy-static-types
+   #:realization-selector-policy-selectors
+   #:realization-selector-policy-carriers
+   #:realization-static-type #:make-realization-static-type
+   #:realization-static-type-position #:realization-static-type-type
+   #:realization-static-type-group-two-type
+   #:realization-context-selector #:make-realization-context-selector
+   #:realization-selector-axis #:realization-selector-state
+   #:realization-selector-control #:realization-selector-consumption
+   #:realization-selector-client-semantics
+   #:realization-direct-carrier #:make-realization-direct-carrier
+   #:realization-carrier-position #:realization-carrier-axis
+   #:realization-carrier-state #:realization-carrier-linux-code
+   #:realization-carrier-xkb-key
+   #:realization-policy-static-type-for-position
+   #:realization-policy-selector-for-axis
+   #:realization-policy-carrier-for-position))
 
 (defpackage #:ivory-key.simulate
   (:use #:cl #:ivory-key.conditions #:ivory-key.model)
@@ -262,7 +282,7 @@
    #:simulation-trace-entry-time #:simulation-trace-entry-kind
    #:simulation-trace-entry-event #:simulation-trace-entry-interaction
    #:simulation-trace-entry-case #:simulation-trace-entry-candidate
-   #:simulation-trace-entry-details
+   #:simulation-trace-entry-details #:simulation-trace-entry-provenance
    #:event-pattern #:down-pattern #:up-pattern #:sequence-pattern #:all-pattern
    #:either-pattern #:and-pattern #:duration-pattern #:deadline-pattern
    #:within-pattern #:overlap-pattern #:without-pattern #:repeat-pattern

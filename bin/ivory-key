@@ -1,0 +1,12 @@
+#!/usr/bin/env -S sbcl --script
+;;;; SPDX-License-Identifier: GPL-3.0-or-later
+
+(require :asdf)
+
+(let* ((script (or *load-truename*
+                   (error "Cannot locate the Ivory Key launcher.")))
+       (root (merge-pathnames "../" (uiop:pathname-directory-pathname script))))
+  (asdf:load-asd (truename (merge-pathnames "ivory-key.asd" root)))
+  (asdf:load-system "ivory-key/cli"))
+
+(uiop:quit (ivory-key.cli:main))

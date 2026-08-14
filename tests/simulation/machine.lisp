@@ -286,6 +286,209 @@
                              (ivory-key.simulate::simulation-result-active-effects result)
                              "no held state remains after exit")))
 
+(defun test-terminal-effect-does-not-reenter-after-unrelated-event ()
+  "An ever-growing prefix must not re-satisfy a completed effect's entry rule."
+  (let* ((effect (ivory-key.simulate::make-sim-effect
+                  :name :one-shot-held
+                  :enter-actions (list (ivory-key.simulate::emit-action :enter))
+                  :exit-actions (list (ivory-key.simulate::emit-action :exit))))
+         (interaction
+           (ivory-key.simulate::make-sim-interaction
+            :name :one-shot :participants '(:a)
+            :cases
+            (list (ivory-key.simulate::make-sim-case
+                   :name :hold-a
+                   :pattern (ivory-key.simulate::down-pattern :a)
+                   :enter-at (ivory-key.simulate::down-pattern :a)
+                   :exit-at (ivory-key.simulate::up-pattern :a)
+                   :effects (list effect)))))
+         (result
+           (ivory-key.simulate::simulate-events
+            (list interaction)
+            (list (sim-event 0 :down :a)
+                  (sim-event 1 :up :a)
+                  (sim-event 2 :down :b)
+                  (sim-event 3 :up :b))))
+         (kinds
+           (mapcar #'ivory-key.simulate::simulation-trace-entry-kind
+                   (ivory-key.simulate::simulation-result-trace result))))
+    (simulation-assert-equal '(:enter :exit)
+                             (ivory-key.simulate::simulation-result-outputs result)
+                             "effect enters and exits exactly once")
+    (simulation-assert-equal 1 (count :effect-enter kinds)
+                             "unrelated events do not re-enter an exited effect")
+    (simulation-assert-equal 1 (count :effect-exit kinds)
+                             "unrelated events do not repeat an exited effect")
+    (simulation-assert-equal nil
+                             (ivory-key.simulate::simulation-result-active-effects result)
+                             "terminal exit leaves no held effect")))
+
+(defun held-owner-test-interaction (name position &key cancel-at (state :greek))
+  "One speculative holder with an explicit base-state reset at both boundaries."
+  (let ((effect
+          (ivory-key.simulate::make-sim-effect
+           :name (list :holder name)
+           :enter-actions
+           (list (ivory-key.simulate::hold-axis-action :script state)
+                 (ivory-key.simulate::hold-modifier-action :super))
+           ;; These direct SET actions intentionally do not own a hold.  The
+           ;; regression checks that they become visible only after the final
+           ;; contributor releases SCRIPT=GREEK.
+           :exit-actions (list (ivory-key.simulate::set-axis-action :script :roman))
+           :cancel-actions (list (ivory-key.simulate::set-axis-action :script :roman)))))
+    (ivory-key.simulate::make-sim-interaction
+     :name name :participants (list position)
+     :cases
+     (list
+      (ivory-key.simulate::make-sim-case
+       :name name
+       :pattern (ivory-key.simulate::deadline-pattern 100
+                                                       :after-position position
+                                                       :while-down position)
+       :enter-at (ivory-key.simulate::down-pattern position)
+       :exit-at (ivory-key.simulate::up-pattern position)
+       :cancel-at cancel-at
+       :effects (list effect))))))
+
+(defun test-held-contributions-are-owner-scoped-and-reference-counted ()
+  (let* ((machine
+           (ivory-key.simulate::make-simulator
+            :interactions
+            (list (held-owner-test-interaction :first :a)
+                  ;; The second holder is cancelled before its deadline.  Its
+                  ;; base reset must not clear FIRST's identical contribution.
+                  (held-owner-test-interaction :second :b
+                                                :cancel-at
+                                                (ivory-key.simulate::down-pattern :x)))
+            :axes '((:script . :roman))))
+         (feed (lambda (time kind position)
+                 (ivory-key.simulate::simulator-feed-event
+                  machine (sim-event time kind position)))))
+    (funcall feed 0 :down :a)
+    (simulation-assert-equal '((:script . :greek))
+                             (ivory-key.simulate::simulator-axes-alist machine)
+                             "first held owner overlays the direct axis state")
+    (funcall feed 1 :down :b)
+    (simulation-assert-equal '((:modifier :press :super))
+                             (ivory-key.simulate::simulator-outputs machine)
+                             "second identical modifier holder does not press twice")
+    (funcall feed 2 :down :x)
+    (simulation-assert-equal '((:script . :greek))
+                             (ivory-key.simulate::simulator-axes-alist machine)
+                             "cancelled holder's direct reset cannot defeat another hold")
+    ;; Advance through FIRST's deadline so it commits, then take its normal
+    ;; release path.  This must release the final contribution exactly once.
+    (funcall feed 101 :up :a)
+    (let* ((result (ivory-key.simulate::simulator-result machine))
+           (trace (ivory-key.simulate::simulation-result-trace result))
+           (entries (lambda (kind)
+                      (remove kind trace :test-not #'eq
+                              :key #'ivory-key.simulate::simulation-trace-entry-kind)))
+           (axis-acquires (funcall entries :held-axis-acquire))
+           (axis-releases (funcall entries :held-axis-release))
+           (modifier-acquires (funcall entries :held-modifier-acquire))
+           (modifier-releases (funcall entries :held-modifier-release)))
+      (simulation-assert-equal '((:modifier :press :super) (:modifier :release :super))
+                               (ivory-key.simulate::simulation-result-outputs result)
+                               "modifier releases only at the final owner's terminal exit")
+      (simulation-assert-equal '((:script . :roman))
+                               (ivory-key.simulate::simulation-result-axes result)
+                               "final release reveals the direct base reset")
+      (simulation-assert-equal nil
+                               (ivory-key.simulate::simulation-result-active-effects result)
+                               "all terminal owners are removed without stuck held state")
+      (simulation-assert-equal '(t nil)
+                               (mapcar (lambda (entry)
+                                         (second (member :first
+                                                         (ivory-key.simulate::simulation-trace-entry-details entry))))
+                                       axis-acquires)
+                               "axis acquisition identifies first then shared owner")
+      (simulation-assert-equal '(nil t)
+                               (mapcar (lambda (entry)
+                                         (second (member :last
+                                                         (ivory-key.simulate::simulation-trace-entry-details entry))))
+                                       axis-releases)
+                               "cancellation releases one owner and normal exit releases the last")
+      (simulation-assert-equal '(t nil)
+                               (mapcar (lambda (entry)
+                                         (second (member :first
+                                                         (ivory-key.simulate::simulation-trace-entry-details entry))))
+                                       modifier-acquires)
+                               "modifier acquisition retains both physical owners")
+      (simulation-assert-equal '(nil t)
+                               (mapcar (lambda (entry)
+                                         (second (member :last
+                                                         (ivory-key.simulate::simulation-trace-entry-details entry))))
+                                       modifier-releases)
+                               "modifier release occurs only after the last owner"))))
+
+(defun test-held-axis-conflicts-and-unowned-actions-refuse ()
+  (let ((machine (ivory-key.simulate::make-simulator))
+        (refused nil))
+    (handler-case
+        (ivory-key.simulate::simulator-acquire-held-axis machine nil :script :greek)
+      (ivory-key.simulate::held-action-outside-effect (condition)
+        (setf refused t)
+        (simulation-assert-equal nil
+                                 (ivory-key.simulate::held-action-outside-effect-candidate condition)
+                                 "unowned held action reports its absent candidate"))
+      (condition (condition)
+        (error "Expected HELD-ACTION-OUTSIDE-EFFECT, got ~S." condition)))
+    (simulation-assert refused "unowned held action must be refused"))
+  (let ((machine
+          (ivory-key.simulate::make-simulator
+           :interactions
+           (list (held-owner-test-interaction :greek :a :state :greek)
+                 (held-owner-test-interaction :roman :b :state :roman))))
+        (refused nil))
+    (ivory-key.simulate::simulator-feed-event machine (sim-event 0 :down :a))
+    (handler-case
+        (ivory-key.simulate::simulator-feed-event machine (sim-event 1 :down :b))
+      (ivory-key.simulate::held-axis-state-conflict (condition)
+        (setf refused t)
+        (simulation-assert-equal :script
+                                 (ivory-key.simulate::held-axis-state-conflict-axis condition)
+                                 "conflict reports the axis")
+        (simulation-assert-equal :greek
+                                 (ivory-key.simulate::held-axis-state-conflict-existing-state condition)
+                                 "conflict reports the already held state")
+        (simulation-assert-equal :roman
+                                 (ivory-key.simulate::held-axis-state-conflict-requested-state condition)
+                                 "conflict reports the requested state")
+        (simulation-assert
+         (and (ivory-key.simulate::held-axis-state-conflict-existing-owners condition)
+              (ivory-key.simulate::held-axis-state-conflict-requested-owner condition))
+         "conflict reports both existing and requested owners"))
+      (condition (condition)
+        (error "Expected HELD-AXIS-STATE-CONFLICT, got ~S." condition)))
+    (simulation-assert refused "conflicting held axis states must be refused")))
+
+(defun test-overlap-provenance-is-recursive-and-dump-safe ()
+  ;; Extended/direct simulator IR can carry overlap children as nested event
+  ;; patterns.  The provenance serializer must recursively canonicalize them,
+  ;; never leaving host EVENT-PATTERN structs in the dump.
+  (let* ((pattern
+           (ivory-key.simulate::%make-event-pattern
+            :kind :overlap
+            :children (list (ivory-key.simulate::down-pattern "a")
+                            (ivory-key.simulate::down-pattern "b"))))
+         (source (ivory-key.simulate::canonical-pattern-provenance pattern))
+         (result
+           (ivory-key.simulate::make-simulation-result
+            :trace
+            (list
+             (ivory-key.simulate::make-simulation-trace-entry
+              :time 0 :kind :action
+              :provenance
+              (list :source-pattern source :candidate-transition :committed
+                    :commit-point :when-matched :responsible-effect :candidate-do)))))
+         (dump (ivory-key.simulate::simulation-result-dump-string result)))
+    (simulation-assert-equal '(:overlap (:event :down "a") (:event :down "b"))
+                             source
+                             "overlap provenance recursively canonicalizes children")
+    (simulation-assert (search "(:overlap (:event :down \"a\") (:event :down \"b\"))" dump)
+                       "recursive overlap provenance remains in the closed dump vocabulary")))
+
 (deftest simulation-tap-versus-hold-boundary
   (test-tap-versus-hold-boundary))
 
@@ -309,3 +512,15 @@
 
 (deftest simulation-reversible-effect-lifecycle
   (test-reversible-effect-lifecycle))
+
+(deftest simulation-terminal-effect-does-not-reenter-after-unrelated-event
+  (test-terminal-effect-does-not-reenter-after-unrelated-event))
+
+(deftest simulation-held-contributions-are-owner-scoped-and-reference-counted
+  (test-held-contributions-are-owner-scoped-and-reference-counted))
+
+(deftest simulation-held-axis-conflicts-and-unowned-actions-refuse
+  (test-held-axis-conflicts-and-unowned-actions-refuse))
+
+(deftest simulation-overlap-provenance-is-recursive-and-dump-safe
+  (test-overlap-provenance-is-recursive-and-dump-safe))

@@ -160,9 +160,26 @@ atom/action before text emission.
                                        :detail "Direct Kanata token mapping.")
               results))))
     (ensure-distinct-kanata-sources (mapcar #'car mappings))
+    ;; Backend capability names are not a generic semantic lowering.  Until a
+    ;; profile supplies an exact Kanata template, the request-level semantic
+    ;; modifier remains an explicit refusal rather than a silently omitted
+    ;; deflayer action.
+    (dolist (modifier (lowering-request-modifiers request))
+      (push (make-realization-result
+             modifier :unsupported
+             :detail "Semantic modifier lowering requires an explicit Kanata template.")
+            results))
     (dolist (interaction (lowering-request-interactions request))
       (push (make-realization-result interaction :unsupported
                                      :detail "Generic interaction lowering requires an explicit Kanata template.")
+            results))
+    ;; The typed carrier/selector policy is deliberately not a raw Kanata
+    ;; action template.  Until lifecycle and source-consumption behavior are
+    ;; lowered by a closed action IR, keep the policy as an explicit refusal.
+    (when (%kanata-metadata-value request :selector-policy)
+      (push (make-realization-result
+             :selector-policy :unsupported
+             :detail "Typed selector allocation lacks a proven closed Kanata action plan.")
             results))
     (let* ((ordered-mappings (sort mappings #'string< :key #'car))
            (source-rows (%kanata-source-rows request ordered-mappings))

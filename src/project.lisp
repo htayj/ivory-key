@@ -729,6 +729,86 @@ clauses and never participate in behavior decoding.
                  "Could not decode output vocabulary ~A: ~A"
                  name (semantic-error-message condition)))))))
 
+(defun %selector-policy-enum (context node choices description)
+  "Decode one closed selector-policy identifier without INTERNing it."
+  (let* ((name (%identifier-node-name context node description))
+         (choice (assoc name choices :test #'string=)))
+    (unless choice
+      (%fail context :unknown-realization-selector-policy-value
+             "~A has unsupported value ~A." description name))
+    (cdr choice)))
+
+(defun %decode-realization-selector-policy (context form)
+  "Decode a closed realization allocation policy from parser nodes only.
+
+This intentionally accepts no opaque backend action string.  The resulting
+model value carries typed selector controls and the two bounded carrier codes;
+backend emitters select grammar only after compiler completeness checks.
+"
+  (let ((static-types nil) (selectors nil) (carriers nil))
+    (dolist (clause (cdr (%form-children context form 1 nil
+                                         "SELECTOR-POLICY declaration")))
+      (let ((kind (%form-name clause)))
+        (cond
+          ((and kind (string= kind "static-type"))
+           (let ((children (%form-children context clause 4 4
+                                           "STATIC-TYPE selector policy clause")))
+             (push (ivory-key.model::make-realization-static-type
+                    (%identifier-node-name context (second children)
+                                           "STATIC-TYPE position")
+                    (%selector-policy-enum
+                     context (third children)
+                     '(("four-level" . :four-level)
+                       ("four-level-alphabetic" . :four-level-alphabetic))
+                     "STATIC-TYPE Group1 kind")
+                    (%selector-policy-enum
+                     context (fourth children) '(("two-level" . :two-level))
+                     "STATIC-TYPE Group2 kind"))
+                   static-types)))
+          ((and kind (string= kind "selector"))
+           (let ((children (%form-children context clause 6 6
+                                           "SELECTOR policy clause")))
+             (push (ivory-key.model::make-realization-context-selector
+                    (%identifier-node-name context (second children) "SELECTOR axis")
+                    (%identifier-node-name context (third children) "SELECTOR state")
+                    (%selector-policy-enum
+                     context (fourth children)
+                     '(("shift" . :shift) ("level-three" . :level-three)
+                       ("group-two" . :group-two))
+                     "SELECTOR control")
+                    (%selector-policy-enum
+                     context (fifth children)
+                     '(("consumed" . :consumed) ("group-action" . :group-action))
+                     "SELECTOR consumption")
+                    (%selector-policy-enum
+                     context (sixth children)
+                     '(("core-shift" . :core-shift)
+                       ("consumed-level-three" . :consumed-level-three)
+                       ("unproved-group-two" . :unproved-group-two))
+                     "SELECTOR client semantics"))
+                   selectors)))
+          ((and kind (string= kind "carrier"))
+           (let ((children (%form-children context clause 6 6
+                                           "CARRIER selector policy clause")))
+             (push (ivory-key.model::make-realization-direct-carrier
+                    (%identifier-node-name context (second children) "CARRIER position")
+                    (%identifier-node-name context (third children) "CARRIER axis")
+                    (%identifier-node-name context (fourth children) "CARRIER state")
+                    (%integer-node-value context (fifth children) "CARRIER Linux code")
+                    (%selector-policy-enum
+                     context (sixth children)
+                     '(("zeha" . :zeha) ("lvl3" . :lvl3))
+                     "CARRIER XKB key"))
+                   carriers)))
+          (t
+           (%fail context :unknown-realization-selector-policy-clause
+                  "SELECTOR-POLICY has unsupported clause ~S." kind)))))
+    ;; The model constructor owns duplicate resource validation.  Keeping it
+    ;; here rather than in an opaque profile plist gives programmatic callers
+    ;; exactly the same closed resource contract as source declarations.
+    (ivory-key.model::make-realization-selector-policy
+     (nreverse static-types) (nreverse selectors) (nreverse carriers))))
+
 (defun %decode-realization (definition output-vocabularies)
   (let* ((context (%make-project-context (project-definition-path definition)
                                          (source-span-import-stack
@@ -740,7 +820,7 @@ clauses and never participate in behavior decoding.
     (dolist (clause clauses)
       (unless (member (%form-name clause)
                       '("pipeline" "uses-output-vocabulary" "allow-grades"
-                        "forbid-shell-actions" "validation")
+                        "forbid-shell-actions" "validation" "selector-policy")
                       :test #'string=)
         (%fail context :unknown-realization-clause
                "Realization ~A has unsupported clause ~S." name (%form-name clause))))
@@ -757,10 +837,15 @@ clauses and never participate in behavior decoding.
            (shell-matches (remove-if-not (lambda (clause)
                                            (%named-form-p clause "forbid-shell-actions"))
                                          clauses))
+           (selector-policy-matches
+             (remove-if-not (lambda (clause)
+                              (%named-form-p clause "selector-policy"))
+                            clauses))
            (pipeline-form (first pipeline-matches))
            (vocabulary-form (first vocabulary-matches))
            (grades-form (first grade-matches))
            (shell-form (first shell-matches))
+           (selector-policy-form (first selector-policy-matches))
            (validation-forms (remove-if-not (lambda (clause)
                                               (%named-form-p clause "validation"))
                                             clauses)))
@@ -768,7 +853,8 @@ clauses and never participate in behavior decoding.
         (%fail context :missing-realization-pipeline
                "Realization ~A requires PIPELINE." name))
       (when (or (rest pipeline-matches) (rest vocabulary-matches)
-                (rest grade-matches) (rest shell-matches))
+                (rest grade-matches) (rest shell-matches)
+                (rest selector-policy-matches))
         ;; The exact identity tests above deliberately reject duplicate closed
         ;; policy forms without converting their source names into symbols.
         (%fail context :duplicate-realization-clause
@@ -792,7 +878,15 @@ clauses and never participate in behavior decoding.
                     context
                     (second (%form-children context shell-form 2 2
                                             "FORBID-SHELL-ACTIONS declaration"))
-                    "FORBID-SHELL-ACTIONS value"))))
+                    "FORBID-SHELL-ACTIONS value")))
+            (selector-policy
+              (and selector-policy-form
+                   (handler-case
+                       (%decode-realization-selector-policy context selector-policy-form)
+                     (semantic-error (condition)
+                       (%fail context (semantic-error-code condition)
+                              "Could not decode selector policy for realization ~A: ~A"
+                              name (semantic-error-message condition)))))))
         (when (null pipeline)
           (%fail context :empty-realization-pipeline
                  "Realization ~A needs at least one pipeline backend." name))
@@ -809,6 +903,7 @@ clauses and never participate in behavior decoding.
           (handler-case
               (make-realization-profile
                name :pipeline pipeline :vocabulary vocabulary :permitted-losses grades
+               :selector-policy selector-policy
                :metadata (list :forbid-shell-actions forbid-shell
                                :validation (mapcar #'%node->safe-value validation-forms)))
             (semantic-error (condition)

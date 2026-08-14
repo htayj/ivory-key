@@ -6,8 +6,9 @@
 ;; static Top XKB group is TWO_LEVEL: its Greek+Top cells therefore repeat its
 ;; observed Top symbol.  This records symbol selection only.  The primary
 ;; layered function table below is also transcribed. Its realization allocates
-;; the frozen carriers; activation, selector policy, and tap-hold timing remain
-;; explicitly unresolved.
+;; the frozen carriers.  The direct one-key Greek and Top selectors below have
+;; an exact immediate held lifecycle; tap-hold activation and all other timing
+;; remain explicitly unresolved.
 
 (ivory-key 1)
 (define-layout
@@ -543,6 +544,52 @@
     (at (plain greek top) (named-symbol bar))
     (at (shifted greek top) (named-symbol brokenbar))
   )
+
+  ;; Both frozen primary normal layers retain lshift and rshift as direct
+  ;; physical keys.  Each contributes the same held case state; owner-scoped
+  ;; lifetime means releasing either source cannot clear the other source's
+  ;; contribution.  The home-row Shift aliases are separate tap-holds and are
+  ;; deliberately not represented here.
+  (interaction hold-case-left-shift
+    (:participants case-left-shift)
+    (case held
+      (:match (down case-left-shift))
+      (:commit when-matched)
+      (:do none)
+      (:while (hold-axis-state case shifted))
+      (:exit (set-axis-state case plain))))
+  (interaction hold-case-right-shift
+    (:participants case-right-shift)
+    (case held
+      (:match (down case-right-shift))
+      (:commit when-matched)
+      (:do none)
+      (:while (hold-axis-state case shifted))
+      (:exit (set-axis-state case plain))))
+
+  ;; Both frozen primary layered variants map their direct lctl source position
+  ;; to the Greek carrier and direct rctl to the Top carrier.  Unlike the
+  ;; Delete/Enter aliases, these source paths have no tap-hold timing or
+  ;; arbitration: they immediately select their state while physically held.
+  ;; The interaction consumes the selector position and restores the documented
+  ;; initial axis state on release.  Backend spellings and carrier numbers live
+  ;; exclusively in the device/profile realization.
+  (interaction hold-greek-selector
+    (:participants greek)
+    (case held
+      (:match (down greek))
+      (:commit when-matched)
+      (:do none)
+      (:while (hold-axis-state script greek))
+      (:exit (set-axis-state script roman))))
+  (interaction hold-top-selector
+    (:participants top)
+    (case held
+      (:match (down top))
+      (:commit when-matched)
+      (:do none)
+      (:while (hold-axis-state plane top))
+      (:exit (set-axis-state plane base))))
 
   ;; The frozen primary layered files contain this entire function table.  It
   ;; is a semantic patch, not a Kanata layer spelling.  The two 200 ms

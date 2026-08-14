@@ -95,6 +95,30 @@
                            "Representable in the selected conventional XKB type."
                            "More than eight levels require pipeline planning."))
               results)))
+    ;; A static XKB type records a level table, but it is not an abstract
+    ;; semantic-modifier or timed-interaction realization.  Those mechanisms
+    ;; need an explicit, profile-owned action/selection policy; accepting the
+    ;; request field merely because this backend has physical modifier support
+    ;; would misgrade an omitted lowering as exact.
+    (dolist (modifier (lowering-request-modifiers request))
+      (push (make-realization-result
+             modifier :unsupported
+             :detail "Semantic modifier lowering needs an explicit XKB policy.")
+            results))
+    (dolist (interaction (lowering-request-interactions request))
+      (push (make-realization-result
+             interaction :unsupported
+             :detail "Timed interaction lowering needs an explicit XKB action policy.")
+            results))
+    ;; A compiler can carry a typed, realization-owned selector policy for
+    ;; inspection without giving this backend permission to infer XKB client
+    ;; group/consumption semantics.  Reject it visibly until a native plan
+    ;; proves that boundary; never treat parseable text as that proof.
+    (when (getf (lowering-request-metadata request) :selector-policy)
+      (push (make-realization-result
+             :selector-policy :unsupported
+             :detail "Typed selector allocation lacks proven XKB client consumption semantics.")
+            results))
     (make-instance 'xkb-plan
                    :name (lowering-request-name request)
                    :entries (copy-list entries)

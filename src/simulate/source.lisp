@@ -295,7 +295,8 @@ loop.  Arbitrary objects are not a deterministic public dump vocabulary.
         (interaction (simulation-trace-entry-interaction entry))
         (case (simulation-trace-entry-case entry))
         (candidate (simulation-trace-entry-candidate entry))
-        (details (simulation-trace-entry-details entry)))
+        (details (simulation-trace-entry-details entry))
+        (provenance (simulation-trace-entry-provenance entry)))
     (when event
       (%write-trace-name
        "event"
@@ -309,7 +310,9 @@ loop.  Arbitrary objects are not a deterministic public dump vocabulary.
     (when candidate
       (%write-trace-name "candidate" (simulation-candidate-id candidate) stream))
     (when details
-      (%write-trace-name "details" details stream)))
+      (%write-trace-name "details" details stream))
+    (when provenance
+      (%write-trace-name "provenance" provenance stream)))
   (terpri stream))
 
 (defun simulation-result-dump-string (result)

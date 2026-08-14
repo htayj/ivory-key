@@ -246,11 +246,12 @@ preserves the model's atomic latch-consumption rule."
     (apply-sim-action machine candidate action))
   machine)
 
-(defun %model-behavior-callback (behavior)
+(defun %model-behavior-callback (behavior &key effect-phase)
   (make-sim-action
    :kind :callback
    :value (lambda (candidate machine)
-            (%execute-model-behavior behavior candidate machine))))
+            (%execute-model-behavior behavior candidate machine
+                                     :effect-phase effect-phase))))
 
 (defun %select-model-table-behavior (table candidate)
   (let ((entry (find-if (lambda (candidate-entry)
@@ -279,7 +280,7 @@ preserves the model's atomic latch-consumption rule."
        "No behavior choice for axis ~A matches captured state ~S." axis state))
     (cdr choice)))
 
-(defun %axis-operation-actions (behavior)
+(defun %axis-operation-actions (behavior &key effect-phase)
   (let ((operation (ivory-key.model::axis-operation behavior))
         (axis (model-identifier->simulation-value
                (ivory-key.model::axis-operation-axis behavior)))
@@ -290,13 +291,19 @@ preserves the model's atomic latch-consumption rule."
          (%simulation-compilation-error
           :malformed-axis-operation behavior "LATCH requires an axis state."))
        (list (latch-action axis (model-identifier->simulation-value state))))
-      ((:set :hold :lock)
+      (:hold
+       (unless state
+         (%simulation-compilation-error
+          :malformed-axis-operation behavior "HOLD requires an axis state."))
+       (unless (eq effect-phase :while)
+         (%simulation-compilation-error
+          :held-axis-outside-while behavior
+          "HOLD-AXIS-STATE requires a :WHILE lifecycle effect."))
+       (list (hold-axis-action axis (model-identifier->simulation-value state))))
+      ((:set :lock)
        (unless state
          (%simulation-compilation-error
           :malformed-axis-operation behavior "~A requires an axis state." operation))
-       ;; The machine's axis map represents selected state, not an OS-level
-       ;; lock bit.  A held operation therefore needs an explicit inverse in
-       ;; the model effect's EXIT behaviors, as the model lifecycle requires.
        (list (set-axis-action axis (model-identifier->simulation-value state))))
       ((:unlock :toggle :cycle)
        (%simulation-compilation-error
@@ -307,7 +314,7 @@ preserves the model's atomic latch-consumption rule."
        (%simulation-compilation-error
         :unknown-axis-operation behavior "Unknown axis operation ~S." operation)))))
 
-(defun compile-model-behavior (behavior)
+(defun compile-model-behavior (behavior &key effect-phase)
   "Compile a complete model behavior into ordered simulator actions.
 
 Structured output values are intentionally abstract: (:TEXT string),
@@ -332,25 +339,35 @@ operation name).  They are simulator observations, never backend tokens."
                   (model-identifier->simulation-value
                    (ivory-key.model::command-name behavior))))))
     ((typep behavior 'ivory-key.model::no-output-behavior) nil)
+    ((typep behavior 'ivory-key.model::held-modifier-behavior)
+     (unless (eq effect-phase :while)
+       (%simulation-compilation-error
+        :held-modifier-outside-while behavior
+        "HOLD-MODIFIER requires a :WHILE lifecycle effect."))
+     (list (hold-modifier-action
+            (model-identifier->simulation-value
+             (ivory-key.model::modifier-operation-modifier behavior)))))
     ((typep behavior 'ivory-key.model::modifier-operation-behavior)
-     (list (emit-action
-            (list :modifier (ivory-key.model::modifier-operation behavior)
-                  (model-identifier->simulation-value
-                   (ivory-key.model::modifier-operation-modifier behavior))))))
+     (let ((operation (ivory-key.model::modifier-operation behavior))
+           (modifier (model-identifier->simulation-value
+                      (ivory-key.model::modifier-operation-modifier behavior))))
+       (list (emit-action (list :modifier operation modifier)))))
     ((typep behavior 'ivory-key.model::axis-operation-behavior)
-     (%axis-operation-actions behavior))
+     (%axis-operation-actions behavior :effect-phase effect-phase))
     ((typep behavior 'ivory-key.model::ordered-behavior)
-     (mapcan #'compile-model-behavior
+     (mapcan (lambda (child)
+               (compile-model-behavior child :effect-phase effect-phase))
              (ivory-key.model::ordered-behaviors behavior)))
     ((typep behavior 'ivory-key.model::simultaneous-behavior)
      ;; SIM-ACTIONs execute in a single simulator transition.  The trace is
      ;; source ordered solely to make otherwise simultaneous observations
      ;; deterministic and inspectable.
-     (mapcan #'compile-model-behavior
+     (mapcan (lambda (child)
+               (compile-model-behavior child :effect-phase effect-phase))
              (ivory-key.model::simultaneous-behaviors behavior)))
     ((or (typep behavior 'ivory-key.model::axis-choice-behavior)
          (typep behavior 'ivory-key.model::behavior-table))
-     (list (%model-behavior-callback behavior)))
+     (list (%model-behavior-callback behavior :effect-phase effect-phase)))
     ((or (typep behavior 'ivory-key.model::behavior-template-parameter)
          (typep behavior 'ivory-key.model::behavior-template-reference))
      (%simulation-compilation-error
@@ -365,21 +382,24 @@ operation name).  They are simulator observations, never backend tokens."
      (%simulation-compilation-error
       :invalid-behavior behavior "Expected a model behavior, got ~S." behavior))))
 
-(defun %execute-model-behavior (behavior candidate machine)
+(defun %execute-model-behavior (behavior candidate machine &key effect-phase)
   "Execute a context-selected behavior from a simulator callback action."
   (cond
     ((typep behavior 'ivory-key.model::axis-choice-behavior)
      (%apply-compiled-actions
       machine candidate
-      (compile-model-behavior (%select-model-axis-choice behavior candidate))))
+      (compile-model-behavior (%select-model-axis-choice behavior candidate)
+                              :effect-phase effect-phase)))
     ((typep behavior 'ivory-key.model::behavior-table)
      (%apply-compiled-actions
       machine candidate
-      (compile-model-behavior (%select-model-table-behavior behavior candidate))))
+      (compile-model-behavior (%select-model-table-behavior behavior candidate)
+                              :effect-phase effect-phase)))
     (t
-     (%apply-compiled-actions machine candidate (compile-model-behavior behavior)))))
+     (%apply-compiled-actions machine candidate
+                              (compile-model-behavior behavior :effect-phase effect-phase)))))
 
-(defun %normalized-entry-actions (entries)
+(defun %normalized-entry-actions (entries &key effect-phase)
   "Compile normalized (tuple . behavior) entries as a runtime context choice."
   (list
    (make-sim-action
@@ -398,7 +418,7 @@ operation name).  They are simulator observations, never backend tokens."
             (setf matched t)
             (%apply-compiled-actions
              machine candidate
-             (compile-model-behavior behavior)))))
+             (compile-model-behavior behavior :effect-phase effect-phase)))))
         (unless matched
           (%simulation-compilation-error
            :unresolved-normalized-context entries
@@ -427,21 +447,29 @@ operation name).  They are simulator observations, never backend tokens."
                     (ivory-key.model::interaction-name interaction))
                    (model-identifier->simulation-value
                     (ivory-key.model::candidate-name candidate)))
-       :enter-actions (mapcan #'compile-model-behavior (append entry while))
+       :enter-actions (append (mapcan #'compile-model-behavior entry)
+                              (mapcan (lambda (behavior)
+                                        (compile-model-behavior behavior :effect-phase :while))
+                                      while))
        :exit-actions (mapcan #'compile-model-behavior exit)
        :cancel-actions (mapcan #'compile-model-behavior cancel)))))
 
-(defun %normalized-effect-actions (variants)
-  (and variants (%normalized-entry-actions variants)))
+(defun %normalized-effect-actions (variants &key effect-phase)
+  (and variants (%normalized-entry-actions variants :effect-phase effect-phase)))
 
 (defun %compile-normalized-effects (interaction candidate)
   (let* ((effects (ivory-key.model::normalized-candidate-effects candidate))
          (entry (getf effects :entry))
          (while (getf effects :while))
+         (while-release (getf effects :while-release))
          (exit (getf effects :exit))
          (cancel (getf effects :cancel))
          (active (or entry while exit cancel)))
     (when active
+      (unless (eq while-release :owner-terminal)
+        (%simulation-compilation-error
+         :invalid-normalized-held-lifecycle candidate
+         "Normalized :WHILE effects must declare :OWNER-TERMINAL release."))
       (make-sim-effect
        :name (list :normalized-model-effect
                    (model-identifier->simulation-value
@@ -449,7 +477,7 @@ operation name).  They are simulator observations, never backend tokens."
                    (model-identifier->simulation-value
                     (ivory-key.model::normalized-candidate-name candidate)))
        :enter-actions (append (%normalized-effect-actions entry)
-                              (%normalized-effect-actions while))
+                              (%normalized-effect-actions while :effect-phase :while))
        :exit-actions (%normalized-effect-actions exit)
        :cancel-actions (%normalized-effect-actions cancel)))))
 
@@ -519,11 +547,11 @@ operation name).  They are simulator observations, never backend tokens."
        :exit-at exit-at
        :effects active-effects
        :actions
-       (append
-        (compile-model-behavior (ivory-key.model::candidate-behavior candidate))
-        (mapcan #'compile-model-behavior
-                (ivory-key.model::effect-commit-behaviors
-                 (ivory-key.model::candidate-effects candidate))))
+       (compile-model-behavior (ivory-key.model::candidate-behavior candidate))
+       :commit-actions
+       (mapcan #'compile-model-behavior
+               (ivory-key.model::effect-commit-behaviors
+                (ivory-key.model::candidate-effects candidate)))
        :priority (or priority 0)
        :consulted-latches
        (mapcar #'model-identifier->simulation-value
@@ -579,11 +607,11 @@ operation name).  They are simulator observations, never backend tokens."
        :exit-at exit-at
        :effects active-effects
        :actions
-       (append
-        (%normalized-entry-actions
-         (ivory-key.model::normalized-candidate-entries candidate))
-        (%normalized-effect-actions
-         (getf (ivory-key.model::normalized-candidate-effects candidate) :commit)))
+       (%normalized-entry-actions
+        (ivory-key.model::normalized-candidate-entries candidate))
+       :commit-actions
+       (%normalized-effect-actions
+        (getf (ivory-key.model::normalized-candidate-effects candidate) :commit))
        :priority (or priority 0)
        :consulted-latches
        (mapcar #'model-identifier->simulation-value

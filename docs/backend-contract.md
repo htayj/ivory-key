@@ -80,6 +80,35 @@ characters, `_`, `+`, and `-`. Unsafe values are rejected before formatting.
 This is an emission-safety boundary, not a substitute for semantic vocabulary
 mapping.
 
+## Typed native-selector policy boundary
+
+A realization may declare a closed `selector-policy`; this is model data, not
+an XKB or Kanata snippet. Its current source clauses are:
+
+```lisp
+(selector-policy
+  (static-type POSITION four-level|four-level-alphabetic two-level)
+  (selector AXIS STATE shift|level-three|group-two
+            consumed|group-action
+            core-shift|consumed-level-three|unproved-group-two)
+  (carrier POSITION AXIS STATE 84|85 lvl3|zeha))
+```
+
+The decoder accepts identifiers and integers only. Constructors validate the
+closed enums, require the historical Group 1 and Group 2 table shapes, reject
+duplicate owners/resources, and admit only the evidenced `85`/`ZEHA` and
+`84`/`LVL3` carrier pairs. Programmatic policy objects are revalidated at the
+compiler boundary.
+
+This contract is deliberately inspection-only today. Shift and Level3 can
+name consumed native selectors, but Group2's application-visible behavior is
+represented only by `unproved-group-two`. The compiler and both Linux backends
+therefore grade the whole selector policy unsupported. Supplying a complete-
+looking policy cannot clear exactness until Group2 client state, selector
+consumption, emitted XKB types/compatibility, and Kanata event behavior have
+differential proof. Semantic tap-holds and generic interactions remain
+independent refusals.
+
 ## Current Kanata contract
 
 The Kanata backend emits one `defsrc` and one `deflayer`; direct entries receive
@@ -167,9 +196,10 @@ and tokens rejected by an existing backend validator stop before build output.
 Tool validation is optional environmental evidence. A passing `xkbcli` or
 `kanata` invocation proves only the generated artifact was accepted by that
 installed tool; it does not prove semantic equivalence, live device behavior,
-or deployment. The current pipeline has no integrated carrier allocation, and
-the emitted empty allocation contract does not imply otherwise. The planner
-can inspect and allocate an explicitly provided resource inventory, but those
-allocations are not yet wired into emitted pipeline artifacts. Validation run
-after compilation is reported by the validator but does not retroactively
-rewrite an immutable build manifest.
+or deployment. The Manna inspection path can construct a deterministic partial
+static/function-carrier proposal, but public compilation refuses before writing
+it because selector, modifier, interaction, placement, and activation proof is
+incomplete. An empty allocation contract in the supported direct-static path
+does not imply that those Manna obligations disappeared. Validation run after
+compilation is reported by the validator but does not retroactively rewrite an
+immutable build manifest.

@@ -66,7 +66,12 @@ alternatives, duration bounds, deadlines, bounded proximity, overlap, absence
 between explicit boundaries, bounded repetition, captures, and context tests.
 Candidate effects have separate entry, commit, while-active, exit, and
 cancellation lists. Validation rejects irreversible output in speculative
-entry/while effects and rejects an unpaired held effect.
+entry/while effects.  Source `hold-modifier` and `hold-axis-state` are valid
+only in `:while`; each effect owns and automatically releases its own semantic
+contribution at normal exit or cancellation.  Identical concurrent holders
+remain effective until the final owner leaves.  Direct `set-axis-state` is a
+separate base-state transition, overlaid while an axis hold remains active;
+conflicting held states for one axis are refused.
 
 Context is dependency-scoped. A candidate normally captures the axes it
 consults at its anchor-down point; an explicit commit-time policy also exists
@@ -77,11 +82,20 @@ leaves the latch intact.
 The reference simulator executes its own finite timed-event representation.
 It covers deadline boundaries, distinct release orders, unordered combos,
 priority conflicts, cancellation, latch non-consumption, and paired held
-effects. A whole-layout adapter now normalizes an in-memory decoded layout and
+effects. Held modifier presses and releases occur only at first acquisition
+and final release, while held-axis lookup reports the active held state before
+the base state. A whole-layout adapter now normalizes an in-memory decoded layout and
 combines disjoint ordinary bindings with supported compiled interactions.
 Ordinary bindings commit on key-down and dispatch against captured context;
 candidate ownership, trace records, and committed-only latch consumption stay
 inside the same event machine.
+
+Every candidate-owned observable trace record carries closed provenance for the
+canonical source pattern, candidate transition, commit point, and responsible
+lifecycle effect. Ordinary committed behavior is explicitly marked
+`candidate-do`; entry, exit, and cancellation actions identify the effect and
+its lifecycle phase. A final held effect is therefore justified by its recorded
+entry transition rather than an inferred host-state mutation.
 
 The adapter applies already-normalized sparse overlays by declared precedence,
 with transparent fall-through to lower patches and then the base binding. Patch

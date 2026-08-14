@@ -88,8 +88,7 @@
 (defun compile-simulation-tap-hold-fixture ()
   (let* ((effects
            (ivory-key.model::make-interaction-effects
-            :while (list (ivory-key.model::make-modifier-operation :press "super"))
-            :exit (list (ivory-key.model::make-modifier-operation :release "super"))))
+            :while (list (ivory-key.model::make-held-modifier-operation "super"))))
          (candidate
            (ivory-key.model::make-interaction-candidate
             "hold"
@@ -121,8 +120,7 @@
   (let* ((topology (ivory-key.model::make-topology
                     "one" (list (ivory-key.model::make-logical-position "a"))))
          (effects (ivory-key.model::make-interaction-effects
-                   :while (list (ivory-key.model::make-modifier-operation :press "super"))
-                   :exit (list (ivory-key.model::make-modifier-operation :release "super"))))
+                   :while (list (ivory-key.model::make-held-modifier-operation "super"))))
          (candidate (ivory-key.model::make-interaction-candidate
                      "hold"
                      (ivory-key.model::pattern-deadline 100 :after "a" :while-down "a")

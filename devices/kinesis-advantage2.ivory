@@ -58,8 +58,15 @@
   (place slash (:xkb "AB10") (:kanata "/"))
   (place backspace (:xkb "BKSP") (:kanata "bspc"))
   (place space (:xkb "SPCE") (:kanata "spc"))
+  ;; Both direct Shift source tokens remain unchanged in the frozen normal
+  ;; layer.  XKB maps their physical keys to the two standard Shift keysyms.
+  (place case-left-shift (:xkb "LFSH") (:kanata "lshift"))
+  (place case-right-shift (:xkb "RTSH") (:kanata "rshift"))
   ;; The Advantage 2 layered source calls this position lctl; normal-layer @gr emits the Greek selector carrier.
   (place greek (:xkb "ZEHA") (:kanata "lctl"))
+  ;; The direct rctl source emits the Top selector carrier.  Enter's distinct
+  ;; tap-hold alias is not represented by this immediate placement.
+  (place top (:xkb "LVL3") (:kanata "rctl"))
   ;; The same physical location is Menu outside the function patch and emits
   ;; the Alt Mode command inside it.  The latter still requires carrier
   ;; lowering, so this placement records only the frozen source spellings.

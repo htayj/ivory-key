@@ -71,20 +71,20 @@ sbcl --non-interactive \
 The CLI entry point supports:
 
 ```text
-ivory-key check FILE...
-ivory-key fmt [--check] FILE...
-ivory-key inventory MANNA-CADET-CHECKOUT
-ivory-key dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]
-ivory-key dump-ir --stage typed|normalized --project PROJECT --composition NAME
-ivory-key levels --layout FILE [--topology FILE]
-ivory-key levels --project PROJECT --composition NAME
-ivory-key simulate --layout FILE [--topology FILE] --events FILE
-ivory-key simulate --project PROJECT --composition NAME --events FILE
-ivory-key explain --layout FILE --topology FILE --device FILE --realization FILE
-ivory-key explain --project PROJECT --composition NAME
-ivory-key compile --layout FILE --topology FILE --device FILE --realization FILE --output DIR
-ivory-key compile --project PROJECT --composition NAME --output DIR
-ivory-key validate-build DIR
+./bin/ivory-key check FILE...
+./bin/ivory-key fmt [--check] FILE...
+./bin/ivory-key inventory MANNA-CADET-CHECKOUT
+./bin/ivory-key dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]
+./bin/ivory-key dump-ir --stage typed|normalized --project PROJECT --composition NAME
+./bin/ivory-key levels --layout FILE [--topology FILE]
+./bin/ivory-key levels --project PROJECT --composition NAME
+./bin/ivory-key simulate --layout FILE [--topology FILE] --events FILE
+./bin/ivory-key simulate --project PROJECT --composition NAME --events FILE
+./bin/ivory-key explain --layout FILE --topology FILE --device FILE --realization FILE
+./bin/ivory-key explain --project PROJECT --composition NAME
+./bin/ivory-key compile --layout FILE --topology FILE --device FILE --realization FILE --output DIR
+./bin/ivory-key compile --project PROJECT --composition NAME --output DIR
+./bin/ivory-key validate-build DIR
 ```
 
 `inventory` reads the supplied checkout, records the baseline commit, file
@@ -121,6 +121,7 @@ written. No spellings are inferred from the Manna transcription.
 - [Implemented semantic model and timed interactions](docs/semantics.md)
 - [XKB/Kanata backend contract and fidelity rules](docs/backend-contract.md)
 - [QMK backend validation evidence](docs/qmk-validation.md)
+- [Controlled integration runbook](docs/controlled-integration-runbook.md)
 - [Frozen Manna Cadet baseline and truth table](docs/manna-cadet-baseline.md)
 - [Manna Cadet migration status](docs/migration-manna-cadet.md)
 - [Conceptual overview](docs/concepts-and-abstractions.md)

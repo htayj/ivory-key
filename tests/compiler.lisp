@@ -1011,6 +1011,8 @@ complete carrier table from an invented Manna behavior.
                       (ivory-key.backend:pipeline-artifact-content kanata)))))
       (is-equal
        '(:unsupported-semantic-modifiers :unsupported-context-selection
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
          :missing-device-placement :unsupported-context-selection
          :unproved-patch-activation :unsupported-context-selection)
        (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
@@ -1041,3 +1043,121 @@ complete carrier table from an invented Manna behavior.
                    (ivory-key.cli:explain-project-source
                     project "vocabulary-build"
                     :stream (make-string-output-stream))))))))
+
+(defparameter +compiler-test-typed-selector-policy+
+  "(ivory-key 1)
+(define-realization typed-selectors
+  (pipeline kanata xkb)
+  (allow-grades exact emulated)
+  (forbid-shell-actions yes)
+  (selector-policy
+    (static-type q four-level two-level)
+    (selector case shifted shift consumed core-shift)
+    (selector script greek level-three consumed consumed-level-three)
+    (selector plane top group-two group-action unproved-group-two)
+    (carrier greek script greek 85 zeha)
+    (carrier top plane top 84 lvl3)))
+")
+
+(deftest compiler-decodes-a-closed-typed-selector-policy-and-refuses-unproved-native-semantics
+  "Policy parsing uses parser node kinds and returns one public model value.
+
+The first realization slice transports this policy to backend inspection but
+does not claim that a parseable XKB/Kanata artifact proves client-visible group
+or consumed-modifier behavior.
+"
+  (with-compiler-test-directory (directory)
+    (let* ((realization-path
+             (compiler-test-write directory "realization.ivory"
+                                  +compiler-test-typed-selector-policy+))
+           (realization (ivory-key.cli::decode-realization-source realization-path))
+           (policy (ivory-key.cli::compiler-realization-selector-policy realization))
+           (layout-path (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
+           (topology-path (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device-path (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (unit (ivory-key.cli::load-layout-for-compilation
+                  layout-path :topology-path topology-path))
+           (placement (ivory-key.cli::decode-device-source device-path)))
+      (is (typep policy 'ivory-key.model::realization-selector-policy))
+      (is-equal :four-level
+                (ivory-key.model::realization-static-type-type
+                 (ivory-key.model::realization-policy-static-type-for-position policy "q")))
+      (is-equal :two-level
+                (ivory-key.model::realization-static-type-group-two-type
+                 (ivory-key.model::realization-policy-static-type-for-position policy "q")))
+      (is-equal :level-three
+                (ivory-key.model::realization-selector-control
+                 (ivory-key.model::realization-policy-selector-for-axis policy "script")))
+      (is-equal :unproved-group-two
+                (ivory-key.model::realization-selector-client-semantics
+                 (ivory-key.model::realization-policy-selector-for-axis policy "plane")))
+      (is-equal 85
+                (ivory-key.model::realization-carrier-linux-code
+                 (ivory-key.model::realization-policy-carrier-for-position policy "greek")))
+      (multiple-value-bind (request issues)
+          (ivory-key.cli::analyze-normalized-layout
+           (ivory-key.cli::compiler-unit-normalized unit) placement
+           :selector-policy policy)
+        (is (eq policy (getf (ivory-key.backend::lowering-request-metadata request)
+                             :selector-policy)))
+        (is-equal '(:unproved-native-selector-client-semantics)
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
+        (let ((xkb-plan
+                (ivory-key.backend:lower-request
+                 (ivory-key.backend:make-xkb-backend) request)))
+          (is (some (lambda (result)
+                      (and (eq :selector-policy
+                               (ivory-key.backend:realization-feature result))
+                           (eq :unsupported
+                               (ivory-key.backend:realization-grade result))))
+                    (ivory-key.backend:xkb-plan-realizations xkb-plan))))))))
+
+(deftest compiler-selector-policy-rejects-stringly-and-incompatible-carrier-source
+  (with-compiler-test-directory (directory)
+    (let ((stringly
+            (compiler-test-write
+             directory "stringly.ivory"
+             "(ivory-key 1)
+(define-realization bad
+  (pipeline kanata xkb)
+  (allow-grades exact)
+  (forbid-shell-actions yes)
+  (selector-policy (selector case shifted \"shift\" consumed core-shift)))
+")))
+      (is-equal :invalid-realization-selector-policy
+                (compiler-stage-code-from
+                 (lambda () (ivory-key.cli::decode-realization-source stringly)))))
+    (let ((bad-carrier
+            (compiler-test-write
+             directory "bad-carrier.ivory"
+             "(ivory-key 1)
+(define-realization bad
+  (pipeline kanata xkb)
+  (allow-grades exact)
+  (forbid-shell-actions yes)
+  (selector-policy (carrier greek script greek 84 zeha)))
+")))
+      (is-equal :incompatible-realization-carrier
+                (compiler-stage-code-from
+                 (lambda () (ivory-key.cli::decode-realization-source bad-carrier)))))))
+
+(deftest compiler-project-realization-decoder-retains-the-typed-policy
+  "Project loading and explicit-file inspection use the same public contract."
+  (with-compiler-test-directory (directory)
+    (let ((project
+            (write-compiler-test-project
+             directory :realization-source +compiler-test-typed-selector-policy+
+             :composition-source
+             "(ivory-key 1)
+(realize direct-build (:layout direct) (:device test-device) (:profile typed-selectors))
+")))
+      (multiple-value-bind (unit placement realization)
+          (ivory-key.cli:load-project-composition-for-compilation
+           project "direct-build")
+        (declare (ignore unit placement))
+        (let ((policy (ivory-key.cli::compiler-realization-selector-policy realization)))
+          (is (typep policy 'ivory-key.model::realization-selector-policy))
+          (is-equal :two-level
+                    (ivory-key.model::realization-static-type-group-two-type
+                     (ivory-key.model::realization-policy-static-type-for-position
+                      policy "q"))))))))

@@ -207,6 +207,51 @@
        (setf diagnostics (%validate-behavior child layout diagnostics)))
      diagnostics)))
 
+(defun %contains-held-lifecycle-behavior-p (behavior)
+  "Whether BEHAVIOR contains a source hold that needs an owning :WHILE effect."
+  (or (typep behavior 'held-modifier-behavior)
+      (and (typep behavior 'axis-operation-behavior)
+           (eq (axis-operation behavior) :hold))
+      (some #'%contains-held-lifecycle-behavior-p (behavior-children behavior))))
+
+(defun %self-reversing-held-behavior-p (behavior)
+  "Whether BEHAVIOR is wholly an owner-scoped, automatically released hold.
+
+The V1 surface admits source holds only in :WHILE.  Compositions and resolved
+context choices are allowed when every possible child is itself a hold; this
+keeps the lifecycle contract exact without inventing a release action for a
+different safe-but-non-held behavior."
+  (cond
+    ((typep behavior 'held-modifier-behavior) t)
+    ((typep behavior 'axis-operation-behavior)
+     (eq (axis-operation behavior) :hold))
+    ((or (typep behavior 'ordered-behavior)
+         (typep behavior 'simultaneous-behavior)
+         (typep behavior 'axis-choice-behavior)
+         (typep behavior 'behavior-table))
+     (let ((children (behavior-children behavior)))
+       (and children (every #'%self-reversing-held-behavior-p children))))
+    (t nil)))
+
+(defun %validate-held-lifecycle-placement (candidate effects diagnostics)
+  "Validate the one exact V1 release contract for source-level holds."
+  (dolist (phase (list (cons :entry (effect-entry-behaviors effects))
+                       (cons :commit-effect (effect-commit-behaviors effects))
+                       (cons :exit (effect-exit-behaviors effects))
+                       (cons :cancel (effect-cancel-behaviors effects))))
+    (when (some #'%contains-held-lifecycle-behavior-p (cdr phase))
+      (setf diagnostics
+            (%diagnostic diagnostics :held-behavior-outside-while
+                         "Candidate ~A places a source hold in ~A; holds require :WHILE ownership."
+                         (identifier-name (candidate-name candidate)) (car phase)))))
+  (dolist (behavior (effect-while-behaviors effects))
+    (unless (%self-reversing-held-behavior-p behavior)
+      (setf diagnostics
+            (%diagnostic diagnostics :nonheld-while-effect
+                         "Candidate ~A has a :WHILE behavior without an exact owner-scoped hold release."
+                         (identifier-name (candidate-name candidate))))))
+  diagnostics)
+
 (defun %tuple-matches-axes-p (tuple axes)
   (and (= (length (context-tuple-pairs tuple)) (length axes))
        (every (lambda (axis)
@@ -326,6 +371,11 @@
                                    "Candidate ~A has no explicit commit point."
                                    (identifier-name (candidate-name candidate)))))
   (setf diagnostics (%validate-behavior (candidate-behavior candidate) layout diagnostics))
+  (when (%contains-held-lifecycle-behavior-p (candidate-behavior candidate))
+    (setf diagnostics
+          (%diagnostic diagnostics :held-behavior-outside-while
+                       "Candidate ~A places a source hold in :DO; holds require :WHILE ownership."
+                       (identifier-name (candidate-name candidate)))))
   (let ((effects (candidate-effects candidate)))
     (dolist (behavior (interaction-effects-behaviors effects))
       (setf diagnostics (%validate-behavior behavior layout diagnostics)))
@@ -337,11 +387,7 @@
       (setf diagnostics (%diagnostic diagnostics :irreversible-while-effect
                                      "Candidate ~A emits irreversible output while speculative."
                                      (identifier-name (candidate-name candidate)))))
-    (when (and (effect-while-behaviors effects)
-               (endp (effect-exit-behaviors effects)))
-      (setf diagnostics (%diagnostic diagnostics :unpaired-held-effect
-                                     "Candidate ~A has a :WHILE effect without an :EXIT effect."
-                                     (identifier-name (candidate-name candidate))))))
+    (setf diagnostics (%validate-held-lifecycle-placement candidate effects diagnostics)))
   (dolist (axis (candidate-axis-dependencies candidate))
     (unless (layout-axis layout axis)
       (setf diagnostics (%diagnostic diagnostics :unknown-context-axis
@@ -595,7 +641,12 @@ SEMANTIC-VALIDATION-ERROR."
           (setf diagnostics (%diagnostic diagnostics :unknown-position
                                          "Binding uses unknown logical position ~A."
                                          (identifier-name (binding-position binding)))))
-        (setf diagnostics (%validate-behavior (binding-behavior binding) layout diagnostics)))
+        (setf diagnostics (%validate-behavior (binding-behavior binding) layout diagnostics))
+        (when (%contains-held-lifecycle-behavior-p (binding-behavior binding))
+          (setf diagnostics
+                (%diagnostic diagnostics :held-behavior-outside-while
+                             "Binding ~A places a source hold outside an interaction :WHILE."
+                             (identifier-name (binding-position binding))))))
       (setf diagnostics (%validate-template-graph layout diagnostics))
       (setf diagnostics (%validate-interaction-template-graph layout diagnostics))
       (setf diagnostics (%check-unique-identifiers (layout-overlays layout)
