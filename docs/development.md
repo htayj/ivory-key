@@ -41,6 +41,11 @@ The installed-tool probe is deliberately outside `asdf:test-system`:
 ```sh
 direnv exec . sbcl --script tests/external/xkb-kanata.lisp
 direnv exec . ecl -norc -shell tests/external/xkb-kanata.lisp
+
+direnv exec . sbcl --script tests/external/manna-xkb-group2-state.lisp \
+  /home/tay/src/dotfiles/keyboard/manna-cadet
+direnv exec . ecl -norc -shell tests/external/manna-xkb-group2-state.lisp \
+  /home/tay/src/dotfiles/keyboard/manna-cadet
 ```
 
 The frozen Manna Cadet inventory is verified separately against its preserved

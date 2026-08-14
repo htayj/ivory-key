@@ -470,6 +470,15 @@ published contract, which keeps post-build validation a separate observation.
 
 (defconstant +build-contract-preflight-max-bytes+ (* 16 1024 1024))
 (defconstant +build-contract-preflight-max-depth+ 64)
+(defconstant +build-contract-preflight-max-container-members+ 4096)
+(defconstant +build-contract-preflight-max-integer-digits+ 18)
+(defconstant +build-contract-preflight-max-string-characters+ 65536)
+
+;; This is a private deterministic test seam for the digest-bracketing check.
+;; It is NIL in normal operation and is deliberately not exported.  The check
+;; detects content replacement while a file is being observed; portable CL
+;; cannot turn pathname reads beneath a writable parent into an atomic snapshot.
+(defvar *preflight-after-initial-digest-hook* nil)
 
 (defstruct (%decoded-json-object (:constructor %make-decoded-json-object (entries)))
   entries)
@@ -495,57 +504,64 @@ published contract, which keeps post-build validation a separate observation.
   (unless (and (< index (length text)) (char= (char text index) #\"))
     (%preflight-json-error pathname index "Expected a JSON string."))
   (incf index)
-  (let ((stream (make-string-output-stream)))
-    (loop
-      (when (>= index (length text))
-        (%preflight-json-error pathname index "Unterminated JSON string."))
-      (let ((character (char text index)))
-        (incf index)
-        (cond ((char= character #\") (return))
-              ((char= character #\\)
-               (when (>= index (length text))
-                 (%preflight-json-error pathname index "Unterminated JSON escape."))
-               (let ((escape (char text index)))
-                 (incf index)
-                 (case escape
-                   (#\" (write-char #\" stream))
-                   (#\\ (write-char #\\ stream))
-                   (#\/ (write-char #\/ stream))
-                   (#\b (write-char #\Backspace stream))
-                   (#\f (write-char #\Page stream))
-                   (#\n (write-char #\Newline stream))
-                   (#\r (write-char #\Return stream))
-                   (#\t (write-char #\Tab stream))
-                   (#\u
-                    (when (> (+ index 4) (length text))
-                      (%preflight-json-error pathname index "Truncated JSON Unicode escape."))
-                    (let ((value 0))
-                      (dotimes (offset 4)
-                        (let ((digit (%preflight-json-hex-value
-                                      (char text (+ index offset)))))
-                          (unless digit
-                            (%preflight-json-error pathname (+ index offset)
-                                                   "Invalid JSON Unicode escape."))
-                          (setf value (+ (* value 16) digit))))
-                      (incf index 4)
-                      ;; The contract writer emits scalar Common Lisp
-                      ;; characters directly.  Refuse surrogate escape forms
-                      ;; rather than guessing an implementation-specific pair.
-                      (when (<= #xd800 value #xdfff)
-                        (%preflight-json-error pathname (- index 4)
-                                               "JSON surrogate escapes are not accepted."))
-                      (let ((decoded (code-char value)))
-                        (unless decoded
+  (let ((stream (make-string-output-stream))
+        (characters 0))
+    (labels ((write-decoded-character (character)
+               (incf characters)
+               (when (> characters +build-contract-preflight-max-string-characters+)
+                 (%preflight-json-error pathname index
+                                        "JSON string exceeds the preflight limit."))
+               (write-char character stream)))
+      (loop
+        (when (>= index (length text))
+          (%preflight-json-error pathname index "Unterminated JSON string."))
+        (let ((character (char text index)))
+          (incf index)
+          (cond ((char= character #\") (return))
+                ((char= character #\\)
+                 (when (>= index (length text))
+                   (%preflight-json-error pathname index "Unterminated JSON escape."))
+                 (let ((escape (char text index)))
+                   (incf index)
+                   (case escape
+                     (#\" (write-decoded-character #\"))
+                     (#\\ (write-decoded-character #\\))
+                     (#\/ (write-decoded-character #\/))
+                     (#\b (write-decoded-character #\Backspace))
+                     (#\f (write-decoded-character #\Page))
+                     (#\n (write-decoded-character #\Newline))
+                     (#\r (write-decoded-character #\Return))
+                     (#\t (write-decoded-character #\Tab))
+                     (#\u
+                      (when (> (+ index 4) (length text))
+                        (%preflight-json-error pathname index "Truncated JSON Unicode escape."))
+                      (let ((value 0))
+                        (dotimes (offset 4)
+                          (let ((digit (%preflight-json-hex-value
+                                        (char text (+ index offset)))))
+                            (unless digit
+                              (%preflight-json-error pathname (+ index offset)
+                                                     "Invalid JSON Unicode escape."))
+                            (setf value (+ (* value 16) digit))))
+                        (incf index 4)
+                        ;; The contract writer emits scalar Common Lisp
+                        ;; characters directly.  Refuse surrogate escape forms
+                        ;; rather than guessing an implementation-specific pair.
+                        (when (or (> value #x10ffff) (<= #xd800 value #xdfff))
                           (%preflight-json-error pathname (- index 4)
-                                                 "JSON Unicode scalar is not representable."))
-                        (write-char decoded stream))))
-                   (otherwise
-                    (%preflight-json-error pathname (1- index)
-                                           "Invalid JSON escape \\~A." escape)))))
-              ((< (char-code character) 32)
-               (%preflight-json-error pathname (1- index)
-                                      "Control character in JSON string."))
-              (t (write-char character stream)))))
+                                                 "JSON Unicode escape is not a scalar value."))
+                        (let ((decoded (code-char value)))
+                          (unless decoded
+                            (%preflight-json-error pathname (- index 4)
+                                                   "JSON Unicode scalar is not representable."))
+                          (write-decoded-character decoded))))
+                     (otherwise
+                      (%preflight-json-error pathname (1- index)
+                                             "Invalid JSON escape \\~A." escape)))))
+                ((< (char-code character) 32)
+                 (%preflight-json-error pathname (1- index)
+                                        "Control character in JSON string."))
+                (t (write-decoded-character character))))))
     (values (get-output-stream-string stream) index)))
 
 (defun %preflight-json-literal (text index literal value pathname)
@@ -563,12 +579,14 @@ published contract, which keeps post-build validation a separate observation.
           do (incf index))
     (when (= start index)
       (%preflight-json-error pathname index "Expected a JSON integer."))
+    (when (> (- index start) +build-contract-preflight-max-integer-digits+)
+      (%preflight-json-error pathname start "JSON integer exceeds the preflight limit."))
     (when (and (> (- index start) 1) (char= (char text start) #\0))
       (%preflight-json-error pathname start "JSON integers cannot have leading zeroes."))
     (values (parse-integer text :start start :end index) index)))
 
 (defun %preflight-json-value (text index pathname depth)
-  (when (> depth +build-contract-preflight-max-depth+)
+  (when (>= depth +build-contract-preflight-max-depth+)
     (%preflight-json-error pathname index "JSON nesting exceeds the preflight limit."))
   (setf index (%preflight-json-whitespace text index))
   (when (>= index (length text))
@@ -588,7 +606,8 @@ published contract, which keeps post-build validation a separate observation.
 
 (defun %preflight-json-array (text index pathname depth)
   (incf index)
-  (let ((values nil))
+  (let ((values nil)
+        (count 0))
     (setf index (%preflight-json-whitespace text index))
     (when (and (< index (length text)) (char= (char text index) #\]))
       (return-from %preflight-json-array
@@ -596,6 +615,9 @@ published contract, which keeps post-build validation a separate observation.
     (loop
       (multiple-value-bind (value next)
           (%preflight-json-value text index pathname depth)
+        (incf count)
+        (when (> count +build-contract-preflight-max-container-members+)
+          (%preflight-json-error pathname index "JSON array exceeds the preflight limit."))
         (push value values)
         (setf index (%preflight-json-whitespace text next)))
       (when (>= index (length text))
@@ -609,7 +631,8 @@ published contract, which keeps post-build validation a separate observation.
 
 (defun %preflight-json-object (text index pathname depth)
   (incf index)
-  (let ((entries nil))
+  (let ((entries nil)
+        (count 0))
     (setf index (%preflight-json-whitespace text index))
     (when (and (< index (length text)) (char= (char text index) #\}))
       (return-from %preflight-json-object
@@ -624,6 +647,9 @@ published contract, which keeps post-build validation a separate observation.
           (%preflight-json-error pathname index "Expected colon after JSON object member."))
         (multiple-value-bind (value after-value)
             (%preflight-json-value text (1+ index) pathname depth)
+          (incf count)
+          (when (> count +build-contract-preflight-max-container-members+)
+            (%preflight-json-error pathname index "JSON object exceeds the preflight limit."))
           (push (cons key value) entries)
           (setf index (%preflight-json-whitespace text after-value))))
       (when (>= index (length text))
@@ -635,25 +661,87 @@ published contract, which keeps post-build validation a separate observation.
         (otherwise
          (%preflight-json-error pathname index "Expected comma or close brace."))))))
 
-(defun %preflight-json-file (pathname)
-  "Read one bounded generated JSON file and reject a detectable concurrent edit."
+(defun %preflight-directory-prefix-p (prefix candidate)
+  "Whether resolved directory component list PREFIX contains CANDIDATE."
+  (and (listp prefix) (listp candidate)
+       (<= (length prefix) (length candidate))
+       (every #'equal prefix (subseq candidate 0 (length prefix)))))
+
+(defun %preflight-resolve-build-root (directory)
+  "Resolve caller-authorized DIRECTORY once before opening generated children."
+  (let ((requested (uiop:ensure-directory-pathname directory)))
+    (unless (probe-file requested)
+      (error "Generated build directory ~A does not exist." requested))
+    (let ((resolved (truename requested)))
+      (unless (and resolved (pathname-directory resolved))
+        (error "Generated build directory ~A cannot be resolved." requested))
+      (uiop:ensure-directory-pathname resolved))))
+
+(defun %preflight-resolve-contained-file (pathname root label)
+  "Resolve PATHNAME and reject a resolved child escaping trusted ROOT.
+
+ROOT is the resolved build root captured at preflight entry.  This portable
+check catches visible symlink escapes, but it cannot make path operations
+atomic if an untrusted writable parent is concurrently replacing names.
+"
   (unless (probe-file pathname)
-    (error "Required generated build file ~A is missing." pathname))
-  (let ((length (with-open-file (stream pathname :direction :input
-                                                 :element-type '(unsigned-byte 8))
-                  (file-length stream))))
-    (unless (and (integerp length) (<= 0 length +build-contract-preflight-max-bytes+))
-      (error "Generated build JSON ~A exceeds the preflight size limit." pathname))
-    (let* ((before (sha256-hex pathname))
-           (text (uiop:read-file-string pathname :external-format :utf-8))
-           (after (sha256-hex pathname)))
-      (unless (string= before after)
-        (error "Generated build JSON ~A changed while preflight read it." pathname))
-      (multiple-value-bind (value index)
-          (%preflight-json-value text 0 pathname 0)
-        (unless (= (%preflight-json-whitespace text index) (length text))
-          (%preflight-json-error pathname index "Trailing data after JSON value."))
-        value))))
+    (error "Required generated build file ~A is missing." label))
+  (let ((resolved (truename pathname)))
+    (unless (and resolved
+                 (equal (pathname-host resolved) (pathname-host root))
+                 (equal (pathname-device resolved) (pathname-device root))
+                 (%preflight-directory-prefix-p (pathname-directory root)
+                                                 (pathname-directory resolved)))
+      (error "Generated build file ~A resolves outside the trusted build root."
+             label))
+    resolved))
+
+(defun %preflight-bounded-file-length (pathname label)
+  (with-open-file (stream pathname :direction :input
+                                   :element-type '(unsigned-byte 8))
+    (let ((length (file-length stream)))
+      (unless (and (integerp length) (<= 0 length +build-contract-preflight-max-bytes+))
+        (error "Generated build file ~A exceeds the preflight size limit." label))
+      length)))
+
+(defun %preflight-after-initial-digest (pathname)
+  (when *preflight-after-initial-digest-hook*
+    (funcall *preflight-after-initial-digest-hook* pathname)))
+
+(defun %preflight-read-text-file (pathname root label)
+  "Read one bounded, contained text file and detect a changed content digest."
+  (let ((resolved (%preflight-resolve-contained-file pathname root label)))
+    (%preflight-bounded-file-length resolved label)
+    (let ((before (sha256-hex resolved)))
+      (%preflight-after-initial-digest resolved)
+      (%preflight-bounded-file-length resolved label)
+      (let* ((text (uiop:read-file-string resolved :external-format :utf-8))
+             (after (sha256-hex resolved)))
+        (unless (string= before after)
+          (error "Generated build file ~A changed while preflight read it." label))
+        (values text resolved)))))
+
+(defun %preflight-file-digest (pathname root label)
+  "Return one bounded, contained file digest after a detectable drift check."
+  (let ((resolved (%preflight-resolve-contained-file pathname root label)))
+    (%preflight-bounded-file-length resolved label)
+    (let ((before (sha256-hex resolved)))
+      (%preflight-after-initial-digest resolved)
+      (%preflight-bounded-file-length resolved label)
+      (let ((after (sha256-hex resolved)))
+        (unless (string= before after)
+          (error "Generated build file ~A changed while preflight read it." label))
+        before))))
+
+(defun %preflight-json-file (pathname root label)
+  "Read one bounded contained JSON file using the non-evaluating decoder."
+  (multiple-value-bind (text resolved)
+      (%preflight-read-text-file pathname root label)
+    (multiple-value-bind (value index)
+        (%preflight-json-value text 0 resolved 0)
+      (unless (= (%preflight-json-whitespace text index) (length text))
+        (%preflight-json-error resolved index "Trailing data after JSON value."))
+      value)))
 
 (defun %preflight-object-value (object key)
   (unless (typep object '%decoded-json-object)
@@ -668,6 +756,18 @@ published contract, which keeps post-build validation a separate observation.
     (error "Generated build contract requires a JSON object, got ~S." object))
   (let ((entry (assoc key (%decoded-json-object-entries object) :test #'string=)))
     (and entry (cdr entry))))
+
+(defun %preflight-closed-object (object label required allowed)
+  "Require OBJECT's exact named-member vocabulary and all REQUIRED members."
+  (unless (typep object '%decoded-json-object)
+    (error "Generated build contract member ~A must be a JSON object." label))
+  (dolist (entry (%decoded-json-object-entries object))
+    (unless (member (car entry) allowed :test #'string=)
+      (error "Generated build contract member ~A contains unknown field ~S."
+             label (car entry))))
+  (dolist (key required)
+    (%preflight-object-value object key))
+  object)
 
 (defun %preflight-array-values (value label)
   (unless (typep value '%decoded-json-array)
@@ -701,7 +801,9 @@ published contract, which keeps post-build validation a separate observation.
                 components))))
 
 (defun %preflight-provenance-location (value source-identities label)
-  (let ((object value))
+  (let ((object (%preflight-closed-object value label
+                                          '("source" "line" "column")
+                                          '("source" "line" "column"))))
     (let ((source (%preflight-nonempty-string
                    (%preflight-object-value object "source")
                    (format nil "~A source" label))))
@@ -716,6 +818,9 @@ published contract, which keeps post-build validation a separate observation.
 (defun %preflight-origin (value source-identities label)
   "Validate a null programmatic origin or the closed serialized origin shape."
   (when value
+    (%preflight-closed-object value label
+                              '("definition" "template_uses")
+                              '("definition" "template_uses"))
     (%preflight-provenance-location
      (%preflight-object-value value "definition") source-identities
      (format nil "~A definition" label))
@@ -733,6 +838,9 @@ published contract, which keeps post-build validation a separate observation.
         (summaries nil))
     (dolist (record (%preflight-array-values
                      (%preflight-object-value manifest "artifacts") "artifacts"))
+      (%preflight-closed-object record "artifact"
+                                '("kind" "path" "sha256")
+                                '("kind" "path" "sha256"))
       (let* ((path (%preflight-nonempty-string
                     (%preflight-object-value record "path") "artifact path"))
              (kind (%preflight-nonempty-string
@@ -748,9 +856,7 @@ published contract, which keeps post-build validation a separate observation.
         (unless (%hex-sha256-p hash)
           (error "Generated build artifact ~S has an invalid SHA-256 digest." path))
         (let ((artifact (merge-pathnames path directory)))
-          (unless (probe-file artifact)
-            (error "Generated build artifact ~S is missing." path))
-          (unless (string= hash (sha256-hex artifact))
+          (unless (string= hash (%preflight-file-digest artifact directory path))
             (error "Generated build artifact ~S does not match manifest.json." path)))
         (push path seen)
         (push (list :kind kind :path path :sha256 hash) summaries)))
@@ -764,6 +870,8 @@ published contract, which keeps post-build validation a separate observation.
   (let ((identities nil))
     (dolist (record (%preflight-array-values
                      (%preflight-object-value manifest "sources") "sources"))
+      (%preflight-closed-object record "source" '("path" "sha256")
+                                '("path" "sha256"))
       (let ((path (%preflight-nonempty-string
                    (%preflight-object-value record "path") "source path"))
             (hash (%preflight-nonempty-string
@@ -778,50 +886,128 @@ published contract, which keeps post-build validation a separate observation.
     (nreverse identities)))
 
 (defun %preflight-selected-declarations (manifest)
-  (let ((selected (%preflight-object-value manifest "selected")))
+  (let ((selected (%preflight-closed-object
+                   (%preflight-object-value manifest "selected") "selected"
+                   '("layout" "topology" "device" "profile")
+                   '("layout" "topology" "device" "profile"))))
     (dolist (field '("layout" "topology" "device" "profile"))
       (%preflight-nonempty-string (%preflight-object-value selected field)
                                   (format nil "selected ~A" field)))))
 
+(defun %preflight-manifest-compiler (manifest)
+  (let ((compiler (%preflight-closed-object
+                   (%preflight-object-value manifest "compiler") "compiler"
+                   '("name" "version") '("name" "version"))))
+    (unless (string= (%preflight-object-value compiler "name") "ivory-key")
+      (error "Generated build contract names an unknown compiler."))
+    (%preflight-nonempty-string (%preflight-object-value compiler "version")
+                                "compiler version")))
+
+(defun %preflight-manifest-fidelity (manifest)
+  (let ((seen nil))
+    (dolist (record (%preflight-array-values
+                     (%preflight-object-value manifest "fidelity") "fidelity"))
+      (%preflight-closed-object record "fidelity record"
+                                '("feature" "grade" "detail")
+                                '("feature" "grade" "detail"))
+      (let ((feature (%preflight-nonempty-string
+                      (%preflight-object-value record "feature") "fidelity feature"))
+            (grade (%preflight-nonempty-string
+                    (%preflight-object-value record "grade") "fidelity grade"))
+            (detail (%preflight-nonempty-string
+                     (%preflight-object-value record "detail") "fidelity detail")))
+        (unless (member grade '("exact" "emulated" "lossy" "unsupported")
+                        :test #'string=)
+          (error "Generated build contract has unknown fidelity grade ~S." grade))
+        (let ((identity (list feature grade detail)))
+          (when (member identity seen :test #'equal)
+            (error "Generated build contract repeats fidelity record ~S." identity))
+          (push identity seen))))))
+
+(defun %preflight-manifest-input-coverage (manifest)
+  (let ((seen nil))
+    (dolist (record (%preflight-array-values
+                     (%preflight-object-value manifest "input_coverage")
+                     "input coverage"))
+      (%preflight-closed-object record "input coverage record"
+                                '("position" "disposition")
+                                '("position" "disposition"))
+      (let ((position (%preflight-nonempty-string
+                       (%preflight-object-value record "position")
+                       "input coverage position"))
+            (disposition (%preflight-nonempty-string
+                          (%preflight-object-value record "disposition")
+                          "input coverage disposition")))
+        (unless (member disposition '("physical" "unreachable") :test #'string=)
+          (error "Generated build contract has unknown input coverage disposition ~S."
+                 disposition))
+        (when (member position seen :test #'string=)
+          (error "Generated build contract repeats input coverage position ~S."
+                 position))
+        (push position seen)))))
+
 (defun %preflight-source-map (source-map source-identities artifacts)
+  (%preflight-closed-object source-map "source map"
+                            '("schema_version" "mappings")
+                            '("schema_version" "mappings"))
   (unless (= (%preflight-object-value source-map "schema_version")
              +build-contract-schema-version+)
     (error "source-map.json schema version does not match this compiler."))
-  (let ((count 0))
+  (let ((count 0)
+        (seen nil))
     (dolist (mapping (%preflight-array-values
                       (%preflight-object-value source-map "mappings") "mappings"))
+      (%preflight-closed-object mapping "source-map mapping"
+                                '("artifact" "backend" "binding" "context"
+                                  "mapping_index" "mechanism" "origin")
+                                '("artifact" "backend" "binding" "context"
+                                  "mapping_index" "mechanism" "origin"))
       (let* ((artifact (%preflight-nonempty-string
                         (%preflight-object-value mapping "artifact") "mapping artifact"))
              (backend (%preflight-nonempty-string
                        (%preflight-object-value mapping "backend") "mapping backend"))
+             (binding (%preflight-nonempty-string
+                       (%preflight-object-value mapping "binding") "mapping binding"))
+             (mapping-index (%preflight-positive-integer
+                             (%preflight-object-value mapping "mapping_index")
+                             "mapping index"))
              (summary (find artifact artifacts :test #'string=
                             :key (lambda (row) (getf row :path)))))
         (unless (and summary (string= backend (getf summary :kind)))
           (error "Source-map mapping for ~S has no matching manifest artifact."
                  artifact))
-        (%preflight-nonempty-string (%preflight-object-value mapping "binding")
-                                    "mapping binding")
         (unless (string= (%preflight-object-value mapping "mechanism")
                          "direct-key-entry")
           (error "Source-map mapping has an unrecognized lowering mechanism."))
-        (%preflight-positive-integer (%preflight-object-value mapping "mapping_index")
-                                     "mapping index")
         (let ((context (%preflight-object-value mapping "context")))
           (unless (or (null context) (stringp context))
             (error "Source-map mapping context must be a string or null.")))
         (%preflight-origin (%preflight-object-value mapping "origin") source-identities
                            (format nil "mapping ~A" artifact))
+        (let ((identity (list artifact binding
+                              (%preflight-object-value mapping "context")
+                              mapping-index)))
+          (when (member identity seen :test #'equal)
+            (error "Source-map repeats mapping identity ~S." identity))
+          (push identity seen))
         (incf count)))
     count))
 
 (defun %preflight-allocations (allocations source-identities)
+  (%preflight-closed-object allocations "allocations"
+                            '("schema_version" "allocations")
+                            '("schema_version" "allocations"))
   (unless (= (%preflight-object-value allocations "schema_version")
              +build-contract-schema-version+)
     (error "allocations.json schema version does not match this compiler."))
-  (let ((count 0))
+  (let ((count 0)
+        (seen nil))
     (dolist (allocation (%preflight-array-values
                           (%preflight-object-value allocations "allocations")
                           "allocations"))
+      (%preflight-closed-object allocation "allocation"
+                                '("kind" "owner" "pool" "value" "origins")
+                                '("kind" "owner" "pool" "value" "origins"))
       (dolist (field '("kind" "owner" "pool" "value"))
         (%preflight-nonempty-string (%preflight-object-value allocation field)
                                     (format nil "allocation ~A" field)))
@@ -832,6 +1018,12 @@ published contract, which keeps post-build validation a separate observation.
           (error "Every concrete allocation must carry at least one explicit origin."))
         (dolist (origin origins)
           (%preflight-origin origin source-identities "allocation")))
+      (let ((identity (mapcar (lambda (field)
+                                (%preflight-object-value allocation field))
+                              '("kind" "owner" "pool" "value"))))
+        (when (member identity seen :test #'equal)
+          (error "Generated build contract repeats concrete allocation ~S." identity))
+        (push identity seen))
       (incf count))
     count))
 
@@ -840,19 +1032,37 @@ published contract, which keeps post-build validation a separate observation.
                       :test #'string=)))
     (if (null entry)
         :absent
-        (progn
-          (dolist (record (%preflight-array-values (cdr entry) "validation"))
+        (let ((records (%preflight-array-values (cdr entry) "validation"))
+              (seen nil))
+          (unless records
+            (error "Recorded validation evidence must not be empty."))
+          (dolist (record records)
+            (%preflight-closed-object record "validation evidence"
+                                      '("artifact" "tool" "version" "version_sha256"
+                                        "status" "result_sha256")
+                                      '("artifact" "tool" "version" "version_sha256"
+                                        "status" "result_sha256"))
             (let ((artifact (%preflight-nonempty-string
                              (%preflight-object-value record "artifact")
                              "validation artifact")))
               (unless (find artifact artifacts :test #'string=
                             :key (lambda (summary) (getf summary :path)))
-                (error "Validation evidence names non-emitted artifact ~S." artifact)))
+                (error "Validation evidence names non-emitted artifact ~S." artifact))
+              (let ((identity (list artifact
+                                    (%preflight-nonempty-string
+                                     (%preflight-object-value record "tool")
+                                     "validation tool"))))
+                (when (member identity seen :test #'equal)
+                  (error "Validation evidence repeats artifact/tool pair ~S." identity))
+                (push identity seen)))
             (unless (string= (%preflight-object-value record "status") "passed")
               (error "Recorded validation evidence is not passing."))
-            (dolist (field '("tool" "version" "version_sha256" "result_sha256"))
+            (dolist (field '("version"))
               (%preflight-nonempty-string (%preflight-object-value record field)
-                                          (format nil "validation ~A" field))))
+                                          (format nil "validation ~A" field)))
+            (dolist (field '("version_sha256" "result_sha256"))
+              (unless (%hex-sha256-p (%preflight-object-value record field))
+                (error "Generated validation evidence has invalid ~A." field))))
           :passed))))
 
 (defun preflight-build-contract-directory (directory)
@@ -865,32 +1075,42 @@ restart a service, inspect a device, or authorize installation.  Therefore a
 successful result is a build-integrity prerequisite—not semantic migration or
 live-device proof.
 "
-  (let ((build (uiop:ensure-directory-pathname directory)))
-    (unless (probe-file build)
-      (error "Generated build directory ~A does not exist." build))
-    (let* ((manifest (%preflight-json-file (merge-pathnames "manifest.json" build)))
-           (allocations (%preflight-json-file (merge-pathnames "allocations.json" build)))
-           (source-map (%preflight-json-file (merge-pathnames "source-map.json" build)))
+  (let ((build (%preflight-resolve-build-root directory)))
+    (let* ((manifest (%preflight-json-file (merge-pathnames "manifest.json" build)
+                                           build "manifest.json"))
+           (allocations (%preflight-json-file (merge-pathnames "allocations.json" build)
+                                              build "allocations.json"))
+           (source-map (%preflight-json-file (merge-pathnames "source-map.json" build)
+                                             build "source-map.json"))
            (report (merge-pathnames "REPORT.md" build))
            (schema (%preflight-object-value manifest "schema_version")))
+      (%preflight-closed-object manifest "manifest"
+                                '("artifacts" "compiler" "fidelity" "input_coverage"
+                                  "language_version" "schema_version" "selected" "sources")
+                                '("artifacts" "compiler" "fidelity" "input_coverage"
+                                  "language_version" "schema_version" "selected" "sources"
+                                  "validation"))
       (unless (= schema +build-contract-schema-version+)
         (error "manifest.json schema version does not match this compiler."))
       (%preflight-positive-integer (%preflight-object-value manifest "language_version")
                                    "language version")
       (%preflight-selected-declarations manifest)
-      (unless (probe-file report)
-        (error "Required generated build file REPORT.md is missing."))
-      (let ((report-text (uiop:read-file-string report :external-format :utf-8))
-            (artifacts (%preflight-manifest-artifacts build manifest))
-            (sources (%preflight-manifest-source-identities manifest)))
-        (unless (and (plusp (length report-text))
-                     (uiop:string-prefix-p "# Ivory Key build report" report-text))
-          (error "REPORT.md is not a recognizable Ivory Key build report."))
-        (list :schema-version schema
-              :artifacts artifacts
-              :mapping-count (%preflight-source-map source-map sources artifacts)
-              :allocation-count (%preflight-allocations allocations sources)
-              :validation-evidence (%preflight-validation-evidence manifest artifacts))))))
+      (%preflight-manifest-compiler manifest)
+      (%preflight-manifest-fidelity manifest)
+      (%preflight-manifest-input-coverage manifest)
+      (multiple-value-bind (report-text ignored-report-pathname)
+          (%preflight-read-text-file report build "REPORT.md")
+        (declare (ignore ignored-report-pathname))
+        (let ((artifacts (%preflight-manifest-artifacts build manifest))
+              (sources (%preflight-manifest-source-identities manifest)))
+          (unless (and (plusp (length report-text))
+                       (uiop:string-prefix-p "# Ivory Key build report" report-text))
+            (error "REPORT.md is not a recognizable Ivory Key build report."))
+          (list :schema-version schema
+                :artifacts artifacts
+                :mapping-count (%preflight-source-map source-map sources artifacts)
+                :allocation-count (%preflight-allocations allocations sources)
+                :validation-evidence (%preflight-validation-evidence manifest artifacts)))))))
 
 (defun %object (&rest entries)
   (%make-json-object entries))

@@ -60,8 +60,9 @@ is read-only with respect to the checkout.
 
 The frozen historical baseline is documented in
 [manna-cadet-baseline.md](manna-cadet-baseline.md): Manna Cadet at commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b`, with five exact source-file hashes
-and the canonical projected truth-table digest. Run
+`e5f7e81cdb6e30a7735cdcab622ede29007e379b`, with five primary and two
+regression-only chorded source-file hashes and the canonical projected
+truth-table digest. Run
 `tools/manna-truth-table.lisp verify ROOT` (or the separately invoked
 `tests/migration/manna-truth-table.lisp ROOT`) against the read-only checkout
 before reviewing the transcription. This proves the static source snapshot;
@@ -77,6 +78,10 @@ every selected primary layer covers its `defsrc` table (68 and 72 physical
 positions respectively).  The evidence audit's Phase 7 ledger separates this
 closed inventory proof from the remaining owner policy choices and from
 historical evidence that still needs a frozen-runtime capture.
+It also inventories the two older chorded files structurally (47 aliases and
+29 literal chord rows each) while preserving P-04: neither is an active Manna
+profile, and the 360 file's `menu`/`caps` source-token mismatch is not silently
+rewritten or treated as runtime evidence.
 
 ## Work still required before a migration claim
 

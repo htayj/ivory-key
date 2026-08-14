@@ -57,6 +57,13 @@
   (ivory-key.build-contract:write-build-contract-files
    (build-contract-test-contract pipeline) directory))
 
+(defun build-contract-test-rewrite-file (pathname transformation)
+  "Replace one test-owned file with TRANSFORMATION of its current text."
+  (let ((rewritten (funcall transformation (uiop:read-file-string pathname))))
+    (with-open-file (stream pathname :direction :output :if-exists :supersede
+                                    :external-format :utf-8)
+      (write-string rewritten stream))))
+
 (deftest build-contract-sha256-matches-standard-vector-and-uses-utf8
   (is-equal "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
             (ivory-key.build-contract:sha256-hex "abc"))
@@ -359,3 +366,116 @@
               (ivory-key.build-contract:preflight-build-contract-directory directory)))
         (is-equal 2 (getf result :mapping-count))
         (is-equal 1 (getf result :allocation-count))))))
+
+(deftest build-contract-preflight-bounds-untrusted-json-resources
+  (with-build-contract-test-directory (directory)
+    (let ((pathname (merge-pathnames "untrusted.json" directory)))
+      (flet ((rejects (text)
+               (with-open-file (stream pathname :direction :output :if-exists :supersede
+                                                :if-does-not-exist :create
+                                                :external-format :utf-8)
+                 (write-string text stream))
+               (signals error
+                 (ivory-key.build-contract::%preflight-json-file
+                  pathname directory "untrusted.json"))))
+        ;; Every case is valid enough to reach its explicit parser bound.
+        (rejects (concatenate 'string
+                              (make-string ivory-key.build-contract::+build-contract-preflight-max-depth+
+                                           :initial-element #\[)
+                              "0"
+                              (make-string ivory-key.build-contract::+build-contract-preflight-max-depth+
+                                           :initial-element #\])))
+        (rejects (with-output-to-string (stream)
+                   (write-char #\[ stream)
+                   (dotimes (index (1+ ivory-key.build-contract::+build-contract-preflight-max-container-members+))
+                     (when (plusp index) (write-char #\, stream))
+                     (write-char #\0 stream))
+                   (write-char #\] stream)))
+        (rejects (format nil "\"~A\""
+                         (make-string (1+ ivory-key.build-contract::+build-contract-preflight-max-string-characters+)
+                                      :initial-element #\x)))
+        (rejects (make-string (1+ ivory-key.build-contract::+build-contract-preflight-max-integer-digits+)
+                              :initial-element #\1))))))
+
+(deftest build-contract-preflight-refuses-unknown-duplicate-and-malformed-shapes
+  (with-build-contract-test-directory (directory)
+    (let ((pipeline (build-contract-test-pipeline)))
+      (build-contract-test-write directory pipeline)
+      (build-contract-test-rewrite-file
+       (merge-pathnames "manifest.json" directory)
+       (lambda (text)
+         (let ((trimmed (string-right-trim '(#\Newline #\Return) text)))
+           (concatenate 'string (subseq trimmed 0 (1- (length trimmed)))
+                        ",\"unknown\":true}"))))
+      (signals error
+        (ivory-key.build-contract:preflight-build-contract-directory directory))))
+  (with-build-contract-test-directory (directory)
+    (let ((pipeline (build-contract-test-pipeline)))
+      (build-contract-test-write directory pipeline)
+      (with-open-file (stream (merge-pathnames "manifest.json" directory)
+                              :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+        (write-string "{\"schema_version\":5,\"schema_version\":5}" stream))
+      (signals error
+        (ivory-key.build-contract:preflight-build-contract-directory directory))))
+  (with-build-contract-test-directory (directory)
+    (let ((pipeline (build-contract-test-pipeline)))
+      (build-contract-test-write directory pipeline)
+      (with-open-file (stream (merge-pathnames "source-map.json" directory)
+                              :direction :output :if-exists :supersede
+                              :external-format :utf-8)
+        (write-string "{\"mappings\":[{\"artifact\":\"keymap.xkb\"}],\"schema_version\":5}" stream))
+      (signals error
+        (ivory-key.build-contract:preflight-build-contract-directory directory)))))
+
+(deftest build-contract-preflight-refuses-invalid-evidence-digests
+  (with-build-contract-test-directory (directory)
+    (let* ((pipeline (build-contract-test-pipeline))
+           (evidence
+             (list (list :artifact "keymap.xkb" :tool "xkbcli" :version "xkbcli test"
+                         :version-sha256 (ivory-key.build-contract:sha256-hex "xkbcli test\n")
+                         :status "passed"
+                         :result-sha256 (ivory-key.build-contract:sha256-hex "accepted\n"))))
+           (contract (build-contract-test-contract pipeline :validation-evidence evidence)))
+      (ivory-key.backend:write-pipeline-result pipeline directory)
+      (ivory-key.build-contract:write-build-contract-files contract directory)
+      (build-contract-test-rewrite-file
+       (merge-pathnames "manifest.json" directory)
+       (lambda (text)
+         (let* ((marker "\"version_sha256\":\"")
+                (start (+ (search marker text) (length marker))))
+           (setf (char text start) #\Z)
+           text)))
+      (signals error
+        (ivory-key.build-contract:preflight-build-contract-directory directory)))))
+
+(deftest build-contract-preflight-refuses-symlinked-child-escape
+  (with-build-contract-test-directory (directory)
+    (with-build-contract-test-directory (outside-directory)
+      (let* ((pipeline (build-contract-test-pipeline))
+             (artifact (merge-pathnames "layout.kbd" directory))
+             (outside (merge-pathnames "outside.kbd" outside-directory)))
+        (build-contract-test-write directory pipeline)
+        (with-open-file (stream outside :direction :output :if-does-not-exist :create
+                                        :external-format :utf-8)
+          (write-string "outside build root" stream))
+        (delete-file artifact)
+        (make-test-symbolic-link outside artifact)
+        (signals error
+          (ivory-key.build-contract:preflight-build-contract-directory directory))
+        ;; The generic test cleanup intentionally avoids traversing symlinks;
+        ;; unlink this test-owned escape before its enclosing temporary tree.
+        (delete-file artifact)))))
+
+(deftest build-contract-preflight-detects-replacement-during-observation
+  (with-build-contract-test-directory (directory)
+    (let ((pipeline (build-contract-test-pipeline)))
+      (build-contract-test-write directory pipeline)
+      (let ((ivory-key.build-contract::*preflight-after-initial-digest-hook*
+              (lambda (pathname)
+                (when (string= (file-namestring pathname) "manifest.json")
+                  (with-open-file (stream pathname :direction :output :if-exists :supersede
+                                                  :external-format :utf-8)
+                    (write-string "{}" stream))))))
+        (signals error
+          (ivory-key.build-contract:preflight-build-contract-directory directory))))))

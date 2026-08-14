@@ -52,6 +52,16 @@ live proof.  It verifies only the published build directory currently named by
 the caller; it neither proves Manna semantics nor grants installation,
 activation, restart, dotfile, or input-injection authority.
 
+Treat `BUILD-DIRECTORY` and every file beneath it as untrusted read-only input.
+Before invoking preflight, the authorized operator must identify a trusted,
+non-hostile parent for that build directory.  Preflight resolves the build root
+once, rejects visible child symlinks that resolve outside it, applies bounded
+non-evaluating JSON parsing, and brackets reads with content digests.  Portable
+Common Lisp does not provide an atomic, descriptor-relative traversal API, so
+this is not a guarantee against a hostile writer replacing names during or
+after the check.  Regenerate or re-run the gate after any such possibility; do
+not use a successful preflight as authorization to install or activate files.
+
 ## Installation transaction
 
 The authorized session must fill in the exact host paths and service names

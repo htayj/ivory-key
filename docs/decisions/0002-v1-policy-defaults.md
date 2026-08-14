@@ -43,7 +43,7 @@ it does not mean that a parser is permitted to silently delete source data.
 | P-06 | Losing-candidate replay | No replay; one candidate set owns and decides its events. |
 | P-07 | Absence, clocks, and repetition | Only the finite literal-millisecond algebra below; reject all other forms. |
 | P-08 | Cumulative milestone output | Commit-time output plus reversible effects only; no cumulative milestone semantics. |
-| P-09 | Concurrent consumers of one latch | One proven consumer; concurrent multi-consumer use is refused pending reservation semantics. |
+| P-09 | Concurrent consumers of one latch | One reservation per anchor-time candidate set; an independent pending consumer of the same generation is refused. |
 | P-10 | Context-observation time | Anchor-down snapshot only; no source override. |
 | P-11 | Patch precedence and simultaneous activation | Explicit global precedence, transparent fall-through, and equal-precedence conflict refusal. |
 | P-12 | Manna candidate priorities | No timed-candidate priority is selected; four exact immediate held interactions need no priority. |

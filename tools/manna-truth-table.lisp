@@ -33,6 +33,15 @@
     ("space-cadet-layered-mnemonics.md" .
      "8c4c975e0acee03f96f51ae144f2c12c1efc249672b4ef50e39a781e8f27bc7b")))
 
+;; These older files are not part of the selected layered profile or the
+;; canonical static-table digest.  They are separately frozen so their
+;; regression-only chord evidence remains mechanically reviewable.
+(defparameter +chorded-baseline-files+
+  '(("kanata/kinesis.advantage2.kanata.kbd" .
+     "e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd")
+    ("kanata/kinesis.advantage360.kanata.kbd" .
+     "45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7")))
+
 ;; Filled from the canonical render of the frozen source.  Keeping this apart
 ;; from the source-file hashes catches accidental parser/ordering regressions.
 (defparameter +expected-truth-table-sha256+
@@ -193,7 +202,7 @@
     (unless (string= commit +baseline-commit+)
       (error "Expected frozen Manna Cadet commit ~A, got ~A."
              +baseline-commit+ commit)))
-  (dolist (file +baseline-files+)
+  (dolist (file (append +baseline-files+ +chorded-baseline-files+))
     (let ((actual (sha256 (pathname-at root (car file)))))
       (unless (string= actual (cdr file))
         (error "Frozen hash mismatch for ~A: expected ~A, got ~A."
@@ -371,6 +380,82 @@
 (defparameter +advantage360-game-aliases+
   '("GoGame" "ExitGame" "Gjmp" "Ghop" "Gnp7" "Gctl" "Galt" "Gsup"))
 
+;; The two non-layered source files are not executable migration profiles.
+;; These rows preserve only their literal structural facts for P-04 review.
+(defparameter +chorded-variant-specifications+
+  '(("Advantage 2 chorded" "kanata/kinesis.advantage2.kanata.kbd" 68)
+    ("Advantage 360 chorded" "kanata/kinesis.advantage360.kanata.kbd" 72)))
+
+;; Alias, tap-repress timeout, hold timeout, literal tap action, literal hold
+;; action.  Unlike the selected layered sources, the old chorded files do not
+;; contain the two function-layer aliases and retain 200/200 for osft/csft.
+(defparameter +chorded-tap-hold-rows+
+  '(("Sf" "200" "200" "f" "lshift")
+    ("Cd" "200" "200" "d" "lctl")
+    ("Ms" "200" "200" "s" "lalt")
+    ("sa" "250" "250" "a" "lmet")
+    ("Sj" "200" "200" "j" "lshift")
+    ("Ck" "200" "200" "k" "lctl")
+    ("Ml" "200" "200" "l" "lalt")
+    ("s;" "200" "200" ";" "lmet")
+    ("Hro" "200" "200" "bspc" "ralt")
+    ("Hsp" "200" "200" "spc" "ralt")
+    ("eoam" "200" "200" "esc" "rmet")
+    ("qoam" "200" "200" "'" "rmet")
+    ("osft" "200" "200" "0" "lshift")
+    ("csft" "200" "200" "0" "rshift")
+    ("rtop" "200" "200" "ent" "@top")
+    ("gdel" "200" "200" "del" "@gr")))
+
+(defparameter +chorded-normal-alias-placement-rows+
+  '(("esc" "eoam") ("a" "sa") ("s" "Ms") ("d" "Cd")
+    ("f" "Sf") ("j" "Sj") ("k" "Ck") ("l" "Ml")
+    (";" "s;") ("'" "qoam") ("lctl" "gr") ("rctl" "top")
+    ("bspc" "Hro") ("del" "gdel") ("ent" "rtop") ("spc" "Hsp")))
+
+(defparameter +chorded-normal-non-source-actions+
+  '(("Advantage 2 chorded" ("lalt" "lrld"))
+    ("Advantage 360 chorded" ("K18" "F18") ("K20" "F20")
+     ("K19" "F19") ("K21" "F21") ("lalt" "lrld"))))
+
+(defparameter +chorded-advantage360-local-keys+
+  '(("K18" "127") ("K19" "130") ("K20" "115") ("K21" "142")))
+
+;; First participant, second participant, and carrier alias.  Every source row
+;; uses the same literal fields: 45, first-release, and ().  This list records
+;; no commitment, replay, arbitration, or output semantics.
+(defparameter +chorded-combo-rows+
+  (list
+   '("1" "2" "sc-i")
+   '("2" "3" "sc-ii")
+   '("3" "4" "sc-iii")
+   '("4" "5" "sc-iv")
+   '("6" "7" "sc-fingerleft")
+   '("7" "8" "sc-thumbup")
+   '("8" "9" "sc-thumbdown")
+   '("9" "0" "sc-fingerright")
+   '("q" "w" "sc-macro")
+   '("w" "e" "sc-terminal")
+   '("e" "r" "sc-quote")
+   '("r" "t" "sc-overstrike")
+   '("t" "y" "sc-clearinput")
+   '("y" "u" "sc-clearscreen")
+   '("u" "i" "sc-holdoutput")
+   '("i" "o" "sc-stopoutput")
+   '("o" "p" "sc-abort")
+   (list "p" (string #\\) "sc-break")
+   '("s" "d" "sc-system")
+   '("x" "c" "sc-network")
+   '("menu" "left" "sc-altmode")
+   '("grv" "menu" "sc-modelock")
+   '("down" "[" "sc-end")
+   '("j" "k" "sc-call")
+   '("g" "h" "sc-help")
+   '("k" "l" "sc-resume")
+   '("m" "," "sc-repeat")
+   '("," "." "sc-status")
+   '("h" "j" "sc-line")))
+
 (defun tool-directory ()
   (uiop:pathname-directory-pathname
    (or *load-truename*
@@ -452,6 +537,209 @@
     (unless (and tokens (string= expected-head (first tokens)))
       (error "Malformed frozen form ~S." marker))
     tokens))
+
+(defun source-line-without-comment (line)
+  "Return LINE's non-comment text without interpreting Kanata syntax."
+  (trim (subseq line 0 (or (search ";;" line) (length line)))))
+
+(defun source-atoms (source)
+  "Split a finite, already-selected source fragment without READ or EVAL."
+  (labels ((delimiter-p (character)
+             (member character '(#\Space #\Tab #\Newline #\Return #\( #\)))))
+    (loop with cursor = 0
+          for start = (position-if-not #'delimiter-p source :start cursor)
+          while start
+          for end = (or (position-if #'delimiter-p source :start start)
+                        (length source))
+          collect (subseq source start end)
+          do (setf cursor end))))
+
+(defun active-kanata-text (source)
+  "Mask Kanata comments and strings before structural marker inspection.
+
+This is deliberately a small text scanner, not a Kanata evaluator.  It keeps
+the code's parentheses and atoms while making commented templates and strings
+incapable of contributing a form marker.
+"
+  (with-output-to-string (stream)
+    (loop with length = (length source)
+          with index = 0
+          with line-comment = nil
+          with block-comment-depth = 0
+          with in-string = nil
+          with escaped = nil
+          while (< index length)
+          for character = (char source index)
+          for next = (and (< (1+ index) length) (char source (1+ index)))
+          do (cond
+               (line-comment
+                (if (char= character #\Newline)
+                    (progn
+                      (write-char character stream)
+                      (setf line-comment nil))
+                    (write-char #\Space stream))
+                (incf index))
+               ((plusp block-comment-depth)
+                (cond ((and (char= character #\#) (char= next #\|))
+                       (write-string "  " stream)
+                       (incf block-comment-depth)
+                       (incf index 2))
+                      ((and (char= character #\|) (char= next #\#))
+                       (write-string "  " stream)
+                       (decf block-comment-depth)
+                       (incf index 2))
+                      (t
+                       (write-char (if (char= character #\Newline)
+                                       #\Newline
+                                       #\Space)
+                                   stream)
+                       (incf index))))
+               (in-string
+                (cond (escaped (setf escaped nil))
+                      ((char= character #\\) (setf escaped t))
+                      ((char= character #\") (setf in-string nil)))
+                (write-char (if (char= character #\Newline) #\Newline #\Space)
+                            stream)
+                (incf index))
+               ((and (char= character #\;) (char= next #\;))
+                (write-string "  " stream)
+                (setf line-comment t)
+                (incf index 2))
+               ((and (char= character #\#) (char= next #\|))
+                (write-string "  " stream)
+                (setf block-comment-depth 1)
+                (incf index 2))
+               ((char= character #\")
+                (write-char #\Space stream)
+                (setf in-string t)
+                (incf index))
+               (t
+                (write-char character stream)
+                (incf index))))))
+
+(defun active-form-marker-count (source marker)
+  (loop with active = (active-kanata-text source)
+        with start = 0
+        for match = (search marker active :start2 start)
+        while match
+        count t
+        do (setf start (+ match (length marker)))))
+
+(defun active-deflayer-names (source)
+  "Return every active deflayer name in textual source order."
+  (let ((active (active-kanata-text source))
+        (names nil)
+        (start 0)
+        (marker "(deflayer"))
+    (loop for match = (search marker active :start2 start)
+          while match
+          do (let ((atoms (source-atoms (subseq active match))))
+               (unless (and (>= (length atoms) 2)
+                            (string= "deflayer" (first atoms)))
+                 (error "Malformed active deflayer marker in frozen source."))
+               (push (second atoms) names)
+               (setf start (+ match (length marker)))))
+    (nreverse names)))
+
+(defun sorted-row-keys (rows)
+  (sort (mapcar (lambda (row) (format nil "~{~A~^|~}" row)) rows) #'string<))
+
+(defun chorded-expected-alias-rows ()
+  (append
+   (mapcar (lambda (row)
+             (list (first row) "tap-hold-release"
+                   (second row) (third row) (fourth row) (fifth row)))
+           +chorded-tap-hold-rows+)
+   '(("gr" "arbitrary-code" "85") ("top" "arbitrary-code" "84"))
+   (mapcar (lambda (row)
+             (list (first row) "arbitrary-code" (write-to-string (sixth row))))
+           +function-output-rows+)))
+
+(defun chorded-alias-rows (source relative)
+  "Parse the closed, one-line old defalias block without evaluating it."
+  (let ((rows nil)
+        (form (named-parenthesized-form (active-kanata-text source) "(defalias")))
+    (dolist (line (line-list form))
+      (let ((atoms (source-atoms (source-line-without-comment line))))
+        (cond ((null atoms))
+              ((string= "defalias" (first atoms)))
+              ((and (= (length atoms) 6)
+                    (string= "tap-hold-release" (second atoms)))
+               (push atoms rows))
+              ((and (= (length atoms) 3)
+                    (string= "arbitrary-code" (second atoms)))
+               (push atoms rows))
+              (t
+               (error "Frozen source ~A has an unsupported chorded alias row ~S."
+                      relative line)))))
+    (nreverse rows)))
+
+(defun check-chorded-alias-inventory (source relative)
+  "Require exact old alias spellings while retaining them as evidence only."
+  (let* ((rows (chorded-alias-rows source relative))
+         (names (mapcar #'first rows))
+         (expected (chorded-expected-alias-rows)))
+    (unless (= (length names) (length (remove-duplicates names :test #'string=)))
+      (error "Frozen source ~A declares duplicate chorded aliases." relative))
+    (unless (equal (sorted-row-keys rows) (sorted-row-keys expected))
+      (error "Frozen source ~A has a stale or unclassified chorded alias inventory."
+             relative))
+    rows))
+
+(defun chorded-combo-row (line relative)
+  "Parse one old defchordsv2 row as fixed structural evidence."
+  (let ((trimmed (source-line-without-comment line)))
+    (unless (and (plusp (length trimmed)) (char= #\( (char trimmed 0)))
+      (error "Frozen source ~A has a malformed chord row ~S." relative line))
+    (let ((close (position #\) trimmed)))
+      (unless close
+        (error "Frozen source ~A has an unterminated chord pair ~S." relative line))
+      (let* ((participants (source-atoms (subseq trimmed 1 close)))
+             (tail (trim (subseq trimmed (1+ close))))
+             (tail-atoms (source-atoms tail)))
+        (unless (and (= (length participants) 2)
+                     (= (length tail-atoms) 3)
+                     (string-prefix-p "@" (first tail-atoms))
+                     (string= "45" (second tail-atoms))
+                     (string= "first-release" (third tail-atoms))
+                     (string= (compact-source-line tail)
+                              (format nil "~A45first-release()" (first tail-atoms))))
+          (error "Frozen source ~A has a non-canonical chord row ~S."
+                 relative line))
+        (list (first participants) (second participants)
+              (subseq (first tail-atoms) 1))))))
+
+(defun chorded-combo-rows (source relative)
+  "Return all active fixed-format old chord rows in source order."
+  (let ((rows nil)
+        (form (named-parenthesized-form (active-kanata-text source)
+                                        "(defchordsv2")))
+    (dolist (line (line-list form))
+      (let ((trimmed (source-line-without-comment line)))
+        (unless (or (string= trimmed "")
+                    (string-prefix-p "(defchordsv2" trimmed)
+                    (string= trimmed ")"))
+          (push (chorded-combo-row line relative) rows))))
+    (nreverse rows)))
+
+(defun chord-pair-key (row)
+  (format nil "~{~A~^|~}" (sort (list (first row) (second row)) #'string<)))
+
+(defun check-chorded-combo-inventory (source relative)
+  "Require every old pair/output/field row without selecting its semantics."
+  (let ((rows (chorded-combo-rows source relative)))
+    (unless (equal rows +chorded-combo-rows+)
+      (error "Frozen source ~A has a stale or unclassified chord inventory."
+             relative))
+    (unless (= (length rows)
+               (length (remove-duplicates (mapcar #'chord-pair-key rows)
+                                           :test #'string=)))
+      (error "Frozen source ~A declares duplicate unordered chord pairs." relative))
+    (unless (equal (sorted-strings (mapcar #'third rows))
+                   (sorted-strings (mapcar #'first +function-output-rows+)))
+      (error "Frozen source ~A does not map every old chord to one function carrier alias."
+             relative))
+    rows))
 
 (defun primary-alias-names (source relative)
   "Return every active one-line defalias name without evaluating Kanata text.
@@ -559,6 +847,130 @@ continues to be controlled by the individual classified rows.
       (error "Frozen source ~A has defsrc/~A arity ~D/~D."
              relative name (length defsrc) (length layer)))
     (mapcar #'cons defsrc layer)))
+
+(defun chorded-expected-non-source-actions (device)
+  (cdr (assoc device +chorded-normal-non-source-actions+ :test #'string=)))
+
+(defun chorded-normal-layer-inventory (source device relative alias-rows)
+  "Classify every old normal-layer action structurally, never semantically."
+  (let* ((map (source-layer-action-map source "normal" relative))
+         (defsrc (mapcar #'car map))
+         (aliases (mapcar #'first alias-rows))
+         (alias-placements nil)
+         (non-source-actions nil)
+         (direct-count 0))
+    (dolist (entry map)
+      (let ((physical (car entry))
+            (action (cdr entry)))
+        (cond ((string-prefix-p "@" action)
+               (let ((alias (subseq action 1)))
+                 (unless (member alias aliases :test #'string=)
+                   (error "Frozen source ~A selects unknown normal-layer alias ~A."
+                          relative action))
+                 (push (list physical alias) alias-placements)))
+              ((member action defsrc :test #'string=)
+               (incf direct-count))
+              (t
+               (push (list physical action) non-source-actions)))))
+    (setf alias-placements (nreverse alias-placements)
+          non-source-actions (nreverse non-source-actions))
+    (unless (equal alias-placements +chorded-normal-alias-placement-rows+)
+      (error "Frozen source ~A has a stale or unclassified normal alias placement."
+             relative))
+    (unless (equal non-source-actions (chorded-expected-non-source-actions device))
+      (error "Frozen source ~A has a stale or unclassified non-defsrc normal action."
+             relative))
+    (unless (= direct-count 51)
+      (error "Frozen source ~A has ~D direct defsrc-preserving normal actions, expected 51."
+             relative direct-count))
+    (list alias-placements non-source-actions direct-count)))
+
+(defun active-chorded-local-key-rows (source relative)
+  "Return active deflocalkeys-linux rows as raw name/code pairs."
+  (let ((active (active-kanata-text source)))
+    (if (search "(deflocalkeys-linux" active)
+        (let ((tokens (source-form-tokens active "(deflocalkeys-linux"
+                                          "deflocalkeys-linux")))
+          (unless (evenp (length (rest tokens)))
+            (error "Frozen source ~A has malformed deflocalkeys-linux pairs."
+                   relative))
+          (loop for (name code) on (rest tokens) by #'cddr
+                collect (list name code)))
+        nil)))
+
+(defun check-chorded-local-keys (source device relative)
+  (let ((rows (active-chorded-local-key-rows source relative))
+        (expected (if (string= device "Advantage 360 chorded")
+                      +chorded-advantage360-local-keys+
+                      nil)))
+    (unless (equal rows expected)
+      (error "Frozen source ~A has a stale or unclassified local-key inventory."
+             relative))
+    rows))
+
+(defun chorded-combo-membership (rows defsrc)
+  "Return the exact count and source tokens absent from an old combo's defsrc."
+  (let ((present-count 0)
+        (missing nil))
+    (dolist (row rows)
+      (dolist (participant (subseq row 0 2))
+        (if (member participant defsrc :test #'string=)
+            (incf present-count)
+            (push participant missing))))
+    (list present-count (nreverse missing))))
+
+(defun expected-chorded-combo-missing-tokens (device)
+  (if (string= device "Advantage 360 chorded")
+      '("menu" "menu")
+      nil))
+
+(defun chorded-variant-inventory (root specification)
+  "Verify one hash-pinned regression-only source file without lowering it."
+  (destructuring-bind (device relative expected-defsrc-count) specification
+    (let* ((source (uiop:read-file-string (pathname-at root relative)))
+           (defsrc (source-defsrc-tokens source))
+           (aliases (check-chorded-alias-inventory source relative))
+           (combos (check-chorded-combo-inventory source relative))
+           (normal (chorded-normal-layer-inventory source device relative aliases))
+           (local-keys (check-chorded-local-keys source device relative))
+           (membership (chorded-combo-membership combos defsrc)))
+      (unless (= (length defsrc) expected-defsrc-count)
+        (error "Frozen source ~A has ~D defsrc positions, expected ~D."
+               relative (length defsrc) expected-defsrc-count))
+      (unless (equal (active-deflayer-names source) '("normal"))
+        (error "Frozen source ~A has an unclassified active deflayer set ~S."
+               relative (active-deflayer-names source)))
+      (dolist (marker '("(defsrc" "(defalias" "(defchordsv2" "(defcfg"))
+        (unless (= 1 (active-form-marker-count source marker))
+          (error "Frozen source ~A has an unexpected active count for ~A."
+                 relative marker)))
+      (unless (= (if (string= device "Advantage 360 chorded") 1 0)
+                 (active-form-marker-count source "(deflocalkeys-linux"))
+        (error "Frozen source ~A has an unexpected active deflocalkeys-linux count."
+               relative))
+      (unless (equal (second membership)
+                     (expected-chorded-combo-missing-tokens device))
+        (error "Frozen source ~A has unclassified old chord participants outside defsrc: ~S."
+               relative (second membership)))
+      (list device relative defsrc aliases normal combos local-keys membership))))
+
+(defun checked-chorded-variant-inventories (root)
+  "Return both complete regression-only structural inventories.
+
+The source rows may be compared and reported, but this function intentionally
+does not create a layout interaction, select a profile, or interpret Kanata's
+runtime behavior.
+"
+  (let ((inventories
+          (mapcar (lambda (specification)
+                    (chorded-variant-inventory root specification))
+                  +chorded-variant-specifications+)))
+    (destructuring-bind (a2 a360) inventories
+      (unless (equal (fourth a2) (fourth a360))
+        (error "Frozen chorded variants disagree on their closed alias inventory."))
+      (unless (equal (sixth a2) (sixth a360))
+        (error "Frozen chorded variants disagree on their closed chord inventory.")))
+    inventories))
 
 (defun mapped-action (map token relative layer)
   (or (cdr (assoc token map :test #'string=))
@@ -765,6 +1177,97 @@ continues to be controlled by the individual classified rows.
 (defun report-function-physical (source relative alias)
   (first (function-entry (function-layer-entries source relative) alias relative)))
 
+(defun chorded-row-source-member-count (row defsrc)
+  (count-if (lambda (participant) (member participant defsrc :test #'string=))
+            (subseq row 0 2)))
+
+(defun chorded-pair-summary (row)
+  (format nil "`~A` + `~A`" (first row) (second row)))
+
+(defun chorded-local-key-summary (rows)
+  (if rows
+      (format nil "~{`~A=~A`~^, ~}"
+              (loop for (name code) in rows append (list name code)))
+      "none"))
+
+(defun chorded-non-source-action-summary (rows)
+  (if rows
+      (format nil "~{`~A` → `~A`~^, ~}"
+              (loop for (physical action) in rows append (list physical action)))
+      "none"))
+
+(defun render-chorded-structural-inventory (inventories stream)
+  "Render the two old source files as closed regression-only evidence."
+  (destructuring-bind (a2 a360) inventories
+    (destructuring-bind (a2-device a2-relative a2-defsrc a2-aliases a2-normal
+                         a2-combos a2-local-keys a2-membership) a2
+      (declare (ignore a2-relative))
+      (destructuring-bind (a360-device a360-relative a360-defsrc a360-aliases
+                           a360-normal a360-combos a360-local-keys a360-membership) a360
+        (declare (ignore a360-relative a360-aliases))
+        (format stream "## Older chorded Kanata structural inventory (regression-only)~%~%")
+        (format stream "Both hash-pinned source files are inventoried as text only.  No row below selects a chord profile, timing policy, output semantics, or lowering path.  `first-release` and `()` are literal source fields, not Ivory Key behavior.~%~%")
+        (format stream "| Variant | SHA-256 | `defsrc` | Active layers | Aliases | Chords | Chord participant source-membership | Local keys |~%")
+        (format stream "|---|---|---:|---|---:|---:|---|---|~%")
+        (dolist (inventory inventories)
+          (destructuring-bind (device relative defsrc aliases normal combos local-keys membership)
+              inventory
+            (declare (ignore normal))
+            (let ((missing (second membership)))
+              (format stream "| ~A | `~A` | ~D | `normal` (complete) | ~D (16 tap-hold / 31 carrier) | ~D | ~D / 58~@[; missing `~{~A~^`, `~}`~] | ~A |~%"
+                      device
+                      (cdr (assoc relative +chorded-baseline-files+ :test #'string=))
+                      (length defsrc) (length aliases) (length combos)
+                      (first membership) missing
+                      (chorded-local-key-summary local-keys)))))
+        (format stream "~%")
+        (format stream "The two `menu` occurrences in the Advantage 360 chord rows are not members of that file's `defsrc`, which instead has `caps`.  This is a closed source-token mismatch only; this report does not infer Kanata acceptance, reachability, or an equivalent `caps` rewrite.~%~%")
+        (format stream "### Normal-layer structural placement~%~%")
+        (format stream "| Physical `defsrc` token | Literal normal action | Source files | Classification |~%")
+        (format stream "|---|---|---|---|~%")
+        (dolist (row (first a2-normal))
+          (format stream "| `~A` | `@~A` | A2 + 360 chorded | regression-only alias reference |~%"
+                  (first row) (second row)))
+        (format stream "~%")
+        (format stream "| Variant | Non-identical normal action | Structural classification |~%")
+        (format stream "|---|---|---|~%")
+        (dolist (inventory inventories)
+          (destructuring-bind (device ignored-relative ignored-defsrc ignored-aliases normal
+                               ignored-combos ignored-local ignored-membership) inventory
+            (declare (ignore ignored-relative ignored-defsrc ignored-aliases
+                             ignored-combos ignored-local ignored-membership))
+            (format stream "| ~A | ~A | literal action is not an identical `defsrc` token; no abstract meaning inferred |~%"
+                    device (chorded-non-source-action-summary (second normal)))))
+        (format stream "~%")
+        (format stream "### Old alias and carrier rows~%~%")
+        (format stream "| Alias | Source form | Literal fields | Structural reference | Classification |~%")
+        (format stream "|---|---|---|---|---|~%")
+        (dolist (row a2-aliases)
+          (let* ((alias (first row))
+                 (normal-reference (find alias (first a2-normal) :key #'second
+                                         :test #'string=))
+                 (combo-reference (find alias a2-combos :key #'third :test #'string=)))
+            (format stream "| `@~A` | `~A` | ~A | ~A | regression-only |~%"
+                    alias (second row)
+                    (if (string= "tap-hold-release" (second row))
+                        (format nil "`~A` / `~A` ms; tap `~A`; hold `~A`"
+                                (third row) (fourth row) (fifth row) (sixth row))
+                        (format nil "carrier `~A`" (third row)))
+                    (cond (normal-reference "normal layer")
+                          (combo-reference "one chord row")
+                          (t "not selected by normal/chord rows")))))
+        (format stream "~%")
+        (format stream "### Old chord rows~%~%")
+        (format stream "| Row kind | Participants | Carrier alias | Literal fields | A2 `defsrc` members | 360 `defsrc` members | Classification |~%")
+        (format stream "|---|---|---|---|---:|---:|---|~%")
+        (loop for row in a2-combos
+              for a360-row in a360-combos
+              do (format stream "| chord | ~A | `@~A` | `45`, `first-release`, `()` | ~D / 2 | ~D / 2 | regression-only |~%"
+                         (chorded-pair-summary row) (third row)
+                         (chorded-row-source-member-count row a2-defsrc)
+                         (chorded-row-source-member-count a360-row a360-defsrc)))
+        (format stream "~%")))))
+
 (defun render-diff-report (root stream)
   "Render the complete frozen static/function/direct-selector comparison.
 
@@ -788,14 +1291,15 @@ claim zero unchecked differences.
                         a360-source "Advantage 360" a360-relative))
          (a2-layers (primary-layer-inventory a2-source "Advantage 2" a2-relative))
          (a360-layers (primary-layer-inventory
-                       a360-source "Advantage 360" a360-relative)))
+                       a360-source "Advantage 360" a360-relative))
+         (chorded-inventories (checked-chorded-variant-inventories root)))
     (checked-static-fixture-p root layout topology advantage2 advantage360)
     (checked-function-fixture-p root layout advantage2 advantage360 vocabulary)
     (checked-direct-selector-fixture-p root layout topology advantage2 advantage360)
     (no-active-unresolved-behavior-p layout)
     (format stream "# Manna Cadet frozen baseline diff report~%~%")
     (format stream "Commit: `~A`~%" +baseline-commit+)
-    (format stream "Scope: the hash-verified static XKB tables, primary function table, and direct selectors for both frozen primary Kanata files.  This is a source/fixture classification, not a backend or live-input equivalence claim.~%~%")
+    (format stream "Scope: the hash-verified static XKB tables, primary function table, direct selectors, and regression-only structural chord inventory for the frozen Kanata files.  This is a source/fixture classification, not a backend or live-input equivalence claim.~%~%")
     (format stream "## Completeness~%~%")
     (format stream "| Inventory | Baseline records | Exact fixture records | Explicit refusals / variants | Unchecked |~%")
     (format stream "|---|---:|---:|---:|---:|~%")
@@ -803,7 +1307,8 @@ claim zero unchecked differences.
             (static-nosymbol-count root))
     (format stream "| Function outputs | 29 A2 + 29 360 placements | 29 shared outputs | 2 activators | 0 |~%")
     (format stream "| Direct selectors | 4 A2 + 4 360 observations | 4 abstract held interactions | backend lowering refused | 0 |~%")
-    (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 0 active | all classified below | 0 |~%~%")
+    (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 0 active | all classified below | 0 |~%")
+    (format stream "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |~%~%")
     (format stream "| Primary aliases | ~D A2 + ~D 360 declarations | ~D + ~D classified | no implicit alias meaning | 0 |~%~%"
             (length a2-aliases) (length a360-aliases)
             (length a2-aliases) (length a360-aliases))
@@ -826,6 +1331,7 @@ claim zero unchecked differences.
       (when (string= "advantage360-game" (second row))
         (format stream "| 360 only | `@~A` | `~A` |~%" (first row) (second row))))
     (format stream "~%")
+    (render-chorded-structural-inventory chorded-inventories stream)
     (format stream "## Static XKB tables and physical disposition~%~%")
     (format stream "| XKB key | Logical position | Cells | A2 / 360 disposition | Classification |~%")
     (format stream "|---|---|---:|---|---|~%")

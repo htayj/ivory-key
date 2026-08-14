@@ -3,7 +3,8 @@
 This audit classifies the Manna Cadet material available at frozen commit
 `e5f7e81cdb6e30a7735cdcab622ede29007e379b`.  It is a migration review aid,
 not a generated-keymap, installation, or live-input-equivalence claim.  The
-five hash-addressed primary inputs and the static-table digest are recorded in
+five hash-addressed primary inputs, two separately classified chorded inputs,
+and the static-table digest are recorded in
 [manna-cadet-baseline.md](manna-cadet-baseline.md).
 
 The labels below are deliberately narrow:
@@ -74,7 +75,7 @@ to a refused class.
 
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
 |---|---|---|---|
-| §13.1 frozen inventory of the selected layered sources | five primary hashes, static-table digest, all primary aliases/layers above, exact carriers and function positions | mechanically hash and structurally inventory the two documented chorded files and cross-check mnemonic placements; neither task selects their behavior | implementable review tooling |
+| §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers above, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; neither source inventory selects behavior | implementable review tooling remains |
 | §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, 29 function rows per device, four immediate holders, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
 | §13.3 complete physical placement | 51 placed static XKB tables, four immediate direct holders/selectors, and the mode-key position on both devices | obtain additional device/event evidence for the residual common controls and A2 `lrld`; no direct primary `defsrc` provenance exists for `<LSGT>` | requires new evidence, not a topology guess |
 | §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths | encode complete timed, overlay, selector-visibility, and multi-owner traces only after choosing the foreign-event treatment | blocked by semantic choices |
@@ -123,14 +124,19 @@ runtime or selects the delayed-foreign-event compatibility route.
 | Advantage 360 layered Kanata | frozen primary hash `632a757…496df5a` | primary | source for common function patch, 360 placement, and separate game evidence |
 | Group 1 plus Top XKB symbols | frozen primary hash `b559d883…739f3a0` | primary | 52 positions and eight projected static contexts |
 | layered mnemonic note | frozen primary hash `8c4c975e…27bc7b` | supporting | confirms selected function mnemonics, not a timing specification |
-| Advantage 2 chorded Kanata | same Git commit, SHA-256 `e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd7` | regression-only | 29 `defchordsv2` rows; not active layout semantics |
-| Advantage 360 chorded Kanata | same Git commit, SHA-256 `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | regression-only | same 29 chord rows with the 360 physical source |
+| Advantage 2 chorded Kanata | frozen regression hash `e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd` | regression-only | one 68-position normal layer, 47 aliases, and 29 exact chord rows |
+| Advantage 360 chorded Kanata | frozen regression hash `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | regression-only | one 72-position normal layer, same 47 aliases/29 textual chord rows; two `menu` participants are outside `defsrc` |
 
-The two chorded files are intentionally not added to the original five-file
-hash manifest.  Their hashes above identify the reviewed material at the
-frozen commit, but they are not selected compatibility profiles.  A future
-owner must explicitly choose a chorded profile and establish its timing and
-arbitration semantics before it becomes an executable Ivory Key variant.
+The five-file primary static manifest remains the input to the canonical
+static-table digest.  The truth-table verifier additionally checks the two
+chorded hashes and produces a closed textual inventory: 16 `tap-hold-release`
+aliases (15 `200/200`, one `250/250`), 31 exact carrier aliases, 16 normal
+alias references, and all 29 `45 first-release ()` chord rows for each source.
+The sources are still not selected compatibility profiles.  In particular, the
+360 `menu`/`caps` structural mismatch is neither silently corrected nor used to
+infer failure or reachability.  A future owner must explicitly choose a chorded
+profile and establish timing, commitment, arbitration, output, and test
+evidence before it becomes an executable Ivory Key variant.
 
 ## Remaining physical surface
 
@@ -159,19 +165,36 @@ case/script/plane contexts.  It finds **158 literal `NoSymbol` cells**.  Every
 one is transcribed as the explicit Ivory Key behavior `none`; none is treated
 as inheritance, transparency, or a missing table entry.
 
-Group 1 has four levels: base, Shift, Greek, and Shift+Greek.  Top is a
-separate `TWO_LEVEL` group.  The frozen truth-table projection repeats each
+Group 1 has four levels: base, Shift, Greek, and Shift+Greek. Top is a
+separate `TWO_LEVEL` group. The frozen truth-table projection repeats each
 observed Top symbol in the Greek+Top columns because that is the literal
-two-level XKB source table.  This is a symbol-selection fact, not evidence
-that Mod5 is consumed, hidden, or application-visible under Top.
+two-level XKB source table.
+
+The separately tagged, read-only
+`tests/external/manna-xkb-group2-state.lisp` probe now checks the hash-addressed
+frozen source inputs before compiling its checked-in XKB keymap with
+libxkbcommon. It proves that `AD01` preserves the four-level Group 1 and
+two-level Group 2 tables; `LVL3` and `LVL5` each make layout serialization
+effective/depressed group index 1, with no effective modifier bit, and release
+returns group index 0. It also proves that Shift is effective but consumed for
+`AD01` in Group 2, selects its literal `NoSymbol`, and is removed by both
+libxkbcommon consumed-modifier APIs.
+
+That probe also finds no `ZEHA` key in the compiled map: the frozen keymap
+uses standard `evdev+aliases(qwerty)` keycodes, while the frozen symbols file
+refers to `<ZEHA>`. Therefore no Greek key event—and hence no Greek+Top event
+combination or Mod5 consumed/effective observation—can be proven from this
+compiled map. The probe intentionally does not inject a synthetic modifier
+state or invent an event-code bridge.
 
 Thus the only settled `NoSymbol` decision is output absence at those literal
 source cells.  The following remain unresolved operational questions, not
 alternate meanings for a `none` cell:
 
-- how the Top group action combines with the Greek Mod5 state in a complete
-  generated realization;
-- whether clients should observe either consumed selector modifier; and
+- how a complete realization maps the frozen Kanata code 85/`ZEHA` source
+  spelling to an XKB event, then combines that Greek state with Top;
+- how clients receive or interpret group serialization and consumed selector
+  state beyond libxkbcommon's key-state APIs; and
 - how a later backend represents the same absent output without XKB fallback.
 
 ## Modifiers and selectors
@@ -184,8 +207,8 @@ alternate meanings for a `none` cell:
 | `hyper` | XKB `Mod2` maps `<RWIN>`; `esc` and apostrophe aliases hold `rmet` | identity transcribed; tap-hold commitment unresolved |
 | `alt` | XKB `Mod3` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` | identity transcribed; tap-hold commitment unresolved |
 | `case` | `<LFSH>` and `<RTSH>` map to `Shift_L` / `Shift_R`; both primary normal layers leave `lshift` / `rshift` unchanged | two exact immediate owner-scoped holders set `case=shifted`; the home-row `f` / `j` tap-holds remain unresolved |
-| `script` / Greek | `<ZEHA>` maps to Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact immediate held `script → greek` interaction, with release to `roman`; `del` tap-hold remains unresolved |
-| `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact immediate held `plane → top` interaction, with release to `base`; Enter tap-hold and application-visible group/modifier policy remain unresolved |
+| `script` / Greek | symbols source spells `<ZEHA>` as Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact abstract immediate held `script → greek` interaction, with release to `roman`; the checked frozen compiled XKB map has no `ZEHA` key, so the source-carrier bridge and `del` tap-hold remain unresolved |
+| `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact abstract immediate held `plane → top` interaction, with release to `base`; the frozen-map probe observes Group-2 serialization for `LVL3`/`LVL5`, but Enter tap-hold, carrier bridging, and application-visible group policy remain unresolved |
 | Caps Lock / Menu slot | A2 source has `menu`; 360 source has `caps` at the same logical location | inactive result is device-specific and not placed in the common layout; active function result is transcribed as `mode-key → alt-mode` |
 
 The XKB comment's modifier-slot description is evidence of the historical
@@ -312,7 +335,7 @@ only; the primary layered table itself is the authority for every row above.
 | Number-row Shift aliases | `osft` and `csft`, `tap-hold-release 0 0`, are declared but unused by either primary normal layer | excluded as inactive aliases until an owner selects a behavior |
 | Top / Greek tap-holds | Enter → Top and Delete → Greek, both `tap-hold-release 200 200` | unresolved |
 | 360 game layer | enters at `lalt`; exits at that same location; `K18` is ordered `up` then `del`, `K19` the reverse, `K20` repeats `kp7` at 50, and `del`/`pgdn`/Enter have 200/200 Alt/Super/Control tap-holds | unresolved, Advantage-360-only overlay; not a common Manna layout fact |
-| Older chords | 29 pairs, each `45 first-release ()` | regression-only; the old `i`+`o → stop-output` pair is not an active primary interaction |
+| Older chords | each chorded file has 29 exact pairs, each `45 first-release ()`; 47 aliases comprise 16 literal tap-holds and 31 carriers | regression-only; the old `i`+`o → stop-output` pair is not active.  The 360 source has two literal `menu` chord participants outside `defsrc`; that is retained as a non-semantic structural mismatch |
 
 The primary `defcfg` settings are evidence about the observed Kanata policy,
 not a version-pinned complete model candidate/arbitration rule.
@@ -341,8 +364,8 @@ these 29 function outputs; the layout itself remains free of backend data.
 | `roman-one` through `roman-four` | 218–221 | `U2160`–`U2163` |
 | `finger-left`, `thumb-up`, `thumb-down`, `finger-right`, `repeat` | 222–226 | `U261A`, `U1F44D`, `U1F44E`, `U261B`, `UE00E` |
 | `end` | 240 | `UE00D` |
-| Top selector | 84 | `Mode_switch` / group action via `<LVL3>` |
-| Greek selector | 85 | `ISO_Level3_Shift` via `<ZEHA>` |
+| Top selector | 84 | source spelling `Mode_switch` / group action via `<LVL3>`; frozen-map state probe observes the `LVL3` group transition |
+| Greek selector | 85 | source spelling `ISO_Level3_Shift` via `<ZEHA>`; frozen-map state probe finds no `ZEHA` key in the standard compiled keymap |
 
 The identity names in the layout come from the source aliases and mnemonic
 evidence.  They do **not** establish that the older XKB comment's suggested
@@ -367,16 +390,17 @@ guessed.
 - `manna-cadet-advantage360-linux` is a second project composition.  It selects
   the frozen 360 placement only; it does not select or implement the game
   layer.
-- The migration regression test verifies the frozen five-file hash set and
-  deterministic static truth table. Its generated `diff` report additionally
-  enumerates all 52 static tables/416 cells, both 29-row function placements,
-  and all four direct selectors. It refuses an unexpected table, placement,
-  carrier, selector, or count before printing `Unchecked differences: 0`; that
-  terminal count means every frozen-versus-fixture difference is classified,
-  not that a refusal is solved. It separately data-checks all 14 primary
-  `tap-hold-release` aliases, their normal-layer selection, direct Shift
-  holders, and relevant `defcfg` policy without making them active Manna
-  semantics.
+- The migration regression test verifies the five primary hashes, two
+  regression-only chorded hashes, and deterministic static truth table. Its
+  generated `diff` report additionally enumerates all 52 static tables/416
+  cells, both 29-row function placements, all four direct selectors, and every
+  old chorded alias/carrier/combo/layer row. It refuses an unexpected table,
+  placement, carrier, selector, chord row, or count before printing `Unchecked
+  differences: 0`; that terminal count means every frozen-versus-fixture
+  difference is classified, not that a refusal is solved. It separately
+  data-checks all 14 primary `tap-hold-release` aliases, their normal-layer
+  selection, direct Shift holders, and relevant `defcfg` policy without making
+  them active Manna semantics.
 
 Run `sbcl --script tools/manna-truth-table.lisp diff ROOT` against the
 hash-verified frozen checkout for the complete review artifact.  The report's

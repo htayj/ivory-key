@@ -4,13 +4,15 @@ This is a read-only, hash-addressed transcription aid for Manna Cadet commit
 `e5f7e81cdb6e30a7735cdcab622ede29007e379b`. It is not a generated
 replacement, installation, or live-input-equivalence claim.
 
-| Path | SHA-256 |
-|---|---|
-| `xkb/symbols/spacecadet` | `b559d8832462556f990bee273b53a91ab2c6c81fc7e2fa9c9bb0cdfce739f3a0` |
-| `xkb/keymap/spacecadet.xkb` | `68dcb0f3c77fa2b88cfc2db04347b07089efad25a2bcf8b86324a5f283539fba` |
-| `kanata/kinesis.advantage2.layered.kanata.kbd` | `d36a93eab6e2355707f7a6bfbcfac2a4e3b0ea361cc399d388543f51e1f5226b` |
-| `kanata/kinesis.advantage360.layered.kanata.kbd` | `632a7574938b535a8d4b1d2e3ce1c5f711d0486298d2ce4d98adda702496df5a` |
-| `space-cadet-layered-mnemonics.md` | `8c4c975e0acee03f96f51ae144f2c12c1efc249672b4ef50e39a781e8f27bc7b` |
+| Path | SHA-256 | Scope |
+|---|---|---|
+| `xkb/symbols/spacecadet` | `b559d8832462556f990bee273b53a91ab2c6c81fc7e2fa9c9bb0cdfce739f3a0` | primary static evidence |
+| `xkb/keymap/spacecadet.xkb` | `68dcb0f3c77fa2b88cfc2db04347b07089efad25a2bcf8b86324a5f283539fba` | primary static evidence |
+| `kanata/kinesis.advantage2.layered.kanata.kbd` | `d36a93eab6e2355707f7a6bfbcfac2a4e3b0ea361cc399d388543f51e1f5226b` | primary layered evidence |
+| `kanata/kinesis.advantage360.layered.kanata.kbd` | `632a7574938b535a8d4b1d2e3ce1c5f711d0486298d2ce4d98adda702496df5a` | primary layered evidence |
+| `space-cadet-layered-mnemonics.md` | `8c4c975e0acee03f96f51ae144f2c12c1efc249672b4ef50e39a781e8f27bc7b` | primary supporting evidence |
+| `kanata/kinesis.advantage2.kanata.kbd` | `e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd` | regression-only chorded evidence |
+| `kanata/kinesis.advantage360.kanata.kbd` | `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | regression-only chorded evidence |
 
 The canonical parsed-table SHA-256 is
 `3ef72eabdd26d2154481c1b8fd0becba50dfbb9a0ba50d0d37556930f92dc807`.
@@ -22,9 +24,10 @@ sbcl --script tools/manna-truth-table.lisp verify \
   /home/tay/src/dotfiles/keyboard/manna-cadet
 ```
 
-`verify` checks the commit, all five file hashes, the 52-key static set,
-and the canonical truth-table digest. `render` prints the table and
-`fixture` emits the mechanically derived Ivory Key static binding rows.
+`verify` checks the commit, all five primary and two regression-only file
+hashes, the 52-key static set, and the canonical truth-table digest. `render`
+prints the table and `fixture` emits the mechanically derived Ivory Key static
+binding rows.
 
 For the complete checked-in fixture comparison, run:
 
@@ -50,6 +53,14 @@ historical Shift aliases, the eight Advantage-360-only game aliases, and the
 unproved Group-2/lowering boundary.  Its final `Unchecked differences: 0` is
 only a complete classification of frozen source versus fixture; it is not a
 claim that any refused row is equivalent or deployable.
+
+The same report now contains a closed regression-only inventory for both older
+chorded sources: each has 47 aliases (16 literal tap-hold and 31 carrier
+aliases), one complete normal layer, and 29 literal
+`45 first-release ()` rows.  It verifies every row and carrier alias, while
+reporting that the Advantage 360 has two `menu` chord participants outside its
+`defsrc` (which uses `caps`).  That mismatch is preserved as source structure,
+not an inferred rewrite, reachability result, or compatibility claim.
 
 ## Static XKB symbol truth table
 
