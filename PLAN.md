@@ -89,11 +89,13 @@ The project will keep four concepts separate.
 
 ### 3.1 Abstract layout
 
-The abstract layout defines semantic positions, shift axes, modifier names,
+The abstract layout defines semantic positions, context axes, modifier names,
 bindings, overlays, combos, and temporal behaviors. It may say that holding a
 position selects Greek, that tapping another emits Backspace while holding it
-asserts Alt, or that a two-position combo invokes `stop-output`. It may not say
-`Mod5`, `<ZEHA>`, evdev code 85, `UE007`, `arbitrary-code`, or `SetGroup`.
+asserts Alt, that a latched `shift-latch` axis changes the next shift key into
+a latching shift, or that a two-position combo invokes `stop-output`. It may
+not say `Mod5`, `<ZEHA>`, evdev code 85, `UE007`, `arbitrary-code`, or
+`SetGroup`.
 
 ### 3.2 Topology and physical-device placement
 
@@ -126,28 +128,53 @@ levels and must be reported separately.
 
 ## 4. Semantic model
 
-### 4.1 Shift axes and level states
+### 4.1 Context axes and dependency-scoped state
 
-A shift axis is a named, ordered dimension with two or more states. Its first
-state is the default. Manna Cadet uses these axes:
+A context axis is a named, ordered, typed state variable with two or more
+states. Its first state is the default unless another default is declared.
+Bindings may consult any relevant axes when selecting a behavior.
+
+Manna Cadet's symbol-producing bindings use three product axes:
 
 ```lisp
-(shift-axis case   (plain shifted))
-(shift-axis script (roman greek))
-(shift-axis plane  (base top))
+(axis case   (:states plain shifted) (:resolution product))
+(axis script (:states roman greek)   (:resolution product))
+(axis plane  (:states base top)      (:resolution product))
 (level-order case script plane)
 ```
 
 Their Cartesian product yields eight states in the conventional order because
 `case` varies fastest, then `script`, then `plane`. An axis is not required to
-be binary. A layout could declare four states on one axis and five on another
-and thereby obtain twenty level states. A layout may also restrict the product
-to an explicit list of valid tuples when not every combination makes sense.
+be binary. A layout could declare four states on one product axis and five on
+another and thereby obtain twenty level states. A layout may also restrict a
+product to an explicit list of valid tuples when not every combination makes
+sense.
 
-Operations on an axis are semantic actions: momentarily select a state, latch
-it for the next applicable key, lock it, unlock it, or cycle it. A backend may
-realize these operations with modifiers, groups, layers, state machines, or
-firmware; those mechanisms are not visible here.
+Axes are dependency-scoped, not members of one global Cartesian product. A
+binding is expanded only across the axes that its behavior consults. A letter
+may depend on `case`, `script`, and `plane`, while a shift key may depend only
+on `shift-latch`. Adding that behavioral axis therefore does not turn Manna
+Cadet's eight symbol levels into sixteen.
+
+The surface language distinguishes three useful resolution styles, all
+normalized into the same context-axis model:
+
+- **Product axes** contribute orthogonal coordinates to systematic behavior
+  tables. Their combination is order-independent; `Greek+Top` is the same
+  context regardless of which selector was pressed first.
+- **Behavioral axes** select among complete behaviors. For example,
+  `shift-latch` can choose whether a Greek key acts momentarily or latches
+  Greek for a later key.
+- **Patch or overlay axes** apply sparse binding overrides with explicit
+  transparency and precedence. Unlike product axes, simultaneously active
+  patches may be order- or priority-sensitive.
+
+Operations on any axis are semantic actions: momentarily select a state, latch
+it until an applicable use, lock it, unlock it, set it, or cycle it. The axis
+value and the activation mode are distinct: `latch-axis-state` can latch an
+axis into a state that happens to be named `latch`. A backend may realize these
+operations with modifiers, groups, layers, state machines, or firmware; those
+mechanisms are not visible here.
 
 ### 4.2 Semantic modifiers
 
@@ -164,10 +191,10 @@ identifiers, not machine words. Left/right physical sources may be recorded,
 but `meta` remains the semantic modifier. A device or realization can expose
 side-specific variants when an application truly distinguishes them.
 
-Shift axes and semantic modifiers must not be conflated. In particular,
-Greek and Top are selectors; Control, Meta, Super, Hyper, and Alt are modifier
-bits; Shift is the non-default state of the `case` axis even if a backend uses
-an XKB real Shift modifier to implement it.
+Context axes and semantic modifiers must not be conflated. In particular,
+Greek and Top are selector states; Control, Meta, Super, Hyper, and Alt are
+modifier bits; Shift is the non-default state of the `case` axis even if a
+backend uses an XKB real Shift modifier to implement it.
 
 ### 4.3 Output vocabulary
 
@@ -177,7 +204,7 @@ Bindings produce backend-neutral outputs:
 - a named key such as `return`, `backspace`, or `left`;
 - a semantic command such as `stop-output`, `clear-input`, or `macro`;
 - a modifier press/release;
-- a shift-axis state operation;
+- a context-axis state operation;
 - a sequence or simultaneous composition of other actions;
 - no output, explicitly.
 
@@ -194,18 +221,25 @@ A missing value is not silently converted to `NoSymbol`; the source must say
 whether the state is transparent, inherits from a named state, or emits
 nothing.
 
-Named overlays are sparse binding maps activated by semantic actions. They are
-separate from shift levels because a `fun` overlay can replace whole behaviors
-while Greek merely changes the symbol selected by an ordinary letter key.
-Overlay precedence, transparency, and base inheritance are explicit and
-validated for cycles.
+Named overlays are sparse binding patches exposed as patch-style context axes.
+A `fun` overlay can replace whole behaviors while Greek commonly participates
+in a product table. This is a difference in declaration and resolution policy,
+not a claim that overlays and axes are fundamentally unrelated kinds of state.
+Overlay precedence, transparency, simultaneous activation, and base
+inheritance are explicit and validated for ambiguity and cycles.
 
-### 4.5 Temporal and compound behavior
+### 4.5 Compositional temporal and compound behavior
+
+Every branch of a compound behavior contains another complete behavior, not
+merely a leaf output. In particular, the tap branch of a tap-hold key can
+consult the full product of all axes relevant to that tap, while the hold
+branch asserts a modifier or performs another compound behavior. A home-row
+key therefore need not duplicate its tap-hold wrapper once per product state.
 
 The first language version will include:
 
 - `tap-hold`, with separate tap and hold behaviors;
-- momentary, latched, locked, toggled, and switched overlays or axis states;
+- momentary, latched, locked, toggled, and switched context-axis states;
 - simultaneous actions and ordered sequences;
 - combos over sets of logical positions;
 - explicit combo windows and resolution/release policies;
@@ -213,16 +247,64 @@ The first language version will include:
 - repeat behavior;
 - macros as ordered semantic outputs.
 
+Behavior composition must remain finite and statically inspectable. Version 1
+supports named, parameterized, acyclic behavior templates for factoring common
+patterns such as shift keys, but does not evaluate arbitrary Common Lisp or
+require a Turing-complete configuration language.
+
 Timing can be a literal duration or a symbolic policy such as `home-row`. A
 layout may define a portable default policy; a device or realization may
 override it explicitly. Backend-specific names such as
 `tap-hold-release` are lowering choices derived from the abstract resolution
 policy, not language primitives.
 
+Because tap-hold delays an output decision, the behavior must say when context
+is observed. The version 1 default is to capture the relevant context-axis
+values at the initial key press for the tap branch. Thus pressing Greek,
+pressing a tap-hold letter, releasing Greek, and then releasing the letter
+still produces the Greek tap value. A construct may request another
+well-defined observation policy only if the simulator and realization contract
+can express it explicitly.
+
 The event semantics must define press, release, timeout, interruption by
-another press, interruption by another release, combo arbitration, overlay
-precedence, and cancellation. These rules will be executable in the reference
-simulator before backend generation is considered trustworthy.
+another press, interruption by another release, combo arbitration, patch
+precedence, context capture, latch consumption, and cancellation. These rules
+will be executable in the reference simulator before backend generation is
+considered trustworthy.
+
+### 4.6 Latch consumption and the `shift-latch` axis
+
+Manna Cadet can define a behavioral axis that changes the disposition of shift
+keys without adding a special `latch-latch` construct to the schema:
+
+```lisp
+(axis shift-latch
+  (:states plain latch)
+  (:resolution behavioral))
+
+(binding latch-latch
+  (on-tap
+    (latch-axis-state shift-latch latch)))
+
+(define-behavior shift-key (axis state)
+  (by-axis shift-latch
+    (plain (hold-axis-state axis state))
+    (latch (latch-axis-state axis state))))
+
+(binding greek
+  (shift-key script greek))
+```
+
+The sequence `LATCHLATCH GREEK T` first latches `shift-latch=latch`; the Greek
+binding consults that axis and consequently latches `script=greek`; T then
+emits Greek tau and consumes the script latch.
+
+A latched axis value is consumed by the first committed behavior selection
+that consults that axis, not necessarily by the next physical key. In
+`LATCHLATCH A GREEK T`, an ordinary A that does not consult `shift-latch` does
+not consume it. Speculative lookup and a compound branch that is later rejected
+also do not consume a latch. The normative event semantics must define exactly
+when a selection commits, especially for tap-hold keys and combos.
 
 ## 5. Source language, version 1
 
@@ -259,9 +341,18 @@ semantic shape is fixed by this plan:
 (define-layout manna-cadet
   (uses-topology kinesis-advantage)
 
-  (shift-axis case   (plain shifted))
-  (shift-axis script (roman greek))
-  (shift-axis plane  (base top))
+  (axis case
+    (:states plain shifted)
+    (:resolution product))
+  (axis script
+    (:states roman greek)
+    (:resolution product))
+  (axis plane
+    (:states base top)
+    (:resolution product))
+  (axis shift-latch
+    (:states plain latch)
+    (:resolution behavioral))
   (level-order case script plane)
 
   (modifiers control meta super hyper alt)
@@ -276,18 +367,41 @@ semantic shape is fixed by this plan:
     (at (plain   greek top)  (inherit (plain roman top)))
     (at (shifted greek top)  none))
 
-  (binding left-thumb-main
+  (binding a
     (tap-hold
-      (:tap  (named-key backspace))
-      (:hold (hold-modifier alt))
+      (:tap
+        (by-level
+          ((plain   roman base) (unicode "a"))
+          ((shifted roman base) (unicode "A"))
+          ((plain   greek base) (unicode "α"))
+          ((shifted greek base) (unicode "Α"))
+          ((plain   roman top)  (named-symbol up-tack))
+          ((shifted roman top)  none)
+          ((plain   greek top)  (inherit (plain roman top)))
+          ((shifted greek top)  none)))
+      (:hold (hold-modifier super))
       (:timing home-row)
-      (:resolve after-other-release)))
+      (:resolve after-other-release)
+      (:selection-time press)))
+
+  (binding latch-latch
+    (on-tap
+      (latch-axis-state shift-latch latch)))
+
+  (define-behavior tap-hold-shift-key (tap-action axis state timing)
+    (by-axis shift-latch
+      (plain
+        (tap-hold
+          (:tap tap-action)
+          (:hold (hold-axis-state axis state))
+          (:timing timing)))
+      (latch
+        (on-tap
+          (latch-axis-state axis state)))))
 
   (binding greek-thumb
-    (tap-hold
-      (:tap  (named-key delete))
-      (:hold (hold-axis-state script greek))
-      (:timing thumb)))
+    (tap-hold-shift-key
+      (named-key delete) script greek thumb))
 
   (combo stop-output
     (:positions i o)
@@ -300,6 +414,12 @@ semantic shape is fixed by this plan:
 keyboard symbols; its registry entry must document identity and intended
 display. It is not an XKB keysym escape hatch.
 
+The `a` binding demonstrates that a tap-hold tap branch retains the complete
+axis-sensitive output table. The `shift-latch` example demonstrates that an
+axis may select the behavior of another selector key without contributing to
+ordinary symbol-level enumeration. The shown spelling remains subject to the
+Phase 0 language RFC; the dependency and consumption semantics are required.
+
 ### 5.3 Modules and composition
 
 Support explicit, relative imports for shared vocabularies, topologies, and
@@ -308,8 +428,9 @@ paths, parent traversal outside a root, duplicate definitions, and import
 cycles. Imports do not execute code.
 
 Composition must be named and deterministic. It may extend a layout, apply an
-overlay, or instantiate a layout on a compatible topology. It may not depend on
-load order to redefine an existing binding silently.
+overlay, define or instantiate an acyclic parameterized behavior template, or
+instantiate a layout on a compatible topology. It may not depend on load order
+to redefine an existing binding silently.
 
 ### 5.4 Canonical formatter
 
@@ -350,6 +471,7 @@ src/
   syntax/parser.lisp
   syntax/formatter.lisp
   model/identifiers.lisp
+  model/context.lisp
   model/layout.lisp
   model/topology.lisp
   model/behavior.lisp
@@ -414,10 +536,12 @@ diagnostics; it does not mutate the parsed source model in place.
 3. **Name resolution:** resolve imports, identifiers, registries, topology
    positions, policies, and inheritance.
 4. **Semantic validation:** enforce uniqueness, acyclic composition,
-   well-formed level spaces, complete or explicit binding fallback, valid
-   combos, and deterministic temporal rules.
-5. **Normalization:** expand axis products, aliases, inheritance, and shorthand
-   into a canonical abstract IR without target assumptions.
+   well-formed dependency-scoped axis spaces, complete or explicit binding
+   fallback, finite behavior-template expansion, valid combos, and
+   deterministic temporal rules.
+5. **Normalization:** expand relevant axis products, behavioral selections,
+   patch precedence, aliases, templates, inheritance, and shorthand into a
+   canonical abstract IR without target assumptions.
 6. **Reference simulation:** compile behaviors into the abstract event machine
    used as the semantic oracle.
 7. **Capability planning:** compare normalized requirements with the selected
@@ -443,7 +567,7 @@ large conditional in the compiler. Capabilities include:
 - available input and output identities;
 - maximum native levels/groups, or unbounded where appropriate;
 - usable real and virtual modifier resources;
-- supported axis operations and overlay operations;
+- supported context-axis operations, resolution styles, and patch operations;
 - temporal behavior and combo semantics;
 - Unicode, named-key, and command-output mechanisms;
 - carrier channels exposed to the next pipeline stage;
@@ -586,13 +710,20 @@ raised; they are not semantic limits on level or modifier counts.
 
 ### 12.2 Model and normalization tests
 
-- Manna Cadet's three binary axes enumerate in the required eight-state order.
+- Manna Cadet's three product axes enumerate in the required eight-state order.
 - A four-by-five fixture produces exactly twenty states and survives parse,
   normalization, formatting, simulation, and IR dumping.
+- Adding the behavioral `shift-latch` axis does not expand an ordinary letter's
+  eight relevant states to sixteen; dependency discovery and normalization
+  include only axes actually consulted by a binding.
 - A fixture with more than sixty-four semantic modifiers proves there is no
   fixed-width modifier representation.
+- Product axes compose independently of activation order; simultaneous patch
+  axes follow their declared precedence and diagnose unresolved ambiguity.
 - Explicit restricted products, fallbacks, transparency, and inheritance are
   deterministic and cycle-checked.
+- Named behavior templates expand finitely, reject recursive cycles, and
+  preserve source spans through instantiation.
 - Canonical IR is independent of hash-table iteration order and source import
   order where semantics are equivalent.
 
@@ -602,11 +733,18 @@ Use timestamped press/release event streams and assert semantic outputs and
 state after every event. Cover:
 
 - simple symbols at every level tuple;
-- simultaneous semantic modifiers with every shift axis;
+- simultaneous semantic modifiers with every relevant product-axis state;
+- a tap-hold key whose tap branch selects all eight Manna Cadet product states;
+- context captured at initial press even when a selector is released before a
+  delayed tap commits;
 - tap versus hold at boundary times;
 - interruption on another press and on another release;
 - overlapping combos and explicit priority;
 - overlay activation, transparency, latch, lock, and cancellation;
+- `LATCHLATCH GREEK T` emits tau through two successive latch consumptions;
+- `LATCHLATCH A GREEK T` proves a key that does not consult `shift-latch` does
+  not consume it;
+- speculative or rejected tap-hold/combo branches do not consume axis latches;
 - sequences, one-shots, repeat, and macro ordering;
 - stuck-state prevention after cancellation and malformed event streams.
 
@@ -656,13 +794,15 @@ files.
    positions, all XKB symbols by group/level, modifier assignments, all Kanata
    aliases/layers/combos/timings, carrier codes, and mnemonic intent.
 2. Turn the inventory into a reviewable truth table keyed by abstract position,
-   level tuple, overlay, and behavior. Mark apparent omissions and conflicts;
-   do not invent meanings for `NoSymbol` or stale comments.
+   relevant context-axis tuple, patch state, and behavior. Mark apparent
+   omissions and conflicts; do not invent meanings for `NoSymbol` or stale
+   comments.
 3. Define the shared Kinesis topology and separate Advantage 2 and Advantage
    360 physical placements.
-4. Define the Manna Cadet axes, five semantic modifiers, symbol tables, command
-   vocabulary, home-row and thumb behaviors, function overlay, game overlay,
-   and whichever chorded variant remains supported.
+4. Define the Manna Cadet product and behavioral axes, five semantic modifiers,
+   symbol tables, command vocabulary, home-row and thumb behaviors, function
+   and game patch axes, `shift-latch` behavior, and whichever chorded variant
+   remains supported.
 5. Simulate the abstract layout before writing backend expectations.
 6. Compile the Linux Kanata+XKB realization and validate both artifacts.
 7. Compare generated behavior to the baseline truth table. Classify intentional
@@ -680,8 +820,9 @@ profiles, two layout variants, or one deprecated compatibility fixture.
 
 Deliver `docs/language.md`, `docs/semantics.md`, the baseline inventory script,
 and small hand-written syntax examples including Manna Cadet and a twenty-level
-layout. Resolve naming, inheritance, overlay precedence, combo arbitration, and
-tap-hold event semantics before implementation spreads across backends.
+layout. Resolve naming, axis dependency and latch-consumption rules, patch
+precedence, inheritance, combo arbitration, context capture, and tap-hold event
+semantics before implementation spreads across backends.
 
 Exit when every construct in the representative fragment has normative syntax
 and event semantics and the baseline inventory is reviewable.
@@ -704,11 +845,13 @@ pass without using Common Lisp reader evaluation.
 
 ### Phase 3: semantic model and normalizer
 
-Implement topology, axes, modifiers, outputs, bindings, overlays, temporal
+Implement topology, context axes and resolution styles, modifiers, outputs,
+bindings, overlays, finite parameterized behavior templates, temporal
 behaviors, name resolution, validation, and canonical abstract IR.
 
-Exit when the eight-state, twenty-state, and over-sixty-four-modifier fixtures
-pass and all incomplete/ambiguous constructs fail explicitly.
+Exit when the eight-state, twenty-state, dependency-scoped `shift-latch`, and
+over-sixty-four-modifier fixtures pass and all incomplete, cyclic, or ambiguous
+constructs fail explicitly.
 
 ### Phase 4: reference event simulator
 
@@ -734,7 +877,8 @@ validation hooks.
 
 Exit when focused golden tests pass, generated configs pass installed tool
 checks, and differential tests cover representative levels, modifiers,
-tap-holds, overlays, and combos.
+tap-holds with axis-sensitive branches, overlays, latch consumption, and
+combos.
 
 ### Phase 7: full Manna Cadet migration
 
@@ -767,9 +911,21 @@ because one backend happens to spell something differently.
 - Canonical spelling of **Manna Cadet**: follow the existing repository and
   submodule spelling unless the owner chooses a rename with migration aliases.
 - Version 1 parser is a safe S-expression subset, not executable Common Lisp.
-- Axis state and semantic modifier collections are unbounded by the schema.
-- The first declared shift axis varies fastest in canonical level ordering.
-- Overlays are not shift levels; semantic modifiers are not shift selectors.
+- Context-axis state and semantic modifier collections are unbounded by the
+  schema.
+- Product, behavioral, and patch/overlay declarations normalize to a shared
+  context-axis model with different resolution policies.
+- Axis products are dependency-scoped per binding; there is no mandatory
+  global product of every declared axis.
+- The first declared product axis varies fastest in canonical level ordering.
+- Semantic modifiers are not context selectors.
+- Every compound-behavior branch contains a complete behavior; a tap-hold tap
+  branch may consult the full relevant axis product.
+- Tap branches capture relevant context at initial press by default.
+- A latched axis is consumed by the first committed behavior selection that
+  consults it, not simply by the next physical key.
+- `shift-latch` is an ordinary behavioral axis defined by the layout, not a
+  schema-specific key primitive.
 - Abstract commands and symbols require documented realization mappings.
 - No silent fallback, dropped state, implicit `NoSymbol`, or automatic firmware
   action is allowed.
@@ -791,6 +947,11 @@ remaining semantic questions without changing the architectural boundaries:
   device-specific profile;
 - whether the older chorded files remain supported variants or only regression
   evidence;
+- the exact commit point and conflict rules when several pending behaviors
+  consult the same latched axis;
+- whether any constructs need a context-observation time other than the default
+  initial-press snapshot;
+- the exact precedence and simultaneous-activation rules for patch axes;
 - the normative priority rules for a key participating in both tap-hold and a
   combo;
 - which timing values are layout defaults versus device/profile overrides;
