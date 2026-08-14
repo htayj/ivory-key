@@ -108,6 +108,62 @@ require_ad01_shape(struct xkb_keymap *keymap)
 }
 
 static void
+require_lsgt_inherited_boundary(struct xkb_keymap *keymap)
+{
+    const xkb_keysym_t *syms = NULL;
+    xkb_keycode_t lsgt = xkb_keymap_key_by_name(keymap, "LSGT");
+    int count;
+
+    /*
+     * The generated partial request includes pc+us, so LSGT remains the
+     * inherited base-map key (code 94).  It is deliberately outside the
+     * selected device-input domain: no Manna two-group selector table is
+     * emitted for it, and the inherited symbols are not a claim about the
+     * frozen eight-state LSGT table.
+     */
+    if (lsgt != 94)
+        fail("generated map did not retain inherited pc+us LSGT keycode 94");
+    if (xkb_keymap_num_layouts_for_key(keymap, lsgt) != 1)
+        fail("generated map turned inherited LSGT into a Manna two-group table");
+    count = xkb_keymap_key_get_syms_by_level(keymap, lsgt, 0, 0, &syms);
+    if (count != 1 || syms[0] != XKB_KEY_less)
+        fail("generated map lost inherited pc+us LSGT less symbol");
+    count = xkb_keymap_key_get_syms_by_level(keymap, lsgt, 0, 1, &syms);
+    if (count != 1 || syms[0] != XKB_KEY_greater)
+        fail("generated map lost inherited pc+us LSGT greater symbol");
+}
+
+static void
+require_lvl5_inherited_boundary(struct xkb_keymap *keymap,
+                                struct xkb_state *state)
+{
+    const xkb_keysym_t *syms = NULL;
+    xkb_keycode_t lvl5 = xkb_keymap_key_by_name(keymap, "LVL5");
+    xkb_mod_index_t mod3 = xkb_keymap_mod_get_index(keymap, "Mod3");
+    int count;
+
+    /*
+     * Like LSGT, LVL5 comes from pc+us.  The selected generated carrier
+     * allocation names only LVL3=92 and ZEHA=93; it neither overrides nor
+     * maps this inherited ISO_Level5_Shift/Mod3 key into device input.
+     */
+    if (lvl5 != 203 || lvl5 == 92 || lvl5 == 93 ||
+        mod3 == XKB_MOD_INVALID)
+        fail("generated map did not retain distinct inherited pc+us LVL5/Mod3");
+    if (xkb_keymap_num_layouts_for_key(keymap, lvl5) != 1)
+        fail("generated map turned inherited LVL5 into a selected group table");
+    count = xkb_keymap_key_get_syms_by_level(keymap, lvl5, 0, 0, &syms);
+    if (count != 1 || syms[0] != XKB_KEY_ISO_Level5_Shift)
+        fail("generated map lost inherited pc+us LVL5 ISO_Level5_Shift symbol");
+    xkb_state_update_key(state, lvl5, XKB_KEY_DOWN);
+    if (!xkb_state_mod_index_is_active(state, mod3, XKB_STATE_MODS_EFFECTIVE))
+        fail("generated inherited LVL5 did not retain Mod3 state");
+    xkb_state_update_key(state, lvl5, XKB_KEY_UP);
+    if (xkb_state_mod_index_is_active(state, mod3, XKB_STATE_MODS_EFFECTIVE))
+        fail("generated inherited LVL5 release left Mod3 active");
+}
+
+static void
 run_frozen_manna_contract(struct xkb_keymap *keymap)
 {
     struct xkb_state *state;
@@ -207,6 +263,7 @@ main(int argc, char **argv)
     }
 
     require_ad01_shape(keymap);
+    require_lsgt_inherited_boundary(keymap);
     ad01 = xkb_keymap_key_by_name(keymap, "AD01");
     shift = xkb_keymap_key_by_name(keymap, "LFSH");
     lvl3 = xkb_keymap_key_by_name(keymap, "LVL3");
@@ -220,6 +277,8 @@ main(int argc, char **argv)
     state = xkb_state_new(keymap);
     if (state == NULL)
         fail("cannot create libxkbcommon state");
+
+    require_lvl5_inherited_boundary(keymap, state);
 
     require_layout(state, XKB_STATE_LAYOUT_EFFECTIVE, 0,
                    "initial effective layout is not Group 1");

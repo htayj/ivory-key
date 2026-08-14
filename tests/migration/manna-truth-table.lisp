@@ -358,7 +358,7 @@ raw rows are considered evidence."
       (error "Frozen Manna baseline diff report is not deterministic."))
     (unless (and (search "52 tables / 416 cells / 158 `NoSymbol` cells" first-diff)
                  (= 51 (count-substrings first-diff "static-table-and-placement-exact"))
-                 (= 1 (count-substrings first-diff "static-table-exact; physical-placement-refused"))
+                 (= 1 (count-substrings first-diff "static-table-exact; typed-unreachable"))
                  ;; The primary function table and the regression-only chord
                  ;; inventory each render all 29 exact @sc carrier aliases.
                  (= 58 (count-prefixed-lines first-diff "| `@sc-"))
@@ -376,7 +376,7 @@ raw rows are considered evidence."
                  (search "| Advantage 360 | 72 | `normal` (72), `game` (72), `fun` (72) | 57 | 0 |" first-diff)
                  (= 49 (count-prefixed-lines first-diff "| A2 / 360 | `@"))
                  (= 8 (count-prefixed-lines first-diff "| 360 only | `@"))
-                 (search "| `<LSGT>` physical placement | A2 and 360 | `physical-placement-refused` |" first-diff)
+                 (search "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` |" first-diff)
                  (search "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` |" first-diff)
                  (search "| `case-left-shift` | `lshift` → `lshift` |" first-diff)
                  (search "| `greek` | `lctl` → `@gr` |" first-diff)

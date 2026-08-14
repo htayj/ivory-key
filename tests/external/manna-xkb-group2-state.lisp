@@ -4,11 +4,15 @@
 ;;;;
 ;;;; Invoke from the Ivory Key checkout root:
 ;;;;   sbcl --script tests/external/manna-xkb-group2-state.lisp MANNA-ROOT
+;;;;   sbcl --script tests/external/manna-xkb-group2-state.lisp --generated-only MANNA-ROOT
 ;;;;
 ;;;; It verifies the hash-addressed frozen Manna review inputs, then creates
-;;;; the one closed Ivory Key generated XKB selector map and exercises that
-;;;; emitted artifact through libxkbcommon.  It neither compiles the frozen
-;;;; map as equivalent nor invokes Kanata, a device, or client protocol.
+;;;; closed Ivory Key generated XKB selector maps and exercises those emitted
+;;;; artifacts through libxkbcommon.  The generated-only mode is for a host
+;;;; whose xkeyboard-config data cannot satisfy the separately pinned frozen
+;;;; map observation; it preserves the same byte hash gate.  Neither mode
+;;;; compiles the frozen map as equivalent or invokes Kanata, a device, or a
+;;;; client protocol.
 
 (require "asdf")
 
@@ -178,15 +182,69 @@
     (with-open-file (stream pathname :direction :output :if-exists :error
                                      :if-does-not-exist :create
                                      :external-format :utf-8)
-      (let ((text (ivory-key.backend:emit-plan-to-string backend plan)))
-        ;; LVL5 remains a frozen-map-only observation.  The selected exact
-        ;; generated boundary allocates just 84/LVL3 and 85/ZEHA.
-        (when (search "<LVL5>" text)
-          (error "Generated selector contract unexpectedly emitted LVL5."))
-        (write-string text stream)))
+      ;; The selected allocation has only 84/LVL3 and 85/ZEHA.  pc+us may
+      ;; still contribute inherited LVL5 behavior outside the selected input
+      ;; domain; the C state probe checks that compiled-map boundary.
+      (write-string (ivory-key.backend:emit-plan-to-string backend plan) stream))
     pathname))
 
-(defun run-probe (root)
+(defun generated-manna-selector-keymap (directory)
+  "Emit the actual selected 51-override Manna XKB partial request for probing.
+
+This deliberately lowers XKB directly after compiler inspection.  The same
+request remains ineligible for the combined XKB/Kanata pipeline because no
+Kanata selector action/lifetime implementation exists.
+"
+  (multiple-value-bind (unit placement realization)
+      (ivory-key.cli:load-project-composition-for-compilation
+       "manna-cadet-project.ivory" "manna-cadet-linux")
+    (multiple-value-bind (request issues)
+        (ivory-key.cli::analyze-normalized-layout
+         (ivory-key.cli::compiler-unit-normalized unit) placement
+         :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization)
+         :selector-policy
+         (ivory-key.cli::compiler-realization-selector-policy realization))
+      (unless request
+        (error "Manna selector probe could not construct an inspection request."))
+      (dolist (required-issue
+               '(:unsupported-kanata-selector-action-plan
+                 :unsupported-semantic-modifiers
+                 :unsupported-timed-interaction
+                 :unreachable-device-position
+                 :unproved-patch-activation))
+        (unless (member required-issue issues
+                        :key #'ivory-key.cli::compiler-fidelity-issue-code)
+          (error "Manna selector probe lost required final-pipeline refusal ~S."
+                 required-issue)))
+      (let* ((backend (ivory-key.backend:make-xkb-backend))
+             (plan (ivory-key.backend:lower-request backend request))
+             (static-entries
+               (ivory-key.backend::xkb-plan-selector-static-entries plan))
+             (selector-result
+               (find :selector-policy
+                     (ivory-key.backend:xkb-plan-realizations plan)
+                     :key #'ivory-key.backend:realization-feature))
+             (pathname (merge-pathnames "generated-manna-selector-keymap.xkb"
+                                        directory)))
+        (unless (and selector-result
+                     (eq (ivory-key.backend:realization-grade selector-result)
+                         :exact)
+                     (= (length static-entries) 51)
+                     (null (find "less-greater" static-entries :test #'string=
+                                 :key
+                                 (lambda (static-entry)
+                                   (ivory-key.backend:key-entry-position
+                                    (ivory-key.backend::xkb-selector-static-entry-entry
+                                     static-entry))))))
+          (error "Manna generated XKB partial request is not exactly its 51 selected static overrides."))
+        (with-open-file (stream pathname :direction :output :if-exists :error
+                                       :if-does-not-exist :create
+                                       :external-format :utf-8)
+          (write-string (ivory-key.backend:emit-plan-to-string backend plan)
+                        stream))
+        pathname))))
+
+(defun run-probe (root &key (frozen-mode-p t))
   "Run distinct frozen-map and generated-map state contracts.
 
 The hash gate fixes the source review set.  The frozen mode preserves the
@@ -200,10 +258,11 @@ only the separately selected typed carrier contract.
                 (frozen-keymap (merge-pathnames "xkb/keymap/spacecadet.xkb" root))
                 (frozen-includes (merge-pathnames "xkb/" root))
                 (frozen-output
-                  (uiop:run-program
-                   (list (namestring binary) "--frozen"
-                         (namestring frozen-keymap) (namestring frozen-includes))
-                   :output :string :error-output :output))
+                  (when frozen-mode-p
+                    (uiop:run-program
+                     (list (namestring binary) "--frozen"
+                           (namestring frozen-keymap) (namestring frozen-includes))
+                     :output :string :error-output :output)))
                 (generated-outputs
                   (loop for group-one-type in '(:four-level :four-level-alphabetic)
                         for keymap =
@@ -212,18 +271,30 @@ only the separately selected typed carrier contract.
                         (cons group-one-type
                               (uiop:run-program
                                (list (namestring binary) (namestring keymap))
-                               :output :string :error-output :output)))))
-           (unless (search "FROZEN-MANNA-XKB-GROUP2-STATE: PASSED" frozen-output)
-             (error "Frozen Manna XKB state probe did not pass:~%~A"
-                    frozen-output))
+                               :output :string :error-output :output))))
+                (manna-output
+                  (uiop:run-program
+                   (list (namestring binary)
+                         (namestring (generated-manna-selector-keymap directory)))
+                   :output :string :error-output :output)))
+           (when frozen-mode-p
+             (unless (search "FROZEN-MANNA-XKB-GROUP2-STATE: PASSED" frozen-output)
+               (error "Frozen Manna XKB state probe did not pass:~%~A"
+                      frozen-output)))
            (dolist (generated-output generated-outputs)
              (unless (search "GENERATED-XKB-SELECTOR-STATE: PASSED"
                              (cdr generated-output))
                (error "Generated XKB selector state probe did not pass for ~S:~%~A"
                       (car generated-output) (cdr generated-output))))
-           (format t "EXTERNAL-VALIDATION ~S: PASSED (frozen LVL3/LVL5 state observation retained).~%"
-                   +frozen-validation-tag+)
+           (unless (search "GENERATED-XKB-SELECTOR-STATE: PASSED" manna-output)
+             (error "Generated full Manna XKB partial request state probe did not pass:~%~A"
+                    manna-output))
+           (when frozen-mode-p
+             (format t "EXTERNAL-VALIDATION ~S: PASSED (frozen LVL3/LVL5 state observation retained).~%"
+                     +frozen-validation-tag+))
            (format t "EXTERNAL-VALIDATION ~S: PASSED (generated FOUR_LEVEL and FOUR_LEVEL_ALPHABETIC XKB/libxkbcommon selector contracts).~%"
+                   +external-validation-tag+)
+           (format t "EXTERNAL-VALIDATION ~S: PASSED (generated 51-override Manna XKB partial request only).~%"
                    +external-validation-tag+)
            :passed)
       (when (probe-file directory)
@@ -241,9 +312,12 @@ only the separately selected typed carrier contract.
 
 (defun main ()
   (let ((arguments (external-command-line-arguments)))
-    (unless (= (length arguments) 1)
-      (error "Usage: manna-xkb-group2-state.lisp MANNA-ROOT"))
-    (run-probe (source-root (first arguments)))))
+    (cond ((= (length arguments) 1)
+           (run-probe (source-root (first arguments))))
+          ((and (= (length arguments) 2)
+                (string= (first arguments) "--generated-only"))
+           (run-probe (source-root (second arguments)) :frozen-mode-p nil))
+          (t (error "Usage: manna-xkb-group2-state.lisp [--generated-only] MANNA-ROOT")))))
 
 (handler-case
     (progn

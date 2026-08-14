@@ -77,7 +77,7 @@ to a refused class.
 |---|---|---|---|
 | §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers above, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; neither source inventory selects behavior | implementable review tooling remains |
 | §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, 29 function rows per device, four immediate holders, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
-| §13.3 complete physical placement | 51 placed static XKB tables, four immediate direct holders/selectors, and the mode-key position on both devices | obtain additional device/event evidence for the residual common controls and A2 `lrld`; no direct primary `defsrc` provenance exists for `<LSGT>` | requires new evidence, not a topology guess |
+| §13.3 complete physical placement | 51 physically covered Manna selector overrides, four immediate direct holders/selectors, the mode-key position, and an explicit typed-unreachable `<LSGT>` record on both devices | obtain additional device/event evidence for the residual common controls and A2 `lrld`; no direct primary `defsrc` provenance exists for `<LSGT>` | requires new evidence, not a topology guess |
 | §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths | encode complete timed, overlay, selector-visibility, and multi-owner traces only after choosing the foreign-event treatment | blocked by semantic choices |
 | §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
@@ -152,7 +152,7 @@ drop or reinterpret it.
 | Advantage 2 `lalt` | source spells the normal result `lrld` | unresolved: no alias defines that spelling in the frozen file, so no semantic identity is inferred |
 | Advantage 360 `K18`, `K20`, `K19`, `K21` | source-only local keys emit `F18`, `F20`, `F19`, `F21` respectively | device-specific direct outputs; absent from the shared layout because the A2 primary source has no corresponding positions |
 | A2 `menu` / 360 `caps` | direct inactive result differs by device; function result is common `alt-mode` | transcribed only as the shared active `mode-key` patch binding; inactive common behavior remains intentionally unspecified |
-| `<LSGT>` static XKB table | no direct token in either primary Kanata `defsrc` | static symbol evidence retained; device placement remains unassigned |
+| `<LSGT>` static XKB table | no direct token in either primary Kanata `defsrc` | static symbol evidence retained; both devices declare it `unreachable`, so no physical placement is invented |
 
 The 360 local-key comments give source keycodes 127, 115, 130, and 142 for
 those four `K18`–`K21` identifiers.  They do not demonstrate a common Kinesis
@@ -183,12 +183,14 @@ ZEHA=93; that xkeyboard-config include-data difference is recorded, not
 substituted for the pinned Guix observation.
 
 The probe's separate generated-map mode emits Ivory Key's closed typed carrier
-allocation: Linux 84 is `<LVL3>=92` and Linux 85 is `<ZEHA>=93`, with no
-generated LVL5 selector. For both accepted Group 1 type forms it proves via
-libxkbcommon that ZEHA alone selects and consumes Group1 Level3; Group2 is
-depressed and serialized; held ZEHA remains effective/unconsumed for a Group2
-key; and Group2 Shift is consumed. It covers ZEHA down/up and ZEHA+LVL3 in
-both press orders. This is an exact selected **generated XKB state
+allocation: Linux 84 is `<LVL3>=92` and Linux 85 is `<ZEHA>=93`. It has no
+generated LVL5 override or selected device mapping, while compiled `pc+us`
+still contributes inherited LVL5/ISO_Level5_Shift/Mod3 behavior outside that
+input domain. For both accepted Group 1 type forms it proves via libxkbcommon
+that ZEHA alone selects and consumes Group1 Level3; Group2 is depressed and
+serialized; held ZEHA remains effective/unconsumed for a Group2 key; and
+Group2 Shift is consumed. It covers ZEHA down/up and ZEHA+LVL3 in both press
+orders. This is an exact selected **generated XKB state
 sub-contract**, not an assertion that frozen Kanata delivers code 85 this way,
 that a client/compositor observes the same semantics, or that Manna migration
 is equivalent.
@@ -410,22 +412,30 @@ guessed.
 
 Run `sbcl --script tools/manna-truth-table.lisp diff ROOT` against the
 hash-verified frozen checkout for the complete review artifact.  The report's
-only non-exact classes are deliberate: unplaced `<LSGT>`, the device-specific
+only non-exact classes are deliberate: typed-unreachable `<LSGT>`, the device-specific
 inactive mode-key result, 16 selected tap-hold paths whose lifecycle is still
 unselected, two inactive historical Shift aliases, the eight Advantage-360
 game aliases, and the selector-to-Kanata/lifetime boundary.  The generated
 XKB state sub-contract is exact; the combined compiler still refuses the
 absent Kanata selector action plan even for the four direct interactions.
 
-The compiler can inspect a deterministic partial lowering: 51 placed static
-tables, all 29 function carriers, their 29 XKB `I(N+8)` carrier key entries,
-and a physical Kanata pass-through/function-layer proposal. It refuses final
-compilation before any artifact write. The deterministic first refusal is
-`:unsupported-semantic-modifiers`; the four direct held interactions have no
-current backend lowering even though their model lifecycle is simulated. The
-remaining independent blockers are selector/case backend realization and
-application visibility, unplaced `<LSGT>`, and missing function
-activation/timing/arbitration semantics.
+The selected Manna profile contains all 52 hash-pinned source-derived static
+type declarations. The compiler can inspect its deterministic XKB partial
+lowering: 51 generated Manna selector overrides, all 29 function carriers,
+their 29 XKB `I(N+8)` carrier key entries, and carrier keys `84 → <LVL3>=92`
+and `85 → <ZEHA>=93`. The remaining declared row, `<LSGT>`, is explicitly
+typed unreachable on both devices and receives no Manna override. The partial
+map still includes `pc+us`, so compiled `<LSGT>` retains inherited default
+less/greater behavior; it is outside selected device-input coverage and is not
+the frozen eight-state Manna table. The tagged libxkbcommon probe executes this
+51-override generated XKB partial request, in addition to its one-key type-form
+checks. This is still not a combined Manna compile: the compiler refuses before
+artifact write. Its deterministic first refusal is
+`:unsupported-kanata-selector-action-plan`; the four direct held interactions
+have no current Kanata action/lifetime lowering even though their model
+lifecycle is simulated. The remaining independent blockers are application
+visibility, typed-unreachable `<LSGT>`, semantic modifiers, and missing
+function activation/timing/arbitration semantics.
 
 Before a Phase 7 migration claim, reviewers still need an explicit decision
 for each unresolved row above, a complete simulation proof,

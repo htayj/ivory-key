@@ -258,7 +258,39 @@ particular, ZEHA is keycode 93, not an alias of LVL5 or LVL3.")
      entry (%selector-group-one-type static-type)
      (coerce group-one 'list) (coerce group-two-values 'list))))
 
-(defun %xkb-observed-selector-static-entries (policy entries)
+(defun %typed-unreachable-input-coverage-p (input-coverage position)
+  "Return true only for one closed UNREACHABLE coverage record for POSITION.
+
+The selector static-type inventory is normally an all-or-nothing declaration:
+each declared table must be emitted.  The sole exception is a table which the
+compiler has already typed as unreachable at the input boundary.  In
+particular, an absent record, a physical record, or multiple records must not
+turn a missing XKB entry into an implicit omission.
+"
+  (unless (listp input-coverage)
+    (error "XKB selector static type ~A lacks typed input coverage metadata."
+           position))
+  (let ((records
+          (remove-if-not
+           (lambda (record)
+             (and (listp record)
+                  (stringp (getf record :position))
+                  (string= position (getf record :position))))
+           input-coverage)))
+    (unless (= (length records) 1)
+      (error "XKB selector static type ~A requires exactly one typed input coverage record."
+             position))
+    (let ((record (first records)))
+      (unless (and (= (length record) 4)
+                   (member :position record :test #'eq)
+                   (member :disposition record :test #'eq)
+                   (stringp (getf record :position))
+                   (eq (getf record :disposition) :unreachable))
+        (error "XKB selector static type ~A is missing from emitted entries but is not typed :UNREACHABLE."
+               position))
+      t)))
+
+(defun %xkb-observed-selector-static-entries (policy entries input-coverage)
   "Return deterministic emitted tables only for the evidence-named policy."
   (ivory-key.model:validate-realization-selector-policy policy)
   (unless (= (length (ivory-key.model:realization-selector-policy-selectors policy)) 3)
@@ -300,12 +332,13 @@ particular, ZEHA is keycode 93, not an alias of LVL5 or LVL3.")
               (find (ivory-key.model:identifier-name
                      (ivory-key.model:realization-static-type-position static-type))
                     entries :test #'string= :key #'key-entry-position)))
-        (unless entry
-          (error "XKB selector static type names missing entry ~A."
-                 (ivory-key.model:identifier-name
-                  (ivory-key.model:realization-static-type-position static-type))))
-        (push (%selector-static-entry entry static-type shift level-three group-two)
-              result)))
+        (let ((position
+                (ivory-key.model:identifier-name
+                 (ivory-key.model:realization-static-type-position static-type))))
+          (if entry
+              (push (%selector-static-entry entry static-type shift level-three group-two)
+                    result)
+              (%typed-unreachable-input-coverage-p input-coverage position)))))
     (values (sort result #'string<
                   :key (lambda (static-entry)
                          (key-entry-code-for
@@ -361,7 +394,9 @@ particular, ZEHA is keycode 93, not an alias of LVL5 or LVL3.")
               (setf selector-static-entries
                     (nth-value 0
                                (%xkb-observed-selector-static-entries
-                                selector-policy entries)))
+                                selector-policy entries
+                                (getf (lowering-request-metadata request)
+                                      :input-coverage))))
               (push (make-realization-result
                      :selector-policy :exact
                      :detail

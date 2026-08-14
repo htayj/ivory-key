@@ -1053,11 +1053,13 @@ runtime behavior.
                    (fixture-placement-p advantage360 logical xkb kanata))
         (error "Manna static placement ~A is not exact on both devices." logical))))
   ;; <LSGT> is a static XKB table only.  Its deliberate physical absence is a
-  ;; classified unresolved difference, not an inferred device placement.
+  ;; typed device fact, not an inferred device placement.
   (unless (and (search "(position less-greater)" topology)
                (not (search "(place less-greater" advantage2))
-               (not (search "(place less-greater" advantage360)))
-    (error "<LSGT> must remain an explicit unplaced static-table position."))
+               (not (search "(place less-greater" advantage360))
+               (search "(unreachable less-greater)" advantage2)
+               (search "(unreachable less-greater)" advantage360))
+    (error "<LSGT> must remain explicitly unreachable without an invented placement."))
   (unless (and (= 56 (count-prefixed-lines advantage2 "  (place "))
                (= 56 (count-prefixed-lines advantage360 "  (place ")))
     (error "Each Manna device fixture must contain exactly 56 classified placements."))
@@ -1271,7 +1273,7 @@ runtime behavior.
 (defun render-diff-report (root stream)
   "Render the complete frozen static/function/direct-selector comparison.
 
-Every record is either exact, deliberately unplaced/device-specific, or an
+Every record is either exact, explicitly unreachable/device-specific, or an
 explicit refusal.  An unexpected input causes an error before this report can
 claim zero unchecked differences.
 "
@@ -1303,7 +1305,7 @@ claim zero unchecked differences.
     (format stream "## Completeness~%~%")
     (format stream "| Inventory | Baseline records | Exact fixture records | Explicit refusals / variants | Unchecked |~%")
     (format stream "|---|---:|---:|---:|---:|~%")
-    (format stream "| Static tables | 52 tables / 416 cells / ~D `NoSymbol` cells | 52 | 1 unplaced physical table | 0 |~%"
+    (format stream "| Static tables | 52 tables / 416 cells / ~D `NoSymbol` cells | 52 | 1 explicitly unreachable input | 0 |~%"
             (static-nosymbol-count root))
     (format stream "| Function outputs | 29 A2 + 29 360 placements | 29 shared outputs | 2 activators | 0 |~%")
     (format stream "| Direct selectors | 4 A2 + 4 360 observations | 4 abstract held interactions | backend lowering refused | 0 |~%")
@@ -1345,7 +1347,7 @@ claim zero unchecked differences.
                     (format nil "`~A` / `~A`" token token)
                     "no direct `defsrc` token / no direct `defsrc` token")
                 (if token "static-table-and-placement-exact"
-                    "static-table-exact; physical-placement-refused"))))
+                    "static-table-exact; typed-unreachable"))))
     (format stream "~%## Primary function output table~%~%")
     (format stream "| Alias | Logical position | XKB | Carrier | A2 source | 360 source | Classification |~%")
     (format stream "|---|---|---|---:|---|---|---|~%")
@@ -1369,7 +1371,7 @@ claim zero unchecked differences.
     (format stream "~%## Explicitly classified differences and refusals~%~%")
     (format stream "| Evidence item | Device scope | Fixture disposition | Why it remains non-equivalent |~%")
     (format stream "|---|---|---|---|~%")
-    (format stream "| `<LSGT>` physical placement | A2 and 360 | `physical-placement-refused` | Static table is exact, but neither primary `defsrc` has a direct token; no placement is invented. |~%")
+    (format stream "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` | Static table is exact, but neither primary `defsrc` has a direct token; both device records refuse a placement. |~%")
     (format stream "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` | Frozen source is `menu` / `caps`; only the common active `alt-mode` output is transcribed. |~%")
     (dolist (row +unresolved-primary-tap-holds+)
       (destructuring-bind (alias position family) row

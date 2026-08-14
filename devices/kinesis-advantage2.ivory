@@ -11,6 +11,8 @@
 ;; the Alt Mode command inside it.  The latter still requires carrier
 ;; lowering, so this placement records only the frozen source spellings.
 ;; Seen arbitrary-code values, retained as unavailable physical carriers.
+;; The frozen primary defsrc has no direct LSGT token.  This records that
+;; reviewed absence without inventing a physical placement.
 
 (ivory-key 1)
 (define-device
@@ -67,6 +69,7 @@
   (place slash (:xkb "AB10") (:kanata "/"))
   (place backspace (:xkb "BKSP") (:kanata "bspc"))
   (place space (:xkb "SPCE") (:kanata "spc"))
+  (unreachable less-greater)
   (place case-left-shift (:xkb "LFSH") (:kanata "lshift"))
   (place case-right-shift (:xkb "RTSH") (:kanata "rshift"))
   (place greek (:xkb "ZEHA") (:kanata "lctl"))

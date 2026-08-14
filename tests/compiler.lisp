@@ -1320,11 +1320,56 @@ their opaque atom grammar; they do not document a real keyboard profile.
              (is (search "Fidelity: unsupported" report))
              (is (search "[MISSING-VOCABULARY-MAPPING]" report)))))))))
 
-(deftest compiler-manna-static-tables-and-function-carriers-are-proposed-exactly
-  "The frozen profile may prepare only its evidenced XKB/Kanata pieces.
+(defparameter +compiler-frozen-manna-static-type-inventory+
+  '(("number-equals" :four-level)
+    ("number-1" :four-level) ("number-2" :four-level)
+    ("number-3" :four-level) ("number-4" :four-level)
+    ("number-5" :four-level) ("number-6" :four-level)
+    ("number-7" :four-level) ("number-8" :four-level)
+    ("number-9" :four-level) ("number-0" :four-level)
+    ("number-minus" :four-level) ("tab" :four-level)
+    ("q" :four-level-alphabetic) ("w" :four-level-alphabetic)
+    ("e" :four-level-alphabetic) ("r" :four-level-alphabetic)
+    ("t" :four-level-alphabetic) ("y" :four-level-alphabetic)
+    ("u" :four-level-alphabetic) ("i" :four-level-alphabetic)
+    ("o" :four-level-alphabetic) ("p" :four-level-alphabetic)
+    ("left-bracket" :four-level) ("right-bracket" :four-level)
+    ("return" :four-level)
+    ("a" :four-level-alphabetic) ("s" :four-level-alphabetic)
+    ("d" :four-level-alphabetic) ("f" :four-level-alphabetic)
+    ("g" :four-level-alphabetic) ("h" :four-level-alphabetic)
+    ("j" :four-level-alphabetic) ("k" :four-level-alphabetic)
+    ("l" :four-level-alphabetic)
+    ("semicolon" :four-level) ("apostrophe" :four-level)
+    ("grave" :four-level) ("backslash" :four-level)
+    ("z" :four-level-alphabetic) ("x" :four-level-alphabetic)
+    ("c" :four-level-alphabetic) ("v" :four-level-alphabetic)
+    ("b" :four-level-alphabetic) ("n" :four-level-alphabetic)
+    ("m" :four-level-alphabetic)
+    ("comma" :four-level) ("period" :four-level) ("slash" :four-level)
+    ("backspace" :four-level) ("space" :four-level)
+    ("less-greater" :four-level))
+  "Literal 52-row inventory transcribed from the hash-pinned frozen XKB source.
+
+This is deliberately separate from the Manna realization profile.  The
+migration truth-table tool pins the source bytes and cells; this table catches
+a policy type drift even when its Group1 symbols would still look plausible.
+")
+
+(defun compiler-canonical-static-type-inventory (types)
+  (sort (mapcar (lambda (type)
+                  (list
+                   (ivory-key.model:identifier-name
+                    (ivory-key.model:realization-static-type-position type))
+                   (ivory-key.model::realization-static-type-type type)))
+                types)
+        #'string< :key #'first))
+
+(deftest compiler-manna-selected-xkb-static-tables-and-function-carriers-are-proposed-exactly
+  "The frozen profile selects only its evidenced XKB selector sub-contract.
 
 The resulting request is deliberately not a successful compile: it retains
-the explicit selectors, semantic modifiers, missing LSGT placement, and
+the Kanata selector action, semantic modifiers, the unreachable LSGT binding, and
 function activation refusals below.  This distinguishes a mechanically
 complete carrier table from an invented Manna behavior.
 "
@@ -1334,10 +1379,12 @@ complete carrier table from an invented Manna behavior.
     (multiple-value-bind (request issues)
         (ivory-key.cli::analyze-normalized-layout
          (ivory-key.cli::compiler-unit-normalized unit) placement
-         :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization))
+         :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization)
+         :selector-policy
+         (ivory-key.cli::compiler-realization-selector-policy realization))
       (is request)
-      ;; The frozen XKB inventory has 52 tables; <LSGT> is intentionally
-      ;; unplaced in the device evidence, leaving 51 lowerable physical rows.
+      ;; The frozen XKB inventory has 52 tables; <LSGT> is explicitly outside
+      ;; selected device coverage, leaving 51 Manna selector overrides.
       (is-equal 51 (length (ivory-key.backend::lowering-request-entries request)))
       (let* ((metadata (ivory-key.backend::lowering-request-metadata request))
              (carriers (getf metadata :xkb-carrier-entries))
@@ -1362,34 +1409,106 @@ complete carrier table from an invented Manna behavior.
           (is-equal "I191" (ivory-key.backend:key-entry-code-for macro :xkb))
           (is-equal '("UE000")
                     (ivory-key.backend:key-entry-outputs-for macro :xkb)))
-        (let* ((pipeline (ivory-key.backend:compile-xkb-kanata-request request
-                                                                        :allow-lossy nil))
-               (artifacts (ivory-key.backend:pipeline-result-artifacts pipeline))
-               (xkb (find :xkb artifacts :key #'ivory-key.backend:pipeline-artifact-kind))
-               (kanata (find :kanata artifacts :key #'ivory-key.backend:pipeline-artifact-kind)))
-          (is (search "key <I191>" (ivory-key.backend:pipeline-artifact-content xkb)))
-          (is (search "symbols[Group1]=[ UE000 ]"
-                      (ivory-key.backend:pipeline-artifact-content xkb)))
-          (is (search "(deflayer primary-function"
-                      (ivory-key.backend:pipeline-artifact-content kanata)))
-          (is (search "(arbitrary-code 183)"
-                      (ivory-key.backend:pipeline-artifact-content kanata)))))
+        ;; The selected XKB-only policy changes neither the unimplemented
+        ;; Kanata selector action nor the combined pipeline's fail-closed
+        ;; behavior.  No partial Kanata artifact is obtained from this path.
+        (signals error
+          (ivory-key.backend:compile-xkb-kanata-request request :allow-lossy nil)))
+      ;; The profile has all 52 frozen source type declarations.  LSGT is the
+      ;; one declared unreachable position, so the direct XKB sub-contract
+      ;; emits all and only the remaining 51 Manna static overrides.  pc+us
+      ;; still supplies its unrelated inherited LSGT fallback at runtime.
+      (let* ((metadata (ivory-key.backend::lowering-request-metadata request))
+             (policy (getf metadata :selector-policy))
+             (coverage (getf metadata :input-coverage))
+             (backend (ivory-key.backend:make-xkb-backend))
+             (plan (ivory-key.backend:lower-request backend request))
+             (static-entries
+               (ivory-key.backend::xkb-plan-selector-static-entries plan))
+             (text (ivory-key.backend:emit-plan-to-string backend plan)))
+        (is-equal
+         (sort (copy-list +compiler-frozen-manna-static-type-inventory+)
+               #'string< :key #'first)
+         (compiler-canonical-static-type-inventory
+          (ivory-key.model:realization-selector-policy-static-types policy)))
+        (is-equal '(:position "less-greater" :disposition :unreachable)
+                  (find "less-greater" coverage :test #'string=
+                        :key (lambda (record) (getf record :position))))
+        (is-equal 51 (length static-entries))
+        (is (null (find "less-greater" static-entries :test #'string=
+                        :key (lambda (static-entry)
+                               (ivory-key.backend:key-entry-position
+                                (ivory-key.backend::xkb-selector-static-entry-entry
+                                 static-entry))))))
+        ;; The normalizer is the checked frozen table transcription: every
+        ;; emitted Group1/Group2 row must preserve all eight source cells.
+        (dolist (static-entry static-entries)
+          (let* ((entry (ivory-key.backend::xkb-selector-static-entry-entry
+                         static-entry))
+                 (outputs (ivory-key.backend:key-entry-outputs-for entry :xkb))
+                 (type (ivory-key.model:realization-policy-static-type-for-position
+                        policy (ivory-key.backend:key-entry-position entry))))
+            (is type)
+            (is-equal (subseq outputs 0 4)
+                      (ivory-key.backend::xkb-selector-static-entry-group-one-symbols
+                       static-entry))
+            (is-equal (subseq outputs 4 6)
+                      (ivory-key.backend::xkb-selector-static-entry-group-two-symbols
+                       static-entry))
+            (is-equal (fifth outputs) (seventh outputs))
+            (is-equal (sixth outputs) (eighth outputs))
+            (is-equal
+             (ecase (ivory-key.model::realization-static-type-type type)
+               (:four-level "FOUR_LEVEL")
+               (:four-level-alphabetic "FOUR_LEVEL_ALPHABETIC"))
+             (ivory-key.backend::xkb-selector-static-entry-group-one-type
+              static-entry)))
+        (is (search "<LVL3> = 92;" text))
+        (is (search "<ZEHA> = 93;" text))
+        (is (search "key <I191>" text))
+        (is (search "symbols[Group1]=[ UE000 ]" text))
+        ;; The narrow LSGT exception is not a generic way to omit declared
+        ;; static types: the same named position must have exactly one typed
+        ;; unreachable coverage record.  Missing, physical, malformed, and
+        ;; duplicate records all fail closed in the XKB lowerer.
+        (labels ((request-with-coverage (replacement)
+                   (let ((replacement-metadata (copy-list metadata)))
+                     (setf (getf replacement-metadata :input-coverage)
+                           replacement)
+                     (make-instance 'ivory-key.backend:lowering-request
+                                    :name (ivory-key.backend::lowering-request-name request)
+                                    :entries (ivory-key.backend::lowering-request-entries request)
+                                    :interactions
+                                    (ivory-key.backend::lowering-request-interactions request)
+                                    :modifiers
+                                    (ivory-key.backend::lowering-request-modifiers request)
+                                    :metadata replacement-metadata))))
+          (dolist (replacement
+                   (list nil
+                         (list '(:position "less-greater" :disposition :physical))
+                         (list '(:position "less-greater" :disposition "unreachable"))
+                         (list '(:position "less-greater" :disposition :unreachable)
+                               '(:position "less-greater" :disposition :unreachable))))
+            (signals error
+              (ivory-key.backend:lower-request
+               backend (request-with-coverage replacement)))))))
       (is-equal
-       '(:unsupported-semantic-modifiers :unsupported-context-selection
+       '(:unsupported-kanata-selector-action-plan :unsupported-semantic-modifiers
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unsupported-timed-interaction :unsupported-timed-interaction
-         :missing-device-coverage :unsupported-context-selection
-         :unproved-patch-activation :unsupported-context-selection)
+         :unreachable-device-position :unproved-patch-activation)
        (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
       ;; Final project compilation chooses the deterministic first refusal;
       ;; it never writes a partial source proposal.
-      (is-equal :unsupported-semantic-modifiers
+      (is-equal :unsupported-kanata-selector-action-plan
                 (compiler-stage-code-from
                  (lambda ()
                    (ivory-key.cli::make-lowering-request-from-normalized-layout
                     (ivory-key.cli::compiler-unit-normalized unit) placement
                     :vocabulary
-                    (ivory-key.cli::compiler-realization-vocabulary realization))))))))
+                    (ivory-key.cli::compiler-realization-vocabulary realization)
+                    :selector-policy
+                    (ivory-key.cli::compiler-realization-selector-policy realization))))))))
 (deftest compiler-project-explain-refuses-unsafe-output-vocabulary-spelling
   ;; Opaque spelling safety remains an adapter concern.  Explain follows the
   ;; same pipeline as compile after analysis and therefore refuses this map

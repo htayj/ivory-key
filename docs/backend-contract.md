@@ -124,11 +124,17 @@ boundary.
 long evidence-named value is narrower: it may grade **only the generated XKB
 sub-contract** exact after all of the following are present: exactly the three
 binary Shift/Level3/Group2 contexts, a static-type declaration covering every
-eight-cell selector table, and the two collision-free carriers `84 →
-<LVL3>=92` and `85 → <ZEHA>=93`. It emits Group 1 as `FOUR_LEVEL` or
-`FOUR_LEVEL_ALPHABETIC`, Group 2 as `TWO_LEVEL`, removes pc's inherited Mod5
-map from `<LVL3>`, and maps only `<ZEHA>` to Mod5. It does not emit or select
-`<LVL5>`; frozen-map LVL5 observations are outside this selected contract.
+emitted eight-cell selector table, and the two collision-free carriers `84 →
+<LVL3>=92` and `85 → <ZEHA>=93`. A declared static type with no emitted entry
+is refused unless the request contains exactly one typed `input_coverage`
+record naming that same logical position as `unreachable`; this records an
+already reviewed physical absence and never invents a placement. It emits
+Group 1 as `FOUR_LEVEL` or `FOUR_LEVEL_ALPHABETIC`, Group 2 as `TWO_LEVEL`,
+removes pc's inherited Mod5 map from `<LVL3>`, and maps only `<ZEHA>` to Mod5.
+It has no generated `<LVL5>` override or selected device mapping; any inherited
+`pc+us` LVL5/ISO_Level5_Shift/Mod3 behavior is outside this selected input
+domain. Frozen-map LVL5 observations are likewise outside this selected
+contract.
 
 The separately tagged external probe runs both permitted Group 1 types against
 libxkbcommon. It proves for the **generated artifact** that Group2 is
@@ -140,6 +146,19 @@ protocol proof, compositor proof, or live-device proof. The compiler retains
 an explicit `unsupported-kanata-selector-action-plan` refusal, and the Kanata
 backend independently refuses selector metadata; semantic tap-holds and
 generic interactions remain independent refusals.
+
+The same tagged probe also emits the selected Manna Cadet XKB partial request
+from project analysis and runs it through the state checks. That request has
+52 hash-pinned source type declarations, 51 generated Manna selector
+overrides, and the two carrier keys; its sole omitted type is `less-greater`,
+whose two device records explicitly declare it unreachable because neither
+reviewed primary `defsrc` contains a direct source token. Because the partial
+map includes `pc+us`, compiled `<LSGT>` still has the inherited default keycode
+and less/greater behavior. It is outside the selected device-input domain and
+is not the frozen Manna eight-state table. This validates the generated XKB
+sub-contract only. The combined compiler still refuses its Kanata selector
+action/lifetime and the other unresolved Manna features before any artifact
+write.
 
 ## Current Kanata contract
 
