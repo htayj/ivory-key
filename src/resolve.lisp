@@ -149,12 +149,29 @@ recursive template edge a stable, explicit error rather than a stack overflow."
     (resolve* behavior environment stack)))
 
 (defun %interaction-template-value (value environment)
-  (if (typep value 'interaction-template-parameter)
-      (or (cdr (lookup-identifier (interaction-parameter-name value) environment))
-          (%resolution-error :unbound-interaction-template-parameter
-                             "No argument was supplied for interaction parameter ~A."
-                             (identifier-name (interaction-parameter-name value))))
-      value))
+  "Resolve one interaction placeholder through nested template environments.
+
+Nested template calls may forward an outer parameter as their argument.  Walk
+that finite binding chain rather than leaving an outer placeholder in the
+concrete interaction.  This remains declarative data substitution: it neither
+reads nor evaluates source text.
+"
+  (labels ((resolve* (node seen)
+             (if (typep node 'interaction-template-parameter)
+                 (let* ((name (interaction-parameter-name node))
+                        (key (identifier-key name)))
+                   (when (member key seen :test #'string=)
+                     (%resolution-error :recursive-interaction-template-parameter
+                                        "Interaction template parameter cycle includes ~A."
+                                        (identifier-name name)))
+                   (let ((entry (lookup-identifier name environment)))
+                     (unless entry
+                       (%resolution-error :unbound-interaction-template-parameter
+                                          "No argument was supplied for interaction parameter ~A."
+                                          (identifier-name name)))
+                     (resolve* (cdr entry) (cons key seen))))
+                 node)))
+    (resolve* value nil)))
 
 (defun %resolve-position-selector (selector environment)
   (apply #'make-position-selector (position-selector-kind selector)
@@ -243,12 +260,34 @@ recursive template edge a stable, explicit error rather than a stack overflow."
                               "Interaction template ~A expects ~D arguments, got ~D."
                               (identifier-name name) (length parameters) (length arguments)))
          (let ((bindings (mapcar (lambda (parameter argument)
-                                   (cons parameter argument)) parameters arguments)))
+                                   ;; Resolve a forwarded outer parameter at
+                                   ;; the call boundary, so each callee gets a
+                                   ;; complete identifier argument rather than
+                                   ;; a dangling lexical placeholder.
+                                   (cons parameter
+                                         (%interaction-template-value argument environment)))
+                                 parameters arguments)))
            (resolve-interaction-form (interaction-template-body template) layout
-                                     :environment bindings :stack (cons key stack))))))
+                                     :environment (append bindings environment)
+                                     :stack (cons key stack))))))
     (t (%resolution-error :invalid-interaction
                          "Expected an interaction or interaction-template reference, got ~S."
                          form))))
+
+(defun %resolve-layout-interactions (layout)
+  "Expand interactions and reject two source forms claiming one result name."
+  (let ((interactions
+          (mapcar (lambda (interaction)
+                    (resolve-interaction-form interaction layout))
+                  (layout-interactions layout))))
+    ;; Template references carry no second, implicit instance name.  Letting
+    ;; two expansions retain one body name would make downstream arbitration
+    ;; and reporting refer to an ambiguous interaction, so fail before a
+    ;; later phase can choose one by incidental source order.
+    (unless (unique-identifiers-p (mapcar #'interaction-name interactions))
+      (%resolution-error :ambiguous-interaction-template-expansion
+                         "Interaction template expansion produced duplicate interaction names."))
+    interactions))
 
 (defun resolve-layout (layout)
   "Return a copy of LAYOUT with all named behavior-template references expanded.
@@ -280,9 +319,7 @@ handles the references whose target is a typed model declaration."
                                   (overlay-patch-bindings overlay))
                           :precedence (overlay-patch-precedence overlay)))
                        (layout-overlays layout))
-               :interactions (mapcar (lambda (interaction)
-                                       (resolve-interaction-form interaction layout))
-                                     (layout-interactions layout))
+               :interactions (%resolve-layout-interactions layout)
                :behavior-templates (layout-behavior-templates layout)
                :interaction-templates (layout-interaction-templates layout)
                :metadata (layout-metadata layout)))
@@ -296,7 +333,8 @@ handles the references whose target is a typed model declaration."
 
 (defparameter +decoder-layout-clauses+
   '("uses-topology" "axis" "level-order" "modifiers" "binding"
-    "overlay" "define-behavior" "interaction")
+    "overlay" "define-behavior" "define-interaction-template"
+    "interaction" "instantiate-interaction")
   "The complete currently-decoded DEFINE-LAYOUT clause vocabulary.")
 
 (defparameter +decoder-behavior-forms+
@@ -717,13 +755,29 @@ binding.
                                          :code :duplicate-overlay-binding)
             (make-overlay-patch name axis-name state bindings :precedence precedence)))))))
 
-(defun %decode-position-pattern-argument (value)
+(defun %decode-interaction-template-argument-value (value parameters what)
+  "Decode one identifier-valued interaction-template argument.
+
+The existing interaction-template model substitutes parameters only where an
+interaction names logical positions (participants, anchors, and temporal
+selectors).  Keeping this surface identifier-only prevents a source template
+from smuggling timing, callbacks, or a backend token through a generic
+argument slot.
+"
+  (let ((identifier (%require-identifier value what)))
+    (if (find identifier parameters :test #'identifier=)
+        (make-interaction-template-parameter identifier)
+        identifier)))
+
+(defun %decode-position-pattern-argument (value &key parameters)
   (cond ((and (consp value) (string= (%form-name value) "other-than"))
          (when (null (rest value))
            (%resolution-error :malformed-position-selector
                               "OTHER-THAN needs at least one position."))
          (apply #'other-than-selector
-                (mapcar (lambda (position) (%require-identifier position "OTHER-THAN position"))
+                (mapcar (lambda (position)
+                          (%decode-interaction-template-argument-value
+                           position parameters "OTHER-THAN position"))
                         (rest value))))
         ((and (consp value) (string= (%form-name value) "any-position"))
          (%require-form-arity value 1 1 :malformed-position-selector "ANY-POSITION selector")
@@ -731,7 +785,9 @@ binding.
         ((consp value)
          (%resolution-error :unknown-position-selector
                             "Unknown position selector ~S." (%form-name value)))
-        (t (position-selector (%require-identifier value "Pattern position")))))
+        (t (position-selector
+            (%decode-interaction-template-argument-value
+             value parameters "Pattern position")))))
 
 (defun %keyword-options (values allowed context)
   "Return an alist for alternating inline keyword/value syntax, rejecting extras."
@@ -756,7 +812,7 @@ binding.
       (%resolution-error :missing-pattern-option "~A requires :~A." context name))
     (cdr entry)))
 
-(defun %decode-pattern (form)
+(defun %decode-pattern (form &key parameters)
   (unless (consp form)
     (%resolution-error :malformed-pattern "Expected a temporal pattern form, got ~S." form))
   (let ((name (%form-name form)) (arguments (rest form)))
@@ -764,7 +820,7 @@ binding.
       ((member name '("down" "up") :test #'string=)
        (%require-form-arity form 2 2 :malformed-pattern name)
        (funcall (if (string= name "down") #'pattern-down #'pattern-up)
-                (%decode-position-pattern-argument (second form))))
+                (%decode-position-pattern-argument (second form) :parameters parameters)))
       ((member name '("sequence" "all" "either" "and" "first") :test #'string=)
        (when (null arguments)
          (%resolution-error :empty-pattern "~A needs at least one pattern." name))
@@ -774,12 +830,14 @@ binding.
                     ;; FIRST is source shorthand for the first of a finite set
                     ;; of event candidates; EITHER is the corresponding IR node.
                     (t #'pattern-either))
-              (mapcar #'%decode-pattern arguments)))
+              (mapcar (lambda (argument) (%decode-pattern argument :parameters parameters))
+                      arguments)))
       ((string= name "duration")
        (when (null arguments)
          (%resolution-error :malformed-pattern "DURATION needs a position."))
        (let ((options (%keyword-options (rest arguments) '("at-least" "less-than") "DURATION")))
-         (pattern-duration (%decode-position-pattern-argument (first arguments))
+         (pattern-duration (%decode-position-pattern-argument (first arguments)
+                                                           :parameters parameters)
                            :at-least (%pattern-option options "at-least")
                            :less-than (%pattern-option options "less-than"))))
       ((string= name "deadline")
@@ -787,17 +845,24 @@ binding.
        (let ((options (%keyword-options (rest arguments) '("after" "while-down") "DEADLINE")))
          (pattern-deadline (first arguments)
                            :after (%decode-pattern
-                                   (%pattern-option options "after" :required t :context "DEADLINE"))
+                                   (%pattern-option options "after" :required t :context "DEADLINE")
+                                   :parameters parameters)
                            :while-down (let ((position (%pattern-option options "while-down")))
                                          (and position
-                                              (%require-identifier position "DEADLINE :WHILE-DOWN"))))))
+                                              (%decode-interaction-template-argument-value
+                                               position parameters "DEADLINE :WHILE-DOWN"))))))
       ((string= name "within")
        (%require-form-arity form 3 nil :malformed-pattern "WITHIN")
-       (apply #'pattern-within (first arguments) (mapcar #'%decode-pattern (rest arguments))))
+       (apply #'pattern-within (first arguments)
+              (mapcar (lambda (argument) (%decode-pattern argument :parameters parameters))
+                      (rest arguments))))
       ((string= name "overlap")
        (when (null arguments)
          (%resolution-error :empty-pattern "OVERLAP needs at least one position."))
-       (apply #'pattern-overlap (mapcar #'%decode-position-pattern-argument arguments)))
+       (apply #'pattern-overlap
+              (mapcar (lambda (argument)
+                        (%decode-position-pattern-argument argument :parameters parameters))
+                      arguments)))
       ((string= name "without")
        (%require-form-arity form 5 nil :malformed-pattern "WITHOUT")
        (unless (and (= (length arguments) 4)
@@ -805,28 +870,30 @@ binding.
                     (string= (second arguments) "between"))
          (%resolution-error :malformed-pattern-option
                             "WITHOUT needs exactly :BETWEEN and two boundary patterns."))
-       (pattern-without (%decode-pattern (first arguments))
-                        :between (mapcar #'%decode-pattern (cddr arguments))))
+       (pattern-without (%decode-pattern (first arguments) :parameters parameters)
+                        :between (mapcar (lambda (argument)
+                                           (%decode-pattern argument :parameters parameters))
+                                         (cddr arguments))))
       ((string= name "repeat")
        (%require-form-arity form 4 nil :malformed-pattern "REPEAT")
        (let ((options (%keyword-options (rest arguments) '("at-most" "at-least") "REPEAT")))
-         (pattern-repeat (%decode-pattern (first arguments))
+         (pattern-repeat (%decode-pattern (first arguments) :parameters parameters)
                          :at-most (%pattern-option options "at-most" :required t :context "REPEAT")
                          :at-least (or (%pattern-option options "at-least") 0))))
       ((string= name "capture")
        (%require-form-arity form 3 3 :malformed-pattern "CAPTURE")
        (pattern-capture (%require-identifier (second form) "CAPTURE name")
-                        (%decode-pattern (third form))))
+                        (%decode-pattern (third form) :parameters parameters)))
       ((string= name "context-is")
        (%require-form-arity form 3 3 :malformed-pattern "CONTEXT-IS")
        (pattern-context-is (%require-identifier (second form) "CONTEXT-IS axis")
                            (%require-identifier (third form) "CONTEXT-IS state")))
       (t (%resolution-error :unknown-pattern-form "Unknown temporal pattern form ~S." name)))))
 
-(defun %decode-commit (form)
+(defun %decode-commit (form &key parameters)
   (cond ((and (stringp form) (string= (string-downcase form) "when-matched")) :when-matched)
         ((and (stringp form) (string= (string-downcase form) "when-unambiguous")) :when-unambiguous)
-        ((consp form) (%decode-pattern form))
+        ((consp form) (%decode-pattern form :parameters parameters))
         (t (%resolution-error :malformed-commit "Invalid candidate commitment ~S." form))))
 
 (defun %decode-effect-list (forms product-axes template-names)
@@ -838,7 +905,7 @@ binding.
         (%decode-effect-list (rest form) product-axes template-names)
         nil)))
 
-(defun %decode-candidate (name options product-axes template-names)
+(defun %decode-candidate (name options product-axes template-names &key parameters)
   (%assert-known-forms options '("match" "commit" "do" "enter" "commit-effect" "while" "exit" "cancel")
                        "interaction candidate option")
   (let* ((match-form (%single-form options "match" "interaction candidate" :required t))
@@ -848,8 +915,8 @@ binding.
       (%require-form-arity option 2 2 :malformed-interaction-case "interaction candidate option"))
     (make-interaction-candidate
      (%require-identifier name "Candidate name")
-     (%decode-pattern (second match-form))
-     (%decode-commit (second commit-form))
+     (%decode-pattern (second match-form) :parameters parameters)
+     (%decode-commit (second commit-form) :parameters parameters)
      (%decode-behavior (second do-form) product-axes :template-names template-names)
      :effects (make-interaction-effects
                :entry (%decode-effect-option options "enter" product-axes template-names)
@@ -880,7 +947,7 @@ binding.
                                      "LONGEST-MATCH needs one :DEADLINE value."))))
         (t (%resolution-error :unknown-arbitration "Unknown arbitration ~S." (%form-name rule)))))))
 
-(defun %decode-interaction (form product-axes template-names)
+(defun %decode-interaction (form product-axes template-names &key parameters)
   (%require-form-arity form 3 nil :malformed-interaction "INTERACTION declaration")
   (let* ((name (%require-identifier (second form) "Interaction name"))
          (clauses (cddr form))
@@ -901,9 +968,11 @@ binding.
           (anchor-form (%single-form clauses "anchor" "INTERACTION"))
           (arbitration-form (%single-form clauses "arbitration" "INTERACTION")))
       (%require-form-arity participants-form 2 nil :malformed-interaction "PARTICIPANTS option")
-      (let* ((participants (%require-unique-identifiers (rest participants-form)
-                                                         "interaction participant"
-                                                         :code :duplicate-interaction-participant))
+      (let* ((participants
+               (mapcar (lambda (participant)
+                         (%decode-interaction-template-argument-value
+                          participant parameters "Interaction participant"))
+                       (rest participants-form)))
              (observe (cond ((null observe-form) :participants)
                             (t (%require-form-arity observe-form 2 2 :malformed-interaction
                                                     "OBSERVE option")
@@ -914,26 +983,173 @@ binding.
                                                           (second observe-form)))))))
              (anchor (when anchor-form
                        (%require-form-arity anchor-form 2 2 :malformed-interaction "ANCHOR option")
-                       (%require-identifier (second anchor-form) "ANCHOR position")))
+                       (%decode-interaction-template-argument-value
+                        (second anchor-form) parameters "ANCHOR position")))
              (candidates
                (cond
                  (case-forms
                   (mapcar (lambda (case-form)
                             (%require-form-arity case-form 3 nil :malformed-interaction-case "CASE clause")
                             (%decode-candidate (second case-form) (cddr case-form)
-                                               product-axes template-names))
+                                               product-axes template-names
+                                               :parameters parameters))
                           case-forms))
                  (direct-options
                   ;; The historical one-candidate spelling is normalized to a
                   ;; real named candidate.  There is no special interaction path.
-                  (list (%decode-candidate "default" direct-options product-axes template-names)))
+                  (list (%decode-candidate "default" direct-options product-axes template-names
+                                           :parameters parameters)))
                  (t (%resolution-error :interaction-without-candidates
                                        "INTERACTION ~A has no CASE or direct candidate."
                                        (identifier-name name))))))
+        (when (every (lambda (participant) (typep participant 'identifier)) participants)
+          (%require-unique-identifiers participants "interaction participant"
+                                       :code :duplicate-interaction-participant))
         (%require-unique-identifiers (mapcar #'candidate-name candidates) "interaction candidate"
                                      :code :duplicate-interaction-candidate)
         (make-interaction name participants candidates :observe observe :anchor anchor
                           :arbitration (%decode-arbitration arbitration-form))))))
+
+(defun %decode-interaction-template-header (form)
+  "Return the declaration's name, unique parameter identifiers, and one body.
+
+The body is kept as harmless parser data until every header is known.  That
+allows deterministic forward references without evaluating or interning any
+source spelling.
+"
+  (%require-form-arity form 4 4 :malformed-interaction-template
+                       "DEFINE-INTERACTION-TEMPLATE declaration")
+  (let ((name (%require-identifier (second form) "Interaction template name"))
+        (parameters (third form)))
+    (unless (listp parameters)
+      (%resolution-error :malformed-interaction-template
+                         "DEFINE-INTERACTION-TEMPLATE parameters must be a list."))
+    (values name
+            (%require-unique-identifiers
+             parameters "interaction-template parameter"
+             :code :duplicate-interaction-template-parameter)
+            (fourth form))))
+
+(defun %find-interaction-template-header (name headers)
+  (find (%require-identifier name "Interaction template name") headers
+        :test #'identifier= :key #'first))
+
+(defun %decode-interaction-template-reference (form headers &key parameters)
+  "Decode one named-argument template call into the existing model reference.
+
+The model reference stores arguments in declaration order.  The source surface
+uses explicit argument names so a typo, duplicate, or omitted parameter cannot
+change meaning through incidental position.
+"
+  (%require-form-arity form 2 nil :malformed-interaction-template-reference
+                       "INSTANTIATE-INTERACTION declaration")
+  (let* ((name (%require-identifier (second form) "Interaction template name"))
+         (header (%find-interaction-template-header name headers)))
+    (unless header
+      (%resolution-error :unknown-interaction-template
+                         "Unknown interaction template ~A." (identifier-name name)))
+    (let* ((target-parameters (second header))
+           (argument-forms (cddr form))
+           (argument-names nil))
+      (dolist (argument-form argument-forms)
+        (%require-form-arity argument-form 2 2
+                             :malformed-interaction-template-argument
+                             "interaction-template argument")
+        (let ((argument-name
+                (%require-identifier (first argument-form)
+                                     "Interaction template argument name")))
+          (unless (find argument-name target-parameters :test #'identifier=)
+            (%resolution-error :unknown-interaction-template-argument
+                               "Interaction template ~A has no parameter ~A."
+                               (identifier-name name) (identifier-name argument-name)))
+          (push argument-name argument-names)))
+      ;; Check duplicate source keys before arity.  It gives the author the
+      ;; actionable cause rather than merely counting an unusable argument.
+      (%require-unique-identifiers argument-names "interaction-template argument"
+                                   :code :duplicate-interaction-template-argument)
+      (unless (= (length target-parameters) (length argument-forms))
+        (%resolution-error :template-arity
+                           "Interaction template ~A expects ~D arguments, got ~D."
+                           (identifier-name name) (length target-parameters)
+                           (length argument-forms)))
+      (make-interaction-template-reference
+       name
+       (mapcar
+        (lambda (parameter)
+          (let ((argument-form
+                  (find parameter argument-forms :test #'identifier=
+                        :key (lambda (candidate)
+                               (%require-identifier (first candidate)
+                                                    "Interaction template argument name")))))
+            ;; The lookup is total after the arity/unknown checks above.
+            (%decode-interaction-template-argument-value
+             (second argument-form) parameters "Interaction template argument")))
+        target-parameters)))))
+
+(defun %decode-interaction-template-body (body product-axes behavior-template-names
+                                           headers parameters)
+  (cond ((%named-form-p body "interaction")
+         (%decode-interaction body product-axes behavior-template-names
+                              :parameters parameters))
+        ((%named-form-p body "instantiate-interaction")
+         (%decode-interaction-template-reference body headers :parameters parameters))
+        (t (%resolution-error :invalid-interaction-template-body
+                              "Interaction template body must be INTERACTION or INSTANTIATE-INTERACTION, got ~S."
+                              (%form-name body)))))
+
+(defun %assert-acyclic-interaction-template-graph (templates)
+  "Reject cycles even when no source instantiation reaches them."
+  (let ((visiting (make-hash-table :test #'equal))
+        (visited (make-hash-table :test #'equal)))
+    (labels ((walk (template)
+               (let ((key (identifier-key (interaction-template-name template))))
+                 (cond ((gethash key visiting)
+                        (%resolution-error :recursive-interaction-template
+                                           "Interaction template cycle includes ~A."
+                                           (identifier-name
+                                            (interaction-template-name template))))
+                       ((not (gethash key visited))
+                        (setf (gethash key visiting) t)
+                        (let ((body (interaction-template-body template)))
+                          (when (typep body 'interaction-template-reference)
+                            (let ((target (find (interaction-reference-name body) templates
+                                                :test #'identifier=
+                                                :key #'interaction-template-name)))
+                              ;; Bodies were decoded against every header, so
+                              ;; an absent target cannot become an implicit
+                              ;; empty expansion here.
+                              (unless target
+                                (%resolution-error :unknown-interaction-template
+                                                   "Unknown interaction template ~A."
+                                                   (identifier-name
+                                                    (interaction-reference-name body))))
+                              (walk target))))
+                        (remhash key visiting)
+                        (setf (gethash key visited) t))))))
+      (dolist (template templates)
+        (walk template))))
+  templates)
+
+(defun %decode-interaction-templates (forms product-axes behavior-template-names)
+  "Decode all template declarations after collecting their closed headers."
+  (let ((headers
+          (mapcar (lambda (form)
+                    (multiple-value-list
+                     (%decode-interaction-template-header form)))
+                  forms)))
+    (%require-unique-identifiers (mapcar #'first headers) "interaction-template"
+                                 :code :duplicate-interaction-template)
+    (let ((templates
+            (mapcar
+             (lambda (header)
+               (make-interaction-template
+                (first header) (second header)
+                (%decode-interaction-template-body
+                 (third header) product-axes behavior-template-names headers
+                 (second header))))
+             headers)))
+      (%assert-acyclic-interaction-template-graph templates)
+      (values templates headers))))
 
 (defun %decode-behavior-template-header (form)
   (%require-form-arity form 4 4 :malformed-behavior-template "DEFINE-BEHAVIOR declaration")
@@ -994,7 +1210,28 @@ binding.
                                  (mapcar #'patch-binding-position
                                          (overlay-patch-bindings overlay)))
                                overlays)
-                       (mapcan #'interaction-participants interactions))
+                       (mapcan (lambda (interaction)
+                                 (cond ((typep interaction 'interaction)
+                                        ;; MAPCAN destructively splices its
+                                        ;; result lists.  Never hand it a model
+                                        ;; slot directly: that would change a
+                                        ;; later resolver view of the layout.
+                                        (copy-list (interaction-participants interaction)))
+                                       ;; A top-level template call exposes its
+                                       ;; actual identifier arguments, which is
+                                       ;; useful for the existing inferred
+                                       ;; topology convenience.  A template
+                                       ;; body with additional literal
+                                       ;; positions still needs USES-TOPOLOGY,
+                                       ;; just like any cross-file reference.
+                                       ((typep interaction 'interaction-template-reference)
+                                        (copy-list
+                                         (remove-if-not (lambda (argument)
+                                                          (typep argument 'identifier))
+                                                        (interaction-reference-arguments
+                                                         interaction))))
+                                       (t nil)))
+                               interactions))
                :test #'identifier=)))
         (make-topology (if uses-topology (second uses-topology) "inferred")
                        (mapcar #'make-logical-position positions)))))
@@ -1027,8 +1264,10 @@ topology/import loading is deliberately outside this decoder."
                (axes (%decode-layout-axes clauses))
                (product-axes (product-axes axes))
                (templates (%decode-behavior-templates (%forms-named clauses "define-behavior")
-                                                     product-axes))
+                                                      product-axes))
                (template-names (mapcar #'behavior-template-name templates))
+               (interaction-template-forms
+                 (%forms-named clauses "define-interaction-template"))
                (binding-results
                  (mapcar (lambda (binding-form)
                            (multiple-value-list
@@ -1040,7 +1279,7 @@ topology/import loading is deliberately outside this decoder."
                  (mapcar (lambda (overlay-form)
                            (%decode-overlay overlay-form axes product-axes template-names))
                          (%forms-named clauses "overlay")))
-               (interactions
+               (direct-interactions
                  (append (mapcar (lambda (interaction-form)
                                    (%decode-interaction interaction-form product-axes template-names))
                                  (%forms-named clauses "interaction"))
@@ -1049,7 +1288,7 @@ topology/import loading is deliberately outside this decoder."
                                        :code :duplicate-binding)
           (%require-unique-identifiers (mapcar #'overlay-patch-name overlays) "overlay"
                                        :code :duplicate-overlay)
-          (%require-unique-identifiers (mapcar #'interaction-name interactions) "interaction"
+          (%require-unique-identifiers (mapcar #'interaction-name direct-interactions) "interaction"
                                        :code :duplicate-interaction)
           (when uses-topology
             (%require-form-arity uses-topology 2 2 :malformed-layout "USES-TOPOLOGY option")
@@ -1057,12 +1296,22 @@ topology/import loading is deliberately outside this decoder."
           (when modifiers-form
             (%require-unique-identifiers (rest modifiers-form) "semantic modifier"
                                          :code :duplicate-semantic-modifier))
-          ;; Source template calls are a surface shorthand: callers of this
-          ;; decoder receive a layout that is already safe to validate.
-          (resolve-layout
-           (make-layout name
-                        (%decode-layout-topology topology topology-resolver uses-topology
-                                                 bindings overlays interactions)
-                        axes (if modifiers-form (rest modifiers-form) nil)
-                        :bindings bindings :overlays overlays :interactions interactions
-                        :behavior-templates templates)))))))
+          (multiple-value-bind (interaction-templates interaction-template-headers)
+              (%decode-interaction-templates interaction-template-forms product-axes template-names)
+            (let ((interactions
+                    (append direct-interactions
+                            (mapcar
+                             (lambda (form)
+                               (%decode-interaction-template-reference
+                                form interaction-template-headers))
+                             (%forms-named clauses "instantiate-interaction")))))
+              ;; Source template calls are a surface shorthand: callers of this
+              ;; decoder receive a layout that is already safe to validate.
+              (resolve-layout
+               (make-layout name
+                            (%decode-layout-topology topology topology-resolver uses-topology
+                                                     bindings overlays interactions)
+                            axes (if modifiers-form (rest modifiers-form) nil)
+                            :bindings bindings :overlays overlays :interactions interactions
+                            :behavior-templates templates
+                            :interaction-templates interaction-templates)))))))))

@@ -176,42 +176,342 @@ fallback timing.
   (mapcar #'model-identifier->simulation-value
           (ivory-key.model::normalized-interaction-participants interaction)))
 
-(defun %assert-disjoint-normalized-binding-positions (bindings interactions)
+(defun %normalized-layout-binding-at (layout position)
+  (find position (ivory-key.model::normalized-layout-bindings layout)
+        :test #'ivory-key.model::identifier=
+        :key #'ivory-key.model::normalized-binding-position))
+
+(defun %normalized-patch-binding-at (patch position)
+  (find position (ivory-key.model::normalized-patch-bindings patch)
+        :test #'ivory-key.model::identifier= :key #'car))
+
+(defun %normalized-overlay-ordinary-positions (layout)
+  "Return every ordinary position whose resolution can involve a patch.
+
+An overlay-only position is intentionally included: it has a defined behavior
+while an appropriate patch is active, but an inactive unresolved position must
+still refuse at event execution rather than silently produce no output.
+"
+  (sort
+   (remove-duplicates
+    (mapcan (lambda (patch)
+              (mapcar #'car (ivory-key.model::normalized-patch-bindings patch)))
+            (ivory-key.model::normalized-layout-patches layout))
+    :test #'ivory-key.model::identifier=)
+   #'ivory-key.model::identifier<))
+
+(defun %normalized-layout-ordinary-positions (layout)
+  "Return the canonical union of base and potentially patched positions."
+  (sort
+   (remove-duplicates
+    (append
+     (mapcar #'ivory-key.model::normalized-binding-position
+             (ivory-key.model::normalized-layout-bindings layout))
+     (%normalized-overlay-ordinary-positions layout))
+    :test #'ivory-key.model::identifier=)
+   #'ivory-key.model::identifier<))
+
+(defun %assert-disjoint-normalized-binding-positions (positions interactions)
   "Refuse ordinary/interaction overlap until fallback ownership is specified."
-  (dolist (binding bindings)
-    (let ((position (model-identifier->simulation-value
-                     (ivory-key.model::normalized-binding-position binding))))
+  (dolist (position-identifier positions)
+    (let ((position (model-identifier->simulation-value position-identifier)))
       (dolist (interaction interactions)
         (when (member position (%interaction-participant-names interaction)
                       :test #'string=)
           (%normalized-layout-simulation-error
-           :ordinary-binding-interaction-overlap binding
+           :ordinary-binding-interaction-overlap position-identifier
            "Binding position ~A also participates in interaction ~A; its fallback timing is unsupported."
            position
            (model-identifier->simulation-value
             (ivory-key.model::normalized-interaction-name interaction))))))))
 
-(defun %reject-normalized-layout-patches (layout)
-  (when (ivory-key.model::normalized-layout-patches layout)
+(defun %normalized-binding-axis-names (binding)
+  (unless (typep binding 'ivory-key.model::normalized-binding)
     (%normalized-layout-simulation-error
-     :unsupported-normalized-overlays layout
-     "Normalized overlay patches need an explicit dynamic activation contract; this adapter refuses them.")))
+     :invalid-normalized-binding binding
+     "Expected a normalized binding, got ~S." binding))
+  (mapcar #'model-identifier->simulation-value
+          (ivory-key.model::normalized-binding-axes binding)))
+
+(defun %normalized-overlay-position-bindings (layout position)
+  "Return every possible non-transparent binding for patched POSITION.
+
+The result retains normalized patch precedence order.  It contains the base
+binding last, when present, because sparse transparent patches fall through to
+it under the model's existing normalized resolution rule.
+"
+  (let ((bindings nil))
+    (dolist (patch (ivory-key.model::normalized-layout-patches layout))
+      (let ((entry (%normalized-patch-binding-at patch position)))
+        (when (and entry (not (eq (cdr entry) :transparent)))
+          (unless (typep (cdr entry) 'ivory-key.model::normalized-binding)
+            (%normalized-layout-simulation-error
+             :invalid-normalized-patch-binding entry
+             "Patch ~S has an invalid normalized binding at position ~A."
+             patch (model-identifier->simulation-value position)))
+          (push (cdr entry) bindings))))
+    (let ((base (%normalized-layout-binding-at layout position)))
+      (when base (push base bindings)))
+    (nreverse bindings)))
+
+(defun %normalized-overlay-position-axis-names (layout position)
+  "Return every context axis a patched POSITION could inspect.
+
+Patch activation itself is an axis-state selection, so its patch axis is a
+dependency even when the selected patch is transparent.  The result is kept in
+declared layout-axis order instead of depending on patch source order.
+"
+  (let ((needed nil))
+    (dolist (patch (ivory-key.model::normalized-layout-patches layout))
+      (when (%normalized-patch-binding-at patch position)
+        (push (model-identifier->simulation-value
+               (ivory-key.model::normalized-patch-axis patch))
+              needed)))
+    (dolist (binding (%normalized-overlay-position-bindings layout position))
+      (setf needed (append (%normalized-binding-axis-names binding) needed)))
+    (loop for axis in (ivory-key.model::normalized-layout-axes layout)
+          for name = (%normalized-layout-axis-name axis)
+          when (member name needed :test #'string=)
+            collect name)))
+
+(defun %normalized-overlay-sensitive-axis-names (layout)
+  "Return every latch-sensitive axis used by any patched-position dispatch."
+  (remove-duplicates
+   (mapcan (lambda (position)
+             (%normalized-overlay-position-axis-names layout position))
+           (%normalized-overlay-ordinary-positions layout))
+   :test #'string=))
+
+(defun %normalized-entry-behaviors (entries source)
+  (mapcar
+   (lambda (entry)
+     (unless (typep entry 'ivory-key.model::normalized-binding-entry)
+       (%normalized-layout-simulation-error
+        :invalid-normalized-binding-entry entry
+        "~S contains an invalid normalized binding entry ~S." source entry))
+     (ivory-key.model::normalized-entry-behavior entry))
+   entries))
+
+(defun %normalized-variant-behaviors (variants source)
+  "Extract behavior values from normalized effect variants.
+
+Effects normalize to (context-tuple . behavior) pairs rather than to
+NORMALIZED-BINDING-ENTRY objects.  Retain that distinction here so malformed
+programmatically constructed IR fails closed.
+"
+  (mapcar
+   (lambda (variant)
+     (unless (and (consp variant)
+                  (typep (cdr variant) 'ivory-key.model::behavior))
+       (%normalized-layout-simulation-error
+        :invalid-normalized-effect-entry variant
+        "~S contains an invalid normalized effect variant ~S." source variant))
+     (cdr variant))
+   variants))
+
+(defun %normalized-layout-behaviors (layout)
+  "Collect every already-normalized behavior before overlay simulation starts."
+  (append
+   (mapcan (lambda (binding)
+             (%normalized-entry-behaviors
+              (ivory-key.model::normalized-binding-entries binding) binding))
+           (ivory-key.model::normalized-layout-bindings layout))
+   (mapcan (lambda (patch)
+             (mapcan (lambda (entry)
+                       (if (eq (cdr entry) :transparent)
+                           nil
+                           (%normalized-entry-behaviors
+                            (ivory-key.model::normalized-binding-entries (cdr entry))
+                            entry)))
+                     (ivory-key.model::normalized-patch-bindings patch)))
+           (ivory-key.model::normalized-layout-patches layout))
+   (mapcan
+    (lambda (interaction)
+      (mapcan
+       (lambda (candidate)
+         (append
+          (%normalized-entry-behaviors
+           (ivory-key.model::normalized-candidate-entries candidate) candidate)
+          (mapcan (lambda (kind)
+                    (%normalized-variant-behaviors
+                     (getf (ivory-key.model::normalized-candidate-effects candidate) kind)
+                     candidate))
+                  '(:entry :commit :while :exit :cancel))))
+       (ivory-key.model::normalized-interaction-candidates interaction)))
+    (ivory-key.model::normalized-layout-interactions layout))))
+
+(defun %behavior-latches-one-of-p (behavior axis-names)
+  (unless (typep behavior 'ivory-key.model::behavior)
+    (%normalized-layout-simulation-error
+     :invalid-normalized-behavior behavior
+     "Expected a complete normalized behavior, got ~S." behavior))
+  (or (and (typep behavior 'ivory-key.model::axis-operation-behavior)
+           (eq (ivory-key.model::axis-operation behavior) :latch)
+           (member (model-identifier->simulation-value
+                    (ivory-key.model::axis-operation-axis behavior))
+                   axis-names :test #'string=))
+      (some (lambda (child) (%behavior-latches-one-of-p child axis-names))
+            (ivory-key.model::behavior-children behavior))))
+
+(defun %assert-overlay-latch-transitions-safe (layout)
+  "Reject dynamic latches that the finite dispatch IR cannot consume exactly.
+
+The machine records one static consulted-latch set per candidate.  An overlay
+dispatch chooses a binding only after reading its captured patch state, so a
+latch for an axis used only by an unselected lower-precedence patch would be
+over-consumed by that static set.  State-setting operations remain executable;
+latch transitions on these conditionally inspected axes are refused instead of
+being given a false exact interpretation.
+"
+  (let ((sensitive-axes (%normalized-overlay-sensitive-axis-names layout)))
+    (when (and sensitive-axes
+               (some (lambda (behavior)
+                       (%behavior-latches-one-of-p behavior sensitive-axes))
+                     (%normalized-layout-behaviors layout)))
+      (%normalized-layout-simulation-error
+       :unsupported-overlay-latch-transition layout
+       "An overlay dispatch can conditionally inspect latch-sensitive axis ~{~A~^, ~}; dynamic latch transitions are unsupported."
+       sensitive-axes))))
+
+(defun %assert-overlay-input-latches-safe (layout latches)
+  "Reject initial latches whose conditional overlay use would over-consume."
+  (let ((sensitive-axes (%normalized-overlay-sensitive-axis-names layout)))
+    (dolist (latch latches)
+      (when (member (car latch) sensitive-axes :test #'string=)
+        (%normalized-layout-simulation-error
+         :unsupported-overlay-latch-context latch
+         "Initial latch for axis ~A cannot be simulated through conditional overlay dispatch."
+         (car latch))))))
+
+(defun %normalized-patch-active-for-candidate-p (patch candidate)
+  "Whether PATCH's declared selector state is present in CANDIDATE's snapshot."
+  (let ((actual (%candidate-context-value
+                 candidate
+                 (model-identifier->simulation-value
+                  (ivory-key.model::normalized-patch-axis patch)))))
+    (and actual
+         (string= actual
+                  (model-identifier->simulation-value
+                   (ivory-key.model::normalized-patch-state patch))))))
+
+(defun %compile-normalized-overlay-ordinary-binding (layout position)
+  "Compile one potentially patched ordinary binding into exact simulator IR.
+
+All behavior variants are compiled before execution.  At each candidate's
+anchor snapshot, the callback walks the normalizer's already precedence-sorted
+patches, skips absent and transparent entries, and otherwise dispatches the
+first active binding.  It then falls through to the base binding.  This is the
+same sparse-patch rule as NORMALIZED-LAYOUT-BINDING-FOR-CONTEXT, expressed in
+the simulator's string-valued candidate context without backend lowering.
+"
+  (let* ((patches
+           (remove-if-not (lambda (patch)
+                            (%normalized-patch-binding-at patch position))
+                          (ivory-key.model::normalized-layout-patches layout)))
+         (compiled-patches
+           (mapcar
+            (lambda (patch)
+              (let ((entry (%normalized-patch-binding-at patch position)))
+                (cond
+                  ((eq (cdr entry) :transparent)
+                   (list patch :transparent nil))
+                  ((typep (cdr entry) 'ivory-key.model::normalized-binding)
+                   (list patch :binding
+                         (%exact-normalized-entry-actions
+                          (ivory-key.model::normalized-binding-entries (cdr entry))
+                          entry)))
+                  (t
+                   (%normalized-layout-simulation-error
+                    :invalid-normalized-patch-binding entry
+                    "Patch ~S has an invalid normalized binding at position ~A."
+                    patch (model-identifier->simulation-value position))))))
+            patches))
+         (base (%normalized-layout-binding-at layout position))
+         (base-actions
+           (and base
+                (%exact-normalized-entry-actions
+                 (ivory-key.model::normalized-binding-entries base) base)))
+         (position-name (model-identifier->simulation-value position))
+         (name (list :ordinary-overlay-binding position-name))
+         (consulted-latches (%normalized-overlay-position-axis-names layout position)))
+    (make-sim-interaction
+     :name name
+     :participants (list position-name)
+     :consulted-latches consulted-latches
+     :arbitration :priority
+     :cases
+     (list
+      (make-sim-case
+       :name name
+       :pattern (down-pattern position-name)
+       :commit :when-matched
+       :actions
+       (list
+        (make-sim-action
+         :kind :callback
+         :value
+         (lambda (candidate machine)
+           (let ((selected nil)
+                 (selected-name :base))
+             (dolist (descriptor compiled-patches)
+               (when (and (null selected)
+                          (%normalized-patch-active-for-candidate-p
+                           (first descriptor) candidate)
+                          (eq (second descriptor) :binding))
+                 (setf selected (third descriptor)
+                       selected-name
+                       (model-identifier->simulation-value
+                        (ivory-key.model::normalized-patch-name (first descriptor))))))
+             (unless selected
+               (setf selected base-actions))
+             (unless selected
+               (%normalized-layout-simulation-error
+                :unresolved-normalized-overlay-context position
+                "Position ~A has no active overlay or base binding for its captured context."
+                position-name))
+             ;; Reuse the normalizer's deterministic precedence rule but make
+             ;; the selected semantic source explicit in the shared event trace.
+             (trace-entry machine :action
+                          :interaction (simulation-candidate-interaction candidate)
+                          :case (simulation-candidate-case candidate)
+                          :candidate candidate
+                          :details (list :overlay-selection selected-name
+                                         :position position-name))
+             (%apply-compiled-actions machine candidate selected)))))
+       :consulted-latches consulted-latches)))))
+
+(defun compile-normalized-overlay-ordinary-bindings (layout)
+  "Compile canonical ordinary bindings with sparse normalized patch dispatch."
+  (mapcar
+   (lambda (position)
+     (if (some (lambda (patch)
+                 (%normalized-patch-binding-at patch position))
+               (ivory-key.model::normalized-layout-patches layout))
+         (%compile-normalized-overlay-ordinary-binding layout position)
+         (compile-normalized-ordinary-binding
+          (%normalized-layout-binding-at layout position))))
+   (%normalized-layout-ordinary-positions layout)))
 
 (defun compile-normalized-layout-simulation (layout)
   "Compile a safe whole-layout slice into simulator interactions and defaults.
 
 The first value is the unified list of synthetic ordinary-binding and compiled
 timed interactions.  The second value is the complete declared default axis
-alist.  This accepts no normalized overlays and no ordinary binding whose
-position is an interaction participant, because neither has a fully specified
-fallback/activation semantics in the present finite machine.
+alist.  Sparse normalized overlays select their active patch binding against a
+candidate's anchor-time axis snapshot using the normalizer's declared
+precedence and transparent fall-through rule.  Dynamic latches for axes that
+such a conditional dispatch could inspect remain a refusal; ordinary binding
+positions that participate in timed interactions remain refused because their
+fallback ownership is not specified.
 "
   (%require-normalized-layout layout)
-  (%reject-normalized-layout-patches layout)
   (let ((bindings (ivory-key.model::normalized-layout-bindings layout))
         (interactions (ivory-key.model::normalized-layout-interactions layout)))
-    (%assert-disjoint-normalized-binding-positions bindings interactions)
-    (values (append (compile-normalized-ordinary-bindings bindings)
+    (declare (ignore bindings))
+    (%assert-overlay-latch-transitions-safe layout)
+    (%assert-disjoint-normalized-binding-positions
+     (%normalized-layout-ordinary-positions layout) interactions)
+    (values (append (compile-normalized-overlay-ordinary-bindings layout)
                     (compile-normalized-interactions interactions))
             (%normalized-layout-default-axes layout))))
 
@@ -251,23 +551,27 @@ AXES overrides declared defaults only for named, declared axis states; LATCHES
 uses the same validation and supplies at most one current latch per axis.  All
 ordinary-binding and timed-interaction transitions use the existing simulator,
 so candidate ownership, commitment-only latch consumption, and full trace
-records are preserved.  Unsupported overlays, ordinary/interaction position
+records are preserved.  Sparse overlays use the normalized patch activation,
+precedence, and transparent fall-through rules.  Latches on axes conditionally
+inspected by an overlay remain a refusal, as do ordinary/interaction position
 overlap, unknown input positions, unsupported model behavior, and unsupported
-temporal patterns signal a compilation error rather than being approximated.
+temporal patterns.
 "
   (%require-normalized-layout layout)
-  (multiple-value-bind (interactions defaults)
+  (let ((normalized-latches (%normalized-layout-latches layout latches)))
+    (%assert-overlay-input-latches-safe layout normalized-latches)
+    (multiple-value-bind (interactions defaults)
       (compile-normalized-layout-simulation layout)
-    (declare (ignore defaults))
-    (let ((active-positions (%layout-simulation-active-positions interactions)))
-      (simulate-events interactions
-                       (mapcar (lambda (event)
-                                 (%normalized-layout-event
-                                  layout event active-positions))
-                               events)
-                       :axes (%merged-normalized-layout-axes layout axes)
-                       :latches (%normalized-layout-latches layout latches)
-                       :until until))))
+      (declare (ignore defaults))
+      (let ((active-positions (%layout-simulation-active-positions interactions)))
+        (simulate-events interactions
+                         (mapcar (lambda (event)
+                                   (%normalized-layout-event
+                                    layout event active-positions))
+                                 events)
+                         :axes (%merged-normalized-layout-axes layout axes)
+                         :latches normalized-latches
+                         :until until)))))
 
 (defun simulate-model-layout-events (layout events &key axes latches until)
   "Normalize a decoded model LAYOUT, then simulate its supported whole-layout slice.

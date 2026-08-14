@@ -101,7 +101,7 @@
       (is signalled))
     (is (null (find-symbol (string-upcase name) package)))))
 
-(deftest simulation-source-propagates-whole-layout-refusal-unchanged
+(deftest simulation-source-dispatches-supported-whole-layout-overlay
   (let* ((patch-axis (ivory-key.model::make-context-axis
                       "overlay" '("base" "active") :resolution :patch))
          (topology (ivory-key.model::make-topology
@@ -119,15 +119,15 @@
                               "q" (ivory-key.model::make-text-output "q")))
              :overlays (list overlay))))
          (stream (simulation-source-decode
-                  "(ivory-key 1) (simulation (event 0 down q))"))
-         (feature
-           (handler-case
-               (progn
-                 (ivory-key.simulate::simulate-normalized-layout-event-stream layout stream)
-                 (error "Expected a whole-layout simulation refusal."))
-             (ivory-key.simulate:model-simulation-compilation-error (condition)
-               (ivory-key.simulate:model-simulation-compilation-error-feature condition)))))
-    (is-equal :unsupported-normalized-overlays feature)))
+                  "(ivory-key 1) (simulation (axis overlay active) (event 0 down q))"))
+         (result
+           (ivory-key.simulate::simulate-normalized-layout-event-stream layout stream)))
+    (is-equal '((:text "Q"))
+              (ivory-key.simulate:simulation-result-outputs result))
+    (is (some (lambda (entry)
+                (equal '(:overlay-selection "special" :position "q")
+                       (ivory-key.simulate::simulation-trace-entry-details entry)))
+              (ivory-key.simulate:simulation-result-trace result)))))
 
 (deftest simulation-source-dump-refuses-host-object-printing
   (is-equal
@@ -183,6 +183,7 @@
               "(ivory-key 1)
 (define-layout unsafe
   (axis overlay (:states base active) (:resolution patch))
+  (binding f (latch-axis-state overlay active))
   (binding q (unicode \"q\"))
   (overlay special
     (axis overlay) (state active) (precedence 1)
@@ -204,7 +205,7 @@
         (is (search (format nil "simulation-result~%outputs~%  (:text \"Q\")~%trace~%")
                     rendered))
         (is (search "0 event event=(:down \"q\" nil)" rendered))
-        (is (search "UNSUPPORTED-NORMALIZED-OVERLAYS" reported))))))
+        (is (search "UNSUPPORTED-OVERLAY-LATCH-TRANSITION" reported))))))
 
 (deftest simulation-cli-loads-project-composition-without-backend-lowering
   "Project simulation selects one resolved layout; it does not compile its profile."

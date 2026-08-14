@@ -68,7 +68,11 @@ form. It supports the implemented subset below:
     (:state patch-state)
     (:precedence integer)
     (binding position behavior-or-transparent) ...)
-  (interaction name ...))
+  (define-interaction-template template-name (position-parameter ...)
+    interaction-or-template-call)
+  (interaction name ...)
+  (instantiate-interaction template-name
+    (:position-parameter logical-position) ...))
 ```
 
 Implemented behavior forms include `unicode`, `named-key`, `named-symbol`,
@@ -84,6 +88,12 @@ interaction shorthand. Unknown, cyclic, duplicate, ambiguous, and malformed
 forms are rejected without interning their names. Both checked-in layout
 fixtures decode, validate, and normalize; the twenty-level fixture materializes
 all twenty dependency-scoped entries.
+
+Interaction templates use identifier-only named arguments, may forward a
+position parameter through an acyclic template call, and expand before layout
+validation. Forward declaration references are deterministic. Missing,
+duplicate, or unknown arguments, arity errors, cycles, unresolved parameters,
+and expansions that collide on one interaction name are explicit errors.
 
 An `overlay` is a closed sparse-patch declaration. `:axis`, `:state`, and
 `:precedence` occur exactly once; the axis must exist, use `patch` resolution,
@@ -117,12 +127,12 @@ cycles, and duplicate definitions. Registries are canonical name-sorted, so
 import traversal order is not semantic. A `realize` composition names exactly
 one compatible layout, device, and realization profile.
 
-The CLI's `dump-ir`, `levels`, `simulate`, `explain`, and `compile` commands support either
-their explicit single-file inputs or `--project PROJECT --composition NAME`.
+The CLI's `dump-ir`, `levels`, `simulate`, `explain`, and `compile` commands
+support either their explicit single-file inputs or
+`--project PROJECT --composition NAME`.
 The modes cannot be mixed. Project `dump-ir` supports typed and normalized
 stages, not raw parsed output. `check` remains a syntax command; it does not
-load a project graph. Source interaction-template declarations remain outside
-the implemented surface subset.
+load a project graph.
 
 Projects may declare realization-owned output spellings without putting them
 in layout bindings:

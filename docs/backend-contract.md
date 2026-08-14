@@ -99,7 +99,15 @@ header; unsafe input is rejected rather than becoming emitted Kanata syntax.
 absolute paths and parent traversal. The CLI compiler emits through a fresh
 sibling directory derived from an exclusive random reservation, verifies the
 physical parent and temporary contents, refuses an existing target, and
-includes a realization report. Portable Common Lisp has no atomic
+includes a deterministic generated-output contract. `manifest.json` records
+the language/compiler versions, selected declarations, relocatable source
+identities and SHA-256 hashes, backend artifact hashes, and fidelity grades.
+`allocations.json`, `source-map.json`, and `REPORT.md` expose the current empty
+or direct mappings without inventing carrier allocations or validation
+evidence. Header-only imported project modules are included, physical checkout
+paths are not, and ambiguous relative source identities are refused.
+
+Portable Common Lisp has no atomic
 non-replacing directory rename or directory-descriptor API, so the output
 parent must already exist and must not be concurrently writable by an
 untrusted principal. `validate-pipeline-result` invokes `xkbcli
@@ -130,7 +138,9 @@ and tokens rejected by an existing backend validator stop before build output.
 Tool validation is optional environmental evidence. A passing `xkbcli` or
 `kanata` invocation proves only the generated artifact was accepted by that
 installed tool; it does not prove semantic equivalence, live device behavior,
-or deployment. The current pipeline has no integrated carrier allocation,
-machine-readable manifest, or source map. The planner can inspect and allocate
-an explicitly provided resource inventory, but those allocations are not yet
-wired into emitted pipeline artifacts.
+or deployment. The current pipeline has no integrated carrier allocation, and
+the emitted empty allocation contract does not imply otherwise. The planner
+can inspect and allocate an explicitly provided resource inventory, but those
+allocations are not yet wired into emitted pipeline artifacts. Validation run
+after compilation is reported by the validator but does not retroactively
+rewrite an immutable build manifest.

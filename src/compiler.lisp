@@ -1190,7 +1190,11 @@ non-concurrently-mutated parent directory.
   (let ((names
           (append (mapcar #'ivory-key.backend:pipeline-artifact-relative-path
                           (ivory-key.backend:pipeline-result-artifacts pipeline-result))
-                  (list "REPORT.txt")
+                  ;; The contract files are fixed compiler outputs, not backend
+                  ;; artifacts.  Keeping them in this exact content check means
+                  ;; an interrupted emission cannot publish a partial contract.
+                  (list "manifest.json" "allocations.json" "source-map.json"
+                        "REPORT.md")
                   (and marker (list marker)))))
     (unless (= (length names) (length (remove-duplicates names :test #'string=)))
       (%stage-error :emit :duplicate-artifact-path
@@ -1222,13 +1226,7 @@ non-concurrently-mutated parent directory.
        (not (find #\/ path))
        (not (search ".." path))))
 
-(defun %write-report-file (pipeline-result directory)
-  (with-open-file (stream (merge-pathnames "REPORT.txt" directory)
-                          :direction :output :if-exists :error :if-does-not-exist :create)
-    (write-string (ivory-key.report:realization-report-string pipeline-result) stream)
-    (format stream "~%Validation: not run by compile; use validate-build for tool evidence.~%")))
-
-(defun write-new-pipeline-result (pipeline-result output-directory)
+(defun write-new-pipeline-result (pipeline-result output-directory &key build-contract)
   "Write a new build through a reserved sibling directory without overwriting.
 
 The current backend API owns deterministic artifact text but not atomic output
@@ -1238,6 +1236,9 @@ Portable Common Lisp cannot make a final directory rename non-replacing against
 a hostile concurrent writer, so OUTPUT-DIRECTORY's existing parent must be
 trusted and not concurrently mutable by an untrusted principal.
 "
+  (unless build-contract
+    (%stage-error :emit :missing-build-contract
+                  "Build emission requires an explicit generated-output contract."))
   (let* ((target (%safe-output-directory output-directory))
          (parent (%parent-directory target))
          (marker ".ivory-key-build-owner")
@@ -1259,7 +1260,8 @@ trusted and not concurrently mutable by an untrusted principal.
                                            :if-does-not-exist :create)
                (write-line "Ivory Key temporary build ownership marker." stream))
              (ivory-key.backend:write-pipeline-result pipeline-result temporary)
-             (%write-report-file pipeline-result temporary)
+             (ivory-key.build-contract:write-build-contract-files
+              build-contract temporary)
              (%verify-temporary-build-directory
               temporary parent (%expected-build-file-names pipeline-result marker))
              (delete-file owner)
@@ -1282,6 +1284,156 @@ trusted and not concurrently mutable by an untrusted principal.
       (when (and reservation (probe-file reservation))
         (ignore-errors (delete-file reservation))))))
 
+(defun %source-hash-records-for-pathnames (labeled-pathnames)
+  "Hash each (LOGICAL-IDENTITY . PATHNAME) source without exposing PATHNAME.
+
+The label is a stable build-contract identity, not a physical source location.
+Compilation performs no source discovery here: direct mode supplies fixed role
+labels and project mode supplies labels for the project loader's completed,
+confined import graph.  A changed, unreadable, or ambiguously labelled source
+is an emission refusal, never an omitted manifest entry.
+"
+  (let ((seen (make-hash-table :test #'equal))
+        (records nil))
+    (dolist (source labeled-pathnames)
+      (unless (and (consp source) (stringp (car source))
+                   (plusp (length (car source))))
+        (%stage-error :emit :invalid-contract-source-identity
+                      "Build-contract source identity must be a non-empty string, got ~S."
+                      source))
+      (let ((identity (car source))
+            (pathname (cdr source)))
+        (when (gethash identity seen)
+          (%stage-error :emit :ambiguous-contract-source-identity
+                        "Build-contract source identity ~S names more than one input."
+                        identity))
+        (setf (gethash identity seen) t)
+        (let ((physical
+                (handler-case
+                    (truename pathname)
+                  (error (condition)
+                    (%stage-error :emit :unreadable-contract-source
+                                  "Could not re-open source ~A for its contract hash: ~A"
+                                  pathname condition)))))
+          (push
+           (handler-case
+               (ivory-key.build-contract:make-source-hash-record
+                identity (ivory-key.build-contract:sha256-hex physical))
+             (error (condition)
+               (%stage-error :emit :source-hash-failure
+                             "Could not hash source identity ~A for the build contract: ~A"
+                             identity condition)))
+           records))))
+    (sort records #'string<
+          :key #'ivory-key.build-contract:source-hash-record-path)))
+
+(defun %contract-project-roots (project-path source-roots)
+  "Return the project's canonical source roots.
+
+Physical roots are local authority only: they determine whether an already
+loaded source is confined and which most-specific root supplies its relative
+identity.  No physical pathname or root ordering enters generated data.
+"
+  (let* ((working-directory
+           (uiop:ensure-directory-pathname (truename (uiop:getcwd))))
+         (entry (uiop:ensure-absolute-pathname project-path working-directory))
+         (roots (or source-roots
+                    (list (uiop:pathname-directory-pathname entry)))))
+    (unless (listp roots)
+      (setf roots (list roots)))
+    (handler-case
+        (remove-duplicates
+         (mapcar (lambda (root)
+                   (uiop:ensure-directory-pathname
+                    (truename
+                     (uiop:ensure-directory-pathname
+                      (uiop:ensure-absolute-pathname root working-directory)))))
+                 roots)
+         :test #'equal)
+      (error (condition)
+        (%stage-error :emit :unreadable-contract-source-root
+                      "Could not canonicalize a project source root: ~A" condition)))))
+
+(defun %contract-relative-source-path (source root)
+  "Return SOURCE relative to ROOT using stable slash-separated components."
+  (let* ((source-directory (pathname-directory source))
+         (root-directory (pathname-directory root))
+         (root-length (length root-directory)))
+    (unless (and (<= root-length (length source-directory))
+                 (equal root-directory (subseq source-directory 0 root-length)))
+      (%stage-error :emit :source-outside-contract-root
+                    "Project source ~A is outside its selected source root."
+                    source))
+    (let ((components
+            (append (subseq source-directory root-length)
+                    (list (file-namestring source)))))
+      (unless (and components
+                   (every (lambda (component)
+                            (and (stringp component) (plusp (length component))
+                                 (not (string= component "."))
+                                 (not (string= component ".."))))
+                          components))
+        (%stage-error :emit :invalid-contract-relative-source
+                      "Could not derive a safe relative identity for source ~A."
+                      source))
+      (format nil "~{~A~^/~}" components))))
+
+(defun %project-contract-source-inputs (project-path source-roots source-paths)
+  "Make stable most-specific-root-relative identities for loaded project sources."
+  (let ((roots (%contract-project-roots project-path source-roots))
+        (inputs nil))
+    (dolist (source-path source-paths)
+      (let* ((physical
+               (handler-case
+                   (truename source-path)
+                 (error (condition)
+                   (%stage-error :emit :unreadable-contract-source
+                                 "Could not re-open project source ~A: ~A"
+                                 source-path condition))))
+             (candidates
+               (loop for root in roots
+                     when (uiop:subpathp physical root)
+                       collect root)))
+        (unless candidates
+          (%stage-error :emit :source-outside-contract-root
+                        "Loaded project source ~A is outside every configured source root."
+                        source-path))
+        ;; A nested root supplies the most descriptive identity.  There is no
+        ;; ordering fallback: physical roots must never influence an emitted
+        ;; label.  Equal-depth distinct canonical roots cannot both contain a
+        ;; physical path, but refuse defensively if a host violates that fact.
+        (let* ((maximum-depth
+                 (loop for root in candidates
+                       maximize (length (pathname-directory root))))
+               (most-specific
+                 (remove maximum-depth candidates :test-not #'=
+                         :key (lambda (root) (length (pathname-directory root)))))
+               (selected (first most-specific)))
+          (unless (= (length most-specific) 1)
+            (%stage-error :emit :ambiguous-contract-source-root
+                          "Loaded project source ~A has no unique most-specific source root."
+                          source-path))
+          (let ((identity (%contract-relative-source-path physical selected)))
+            (push (cons identity physical) inputs)))))
+    ;; The hash-record constructor rejects an identical relative path across
+    ;; roots, rather than introducing a physical-root discriminator.
+    (nreverse inputs)))
+
+(defun %build-contract-for-pipeline (unit placement realization pipeline-result
+                                      source-inputs)
+  "Make one data-only output contract for the current exact direct pipeline."
+  (let* ((normalized (compiler-unit-normalized unit))
+         (topology (ivory-key.model:normalized-layout-topology normalized)))
+    (ivory-key.build-contract:make-build-contract
+     :layout (ivory-key.model:identifier-name
+              (ivory-key.model:normalized-layout-name normalized))
+     :topology (ivory-key.model:identifier-name
+                (ivory-key.model:topology-name topology))
+     :device (compiler-placement-name placement)
+     :profile (compiler-realization-name realization)
+     :source-hashes (%source-hash-records-for-pathnames source-inputs)
+     :pipeline-result pipeline-result)))
+
 (defun compile-layout-source (layout-path &key topology-path device-path
                                           realization-path output-directory)
   "Compile one fully-supported layout into a new non-deploying build directory."
@@ -1291,8 +1443,17 @@ trusted and not concurrently mutable by an untrusted principal.
   (let* ((unit (load-layout-for-compilation layout-path :topology-path topology-path))
          (placement (decode-device-source device-path))
          (realization (decode-realization-source realization-path))
-         (pipeline-result (%compile-unit-to-pipeline unit placement realization)))
-    (write-new-pipeline-result pipeline-result output-directory)
+         (pipeline-result (%compile-unit-to-pipeline unit placement realization))
+         (build-contract
+           (%build-contract-for-pipeline
+            unit placement realization pipeline-result
+            (remove nil
+                    (list (cons "layout" layout-path)
+                          (and topology-path (cons "topology" topology-path))
+                          (cons "device" device-path)
+                          (cons "realization" realization-path))))))
+    (write-new-pipeline-result pipeline-result output-directory
+                               :build-contract build-contract)
     pipeline-result))
 
 (defun compile-project-source (project-path composition-name &key source-roots
@@ -1306,11 +1467,19 @@ and realization profile; no imported source is parsed again by this bridge.
   (unless output-directory
     (%stage-error :arguments :missing-compile-input
                   "Project compile requires a project, composition, and output path."))
-  (multiple-value-bind (unit placement realization)
+  (multiple-value-bind (unit placement realization composition project-result)
       (load-project-composition-for-compilation project-path composition-name
                                                 :source-roots source-roots)
-    (let ((pipeline-result (%compile-unit-to-pipeline unit placement realization)))
-      (write-new-pipeline-result pipeline-result output-directory)
+    (declare (ignore composition))
+    (let* ((pipeline-result (%compile-unit-to-pipeline unit placement realization))
+           (build-contract
+             (%build-contract-for-pipeline
+              unit placement realization pipeline-result
+              (%project-contract-source-inputs
+               project-path source-roots
+               (ivory-key.project:project-load-result-source-paths project-result)))))
+      (write-new-pipeline-result pipeline-result output-directory
+                                 :build-contract build-contract)
       pipeline-result)))
 
 (defun %explain-compiler-unit (unit placement realization stream)

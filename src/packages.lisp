@@ -313,7 +313,8 @@
    #:project-load-result-layouts #:project-load-result-topologies
    #:project-load-result-devices #:project-load-result-output-vocabularies
    #:project-load-result-realizations
-   #:project-load-result-compositions #:load-project
+   #:project-load-result-compositions #:project-load-result-source-paths
+   #:load-project
    #:project-realization-composition
    #:project-realization-composition-name
    #:project-realization-composition-layout
@@ -403,6 +404,15 @@
 (defpackage #:ivory-key.report
   (:use #:cl)
   (:export #:write-realization-report #:realization-report-string))
+
+(defpackage #:ivory-key.build-contract
+  (:use #:cl)
+  (:export
+   #:sha256-hex
+   #:source-hash-record #:make-source-hash-record
+   #:source-hash-record-path #:source-hash-record-sha256
+   #:build-contract #:make-build-contract
+   #:write-build-contract-files #:build-contract-report-string))
 
 (defpackage #:ivory-key.cli
   (:use #:cl #:ivory-key.conditions #:ivory-key.source #:ivory-key.syntax)

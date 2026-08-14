@@ -35,14 +35,17 @@
 (defstruct (project-load-result
             (:constructor %make-project-load-result
                 (definitions layouts topologies devices output-vocabularies
-                 realizations compositions)))
+                 realizations compositions source-paths)))
   definitions
   layouts
   topologies
   devices
   output-vocabularies
   realizations
-  compositions)
+  compositions
+  ;; Canonical physical source names for the complete successfully loaded
+  ;; import graph, including legal header-only modules with no definitions.
+  source-paths)
 
 (defstruct (project-realization-composition
             (:constructor %make-project-realization-composition
@@ -980,7 +983,11 @@ order is therefore not a semantic input."
                    (%result-registry-alist definitions :device)
                    (%result-registry-alist definitions :output-vocabulary)
                    (%result-registry-alist definitions :realization)
-                   (%result-registry-alist definitions :composition)))))))))))))
+                   (%result-registry-alist definitions :composition)
+                   (sort (loop for path being the hash-keys of
+                                 (%project-load-state-loaded state)
+                               collect path)
+                         #'string<)))))))))))))
 
 (defun project-definition-by-name (result kind name &key (errorp nil))
   "Look up one canonical KIND/NAME declaration in RESULT."

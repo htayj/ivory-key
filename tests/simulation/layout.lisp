@@ -176,28 +176,59 @@
       (lambda () (ivory-key.simulate::compile-normalized-layout-simulation layout)))
      "undefined ordinary fallback timing must not be guessed")))
 
-(deftest simulation-layout-refuses-overlays-and-invalid-explicit-context
+(deftest simulation-layout-dispatches-sparse-overlays-by-precedence-and-transparency
   (let* ((patch-axis (ivory-key.model::make-context-axis
-                      "overlay" '("base" "active") :resolution :patch))
-         (overlay
+                      "fun" '("base" "active") :resolution :patch))
+         (game-axis (ivory-key.model::make-context-axis
+                     "game" '("base" "active") :resolution :patch))
+         (fun-overlay
            (ivory-key.model::make-overlay-patch
-            "special" "overlay" "active"
+            "fun-overlay" "fun" "active"
             (list (ivory-key.model::make-patch-binding
-                   "q" (ivory-key.model::make-text-output "Q")))
-            :precedence 1))
+                   "q" (ivory-key.model::make-text-output "F"))
+                  (ivory-key.model::make-transparent-patch-binding "t"))
+            :precedence 10))
+         (game-overlay
+           (ivory-key.model::make-overlay-patch
+            "game-overlay" "game" "active"
+            (list (ivory-key.model::make-patch-binding
+                   "q" (ivory-key.model::make-text-output "G"))
+                  (ivory-key.model::make-patch-binding
+                   "t" (ivory-key.model::make-text-output "T")))
+            :precedence 5))
          (overlay-layout
            (layout-simulation-normalized-layout
-            (list patch-axis)
-            (list (cons "q" (ivory-key.model::make-text-output "q")))
-            :overlays (list overlay)))
+            (list patch-axis game-axis)
+            (list (cons "q" (ivory-key.model::make-text-output "q"))
+                  (cons "t" (ivory-key.model::make-text-output "t")))
+            :overlays (list fun-overlay game-overlay)))
          (plain-layout
            (layout-simulation-normalized-layout
-            nil (list (cons "q" (ivory-key.model::make-text-output "q"))))))
+            nil (list (cons "q" (ivory-key.model::make-text-output "q")))))
+         (result
+           (layout-simulation-result
+            overlay-layout
+            (list (layout-simulation-event 0 :down "q")
+                  (layout-simulation-event 1 :up "q")
+                  (layout-simulation-event 2 :down "t")
+                  (layout-simulation-event 3 :up "t"))
+            :axes '(("fun" . "active") ("game" . "active")))))
     (layout-simulation-assert-equal
-     :unsupported-normalized-overlays
-     (layout-simulation-feature-from
-      (lambda () (ivory-key.simulate::compile-normalized-layout-simulation overlay-layout)))
-     "overlays need an activation contract rather than an implicit state guess")
+     '((:text "F") (:text "T"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "higher-precedence opaque patch wins and transparency falls through")
+    (layout-simulation-assert
+     (some (lambda (entry)
+             (equal '(:overlay-selection "fun-overlay" :position "q")
+                    (ivory-key.simulate::simulation-trace-entry-details entry)))
+           (ivory-key.simulate::simulation-result-trace result))
+     "the trace records the selected higher-precedence patch")
+    (layout-simulation-assert
+     (some (lambda (entry)
+             (equal '(:overlay-selection "game-overlay" :position "t")
+                    (ivory-key.simulate::simulation-trace-entry-details entry)))
+           (ivory-key.simulate::simulation-result-trace result))
+     "the trace records transparent fall-through to the lower patch")
     (layout-simulation-assert-equal
      :unknown-simulation-position
      (layout-simulation-feature-from
@@ -205,6 +236,124 @@
         (layout-simulation-result
          plain-layout (list (layout-simulation-event 0 :down "outside")))))
      "unknown input positions must not be silently ignored")))
+
+(deftest simulation-layout-overlay-observes-dynamic-set-axis-state
+  (let* ((patch-axis (ivory-key.model::make-context-axis
+                      "fun" '("base" "active") :resolution :patch))
+         (overlay
+           (ivory-key.model::make-overlay-patch
+            "fun-overlay" "fun" "active"
+            (list (ivory-key.model::make-patch-binding
+                   "q" (ivory-key.model::make-text-output "F")))
+            :precedence 10))
+         (layout
+           (layout-simulation-normalized-layout
+            (list patch-axis)
+            (list (cons "f"
+                        (ivory-key.model::make-axis-operation :set "fun" "active"))
+                  (cons "q" (ivory-key.model::make-text-output "q")))
+            :overlays (list overlay)))
+         (result
+           (layout-simulation-result
+            layout
+            (list (layout-simulation-event 0 :down "f")
+                  (layout-simulation-event 1 :up "f")
+                  (layout-simulation-event 2 :down "q")
+                  (layout-simulation-event 3 :up "q")))))
+    (layout-simulation-assert-equal
+     '((:text "F")) (ivory-key.simulate::simulation-result-outputs result)
+     "a subsequent ordinary candidate reads the dynamically set patch-axis state")
+    (layout-simulation-assert-equal
+     '(("fun" . "active")) (ivory-key.simulate::simulation-result-axes result)
+     "the state transition remains in the common simulator context")
+    (layout-simulation-assert
+     (some (lambda (entry)
+             (equal '(:overlay-selection "fun-overlay" :position "q")
+                    (ivory-key.simulate::simulation-trace-entry-details entry)))
+           (ivory-key.simulate::simulation-result-trace result))
+     "dynamic overlay dispatch remains explainable in the shared trace")))
+
+(deftest simulation-layout-overlay-observes-timed-interaction-state-transition
+  (let* ((patch-axis (ivory-key.model::make-context-axis
+                      "fun" '("base" "active") :resolution :patch))
+         (overlay
+           (ivory-key.model::make-overlay-patch
+            "fun-overlay" "fun" "active"
+            (list (ivory-key.model::make-patch-binding
+                   "q" (ivory-key.model::make-text-output "F")))
+            :precedence 10))
+         (candidate
+           (ivory-key.model::make-interaction-candidate
+            "activate-fun"
+            (ivory-key.model::pattern-sequence
+             (ivory-key.model::pattern-down "l")
+             (ivory-key.model::pattern-up "l"))
+            :when-matched
+            (ivory-key.model::make-axis-operation :set "fun" "active")))
+         (interaction
+           (ivory-key.model::make-interaction
+            "activate-fun" '("l") (list candidate)))
+         (layout
+           (layout-simulation-normalized-layout
+            (list patch-axis)
+            (list (cons "q" (ivory-key.model::make-text-output "q")))
+            :interactions (list interaction)
+            :overlays (list overlay)
+            :positions '("l" "q")))
+         (result
+           (layout-simulation-result
+            layout
+            (list (layout-simulation-event 0 :down "l")
+                  (layout-simulation-event 1 :up "l")
+                  (layout-simulation-event 2 :down "q")
+                  (layout-simulation-event 3 :up "q")))))
+    (layout-simulation-assert-equal
+     '((:text "F")) (ivory-key.simulate::simulation-result-outputs result)
+     "the disjoint compiled interaction updates the shared patch-axis state")
+    (let ((kinds (mapcar #'ivory-key.simulate::simulation-trace-entry-kind
+                         (ivory-key.simulate::simulation-result-trace result))))
+      (layout-simulation-assert
+       (member :axis-set kinds)
+       "the timed interaction state transition remains traceable")
+      (layout-simulation-assert
+       (member :commit kinds)
+       "timed interaction commitment remains in the common event machine"))))
+
+(deftest simulation-layout-refuses-overlay-latch-dependent-dispatch
+  (let* ((patch-axis (ivory-key.model::make-context-axis
+                      "fun" '("base" "active") :resolution :patch))
+         (overlay
+           (ivory-key.model::make-overlay-patch
+            "fun-overlay" "fun" "active"
+            (list (ivory-key.model::make-patch-binding
+                   "q" (ivory-key.model::make-text-output "F")))
+            :precedence 10))
+         (initial-latch-layout
+           (layout-simulation-normalized-layout
+            (list patch-axis)
+            (list (cons "q" (ivory-key.model::make-text-output "q")))
+            :overlays (list overlay)))
+         (dynamic-latch-layout
+           (layout-simulation-normalized-layout
+            (list patch-axis)
+            (list (cons "f"
+                        (ivory-key.model::make-axis-operation :latch "fun" "active"))
+                  (cons "q" (ivory-key.model::make-text-output "q")))
+            :overlays (list overlay))))
+    (layout-simulation-assert-equal
+     :unsupported-overlay-latch-context
+     (layout-simulation-feature-from
+      (lambda ()
+        (layout-simulation-result
+         initial-latch-layout (list (layout-simulation-event 0 :down "q"))
+         :latches '(("fun" . "active")))))
+     "an initial latch must not be over-consumed by conditional patch selection")
+    (layout-simulation-assert-equal
+     :unsupported-overlay-latch-transition
+     (layout-simulation-feature-from
+      (lambda ()
+        (ivory-key.simulate::compile-normalized-layout-simulation dynamic-latch-layout)))
+     "a generated latch for a conditionally inspected axis must fail before events")))
 
 (deftest simulation-layout-refuses-unsupported-ordinary-behavior-and-pattern
   (let* ((mode-axis (ivory-key.model::make-context-axis

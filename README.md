@@ -23,7 +23,8 @@ The bootstrap currently provides:
   confined to configured source roots and reject cycles, traversal escapes,
   and symlink escapes;
 - a reference timed-event simulator, including a fail-closed adapter for
-  disjoint normalized ordinary bindings plus supported timed interactions;
+  disjoint normalized ordinary bindings, sparse overlays, and supported timed
+  interactions;
 - a realization-owned semantic output-vocabulary registry for deterministic
   named-key, named-symbol, and command spellings;
 - a target-neutral capability planner that preserves normalized static product
@@ -33,7 +34,8 @@ The bootstrap currently provides:
   `lowering-request`, plus optional external-tool validation; and
 - a conservative end-to-end compiler for exactly representable static layouts,
   with deterministic inspection, capability explanation, fresh build-directory
-  emission, and explicit refusal of unsupported semantics.
+  emission, machine-readable manifests/source maps, and explicit refusal of
+  unsupported semantics.
 
 The checked-in Manna Cadet layout now contains a frozen 52-key static-symbol
 transcription, plus separately identified selector/timed-interaction evidence.
@@ -42,8 +44,10 @@ installed, or activated an equivalent keyboard configuration. The twenty-level
 conformance fixture remains expressible in the abstract model but is not
 silently reduced to eight states. The CLI `simulate` command accepts a
 restricted declarative event stream for the whole-layout adapter's exact
-supported slice and refuses overlays, binding/interaction position overlap,
-and model patterns or actions the event machine cannot represent.
+supported slice. It honors normalized sparse-overlay precedence and transparent
+fall-through for ordinary bindings, while refusing latch-dependent overlay
+dispatch, binding/interaction position overlap, and model patterns or actions
+the event machine cannot represent.
 
 ## Quick start
 
@@ -112,7 +116,11 @@ written. No spellings are inferred from the Manna transcription.
 - [Conceptual overview](docs/concepts-and-abstractions.md)
 
 `compile` creates a new build beneath an existing trusted output parent and
-refuses to overwrite one; it never deploys. Because portable Common Lisp lacks
+refuses to overwrite one. Exact builds contain `manifest.json`,
+`allocations.json`, `source-map.json`, and `REPORT.md` alongside backend
+artifacts; source identities are relocatable and source/artifact hashes are
+SHA-256. Compilation records no external validation claim unless validation
+actually ran, and it never deploys. Because portable Common Lisp lacks
 an atomic non-replacing directory rename, that parent must not be concurrently
 writable by an untrusted process. Generated artifacts and live keyboard
 deployment remain separate.

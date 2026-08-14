@@ -35,8 +35,8 @@ identities to opaque per-backend strings. Registries are realization-owned,
 canonical, deterministic, and reject duplicate identities, ambiguous reverse
 mappings, unknown backends/kinds, and missing mappings. Backend adapters still
 validate their own spelling grammar. The registry is currently a programmatic
-model API; no Manna backend spellings have been guessed or embedded in the
-layout.
+model API and a closed realization-owned project declaration; no Manna backend
+spellings have been guessed or embedded in the layout.
 
 The model includes sparse overlay-patch and finite behavior/interaction
 template objects. Programmatic resolution expands behavior templates without
@@ -78,11 +78,16 @@ Ordinary bindings commit on key-down and dispatch against captured context;
 candidate ownership, trace records, and committed-only latch consumption stay
 inside the same event machine.
 
-That adapter fails closed for overlays, an ordinary-binding position that also
-participates in an interaction, unknown or unbound event positions,
-caller-supplied deadline events, invalid explicit context, and every behavior,
-pattern, arbitration, or effect the existing model adapter cannot represent.
-It does not reparse source, lower a backend, deploy, or yet expose a CLI.
+The adapter applies already-normalized sparse overlays by declared precedence,
+with transparent fall-through to lower patches and then the base binding. Patch
+selection uses the candidate's captured axis state; ordinary or disjoint timed
+actions may change later selections with an exact `set` transition. The trace
+records the selected patch. It fails closed when overlay dispatch would depend
+on consuming a latch, when an ordinary position also participates in an
+interaction, for unknown or unbound event positions, caller-supplied deadline
+events, invalid explicit context, and every behavior, pattern, arbitration, or
+effect the existing model adapter cannot represent. It does not lower a backend
+or deploy.
 
 ## Planning boundary and present limits
 

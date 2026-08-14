@@ -178,7 +178,14 @@
         (is pipeline)
         (is (probe-file (merge-pathnames "keymap.xkb" output)))
         (is (probe-file (merge-pathnames "layout.kbd" output)))
-        (is (probe-file (merge-pathnames "REPORT.txt" output)))
+        (dolist (name '("manifest.json" "allocations.json" "source-map.json" "REPORT.md"))
+          (is (probe-file (merge-pathnames name output))))
+        (let ((manifest (uiop:read-file-string (merge-pathnames "manifest.json" output))))
+          (dolist (identity '("layout" "topology" "device" "realization"))
+            (is (search (format nil "\"path\":\"~A\"" identity) manifest)))
+          ;; The source digest is of these on-disk bytes, but their physical
+          ;; checkout paths must never be published in a generated contract.
+          (is (not (search (uiop:native-namestring (truename layout)) manifest))))
         ;; A second call never supersedes a previously emitted good build.
         (signals error
           (ivory-key.cli::compile-layout-source
@@ -415,7 +422,139 @@
         (is pipeline)
         (is (probe-file (merge-pathnames "keymap.xkb" output)))
         (is (probe-file (merge-pathnames "layout.kbd" output)))
-        (is (probe-file (merge-pathnames "REPORT.txt" output)))))))
+        (dolist (name '("manifest.json" "allocations.json" "source-map.json" "REPORT.md"))
+          (is (probe-file (merge-pathnames name output))))))))
+
+(deftest compiler-project-build-contract-hashes-header-only-imports
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project directory))
+           (header (compiler-test-write directory "header-only.ivory"
+                                        (format nil "(ivory-key 1)~%")))
+           (output (merge-pathnames "contract-project-build/" directory)))
+      ;; This legal module supplies no definition, so source provenance must
+      ;; come from the project loader's complete loaded graph rather than its
+      ;; definition registry.
+      (with-open-file (stream project :direction :output :if-exists :supersede
+                                      :if-does-not-exist :error
+                                      :external-format :utf-8)
+        (write-string
+         "(ivory-key 1)
+(import \"header-only.ivory\")
+(import \"topology.ivory\")
+(import \"layout.ivory\")
+(import \"device.ivory\")
+(import \"realization.ivory\")
+(import \"composition.ivory\")
+"
+         stream))
+      (is (ivory-key.cli:compile-project-source
+           project "direct-build" :output-directory output))
+      (let ((manifest (uiop:read-file-string (merge-pathnames "manifest.json" output)))
+            (report (uiop:read-file-string (merge-pathnames "REPORT.md" output)))
+            (header-hash (ivory-key.build-contract:sha256-hex header)))
+        (is (search "\"path\":\"header-only.ivory\"" manifest))
+        (is (search header-hash manifest))
+        (is (search "\"profile\":\"direct-linux\"" manifest))
+        ;; Compilation did not run a validator, so the contract must state
+        ;; that fact in prose but must not fabricate a machine tool record.
+        (is (not (search "\"validation\"" manifest)))
+        (is (search "No external validation ran during compilation" report))))))
+
+(deftest compiler-project-build-contract-is-relocatable
+  (with-compiler-test-directory (directory)
+    (let* ((left (merge-pathnames "left/" directory))
+           (right (merge-pathnames "right/" directory))
+           (left-project-root (merge-pathnames "project/" left))
+           (left-library-root (merge-pathnames "library/" left))
+           (right-project-root (merge-pathnames "project/" right))
+           (right-library-root (merge-pathnames "library/" right)))
+      (dolist (root (list left-project-root left-library-root
+                          right-project-root right-library-root))
+        (ensure-directories-exist (merge-pathnames "placeholder" root)))
+      (let ((left-project (write-compiler-test-project left-project-root))
+            (right-project (write-compiler-test-project right-project-root))
+            (left-output (merge-pathnames "build/" left-project-root))
+            (right-output (merge-pathnames "build/" right-project-root)))
+        ;; The second source root supplies a header-only module.  Its source
+        ;; hash must follow the build, but neither source root's host pathname
+        ;; or order may enter generated output.
+        (dolist (library-root (list left-library-root right-library-root))
+          (compiler-test-write library-root "header-only.ivory"
+                               (format nil "(ivory-key 1)~%")))
+        (dolist (project (list left-project right-project))
+          (with-open-file (stream project :direction :output :if-exists :supersede
+                                           :if-does-not-exist :error
+                                           :external-format :utf-8)
+            (write-string
+             "(ivory-key 1)
+(import \"../library/header-only.ivory\")
+(import \"topology.ivory\")
+(import \"layout.ivory\")
+(import \"device.ivory\")
+(import \"realization.ivory\")
+(import \"composition.ivory\")
+"
+             stream)))
+        (is (ivory-key.cli:compile-project-source
+             left-project "direct-build"
+             :source-roots (list left-project-root left-library-root)
+             :output-directory left-output))
+        (is (ivory-key.cli:compile-project-source
+             right-project "direct-build"
+             :source-roots (list right-project-root right-library-root)
+             :output-directory right-output))
+        (is (search "\"path\":\"header-only.ivory\""
+                    (uiop:read-file-string (merge-pathnames "manifest.json" left-output))))
+        (dolist (name '("manifest.json" "allocations.json" "source-map.json" "REPORT.md"))
+          (is-equal (uiop:read-file-string (merge-pathnames name left-output))
+                    (uiop:read-file-string (merge-pathnames name right-output))))))))
+
+(deftest compiler-build-contract-refuses-ambiguous-source-identities
+  (with-compiler-test-directory (directory)
+    (let ((first (compiler-test-write directory "first.ivory" "first"))
+          (second (compiler-test-write directory "second.ivory" "second")))
+      ;; A duplicate logical label could conceal one physical source behind
+      ;; another in a manifest, even if the bytes happen to match.  It is
+      ;; therefore an emission refusal, never a de-duplication shortcut.
+      (is-equal :ambiguous-contract-source-identity
+                (compiler-stage-code-from
+                 (lambda ()
+                   (ivory-key.cli::%source-hash-records-for-pathnames
+                    (list (cons "same-source" first)
+                          (cons "same-source" second)))))))))
+
+(deftest compiler-project-contract-refuses-duplicate-relative-source-identities
+  (with-compiler-test-directory (directory)
+    (let* ((left-root (merge-pathnames "left/" directory))
+           (right-root (merge-pathnames "right/" directory)))
+      (dolist (root (list left-root right-root))
+        (ensure-directories-exist (merge-pathnames "placeholder" root)))
+      (let ((project (write-compiler-test-project left-root))
+            (output (merge-pathnames "build/" left-root)))
+        (dolist (root (list left-root right-root))
+          (compiler-test-write root "header-only.ivory" (format nil "(ivory-key 1)~%")))
+        (with-open-file (stream project :direction :output :if-exists :supersede
+                                         :if-does-not-exist :error
+                                         :external-format :utf-8)
+          (write-string
+           "(ivory-key 1)
+(import \"header-only.ivory\")
+(import \"../right/header-only.ivory\")
+(import \"topology.ivory\")
+(import \"layout.ivory\")
+(import \"device.ivory\")
+(import \"realization.ivory\")
+(import \"composition.ivory\")
+"
+           stream))
+        ;; The same root-relative label from two separate roots cannot be
+        ;; made unambiguous by leaking root names into the contract.
+        (is-equal :ambiguous-contract-source-identity
+                  (compiler-stage-code-from
+                   (lambda ()
+                     (ivory-key.cli:compile-project-source
+                      project "direct-build" :source-roots (list left-root right-root)
+                      :output-directory output))))))))
 
 (deftest compiler-project-composition-refuses-an-unknown-name
   (with-compiler-test-directory (directory)
