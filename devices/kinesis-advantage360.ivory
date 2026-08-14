@@ -1,8 +1,7 @@
 ;; Physical source placements mechanically transcribed from the frozen layered
 ;; Manna Cadet Advantage 360 Kanata defsrc.  Quoted
 ;; spellings preserve source tokens such as numbers and punctuation exactly.
-;; <LSGT> has no direct defsrc token and latch-latch has no proven placement,
-;; so neither is guessed here.
+;; <LSGT> has no direct defsrc token, so its device placement is not guessed.
 
 (ivory-key 1)
 (define-device
@@ -61,6 +60,9 @@
   (place space (:xkb "SPCE") (:kanata "spc"))
   ;; The Advantage 360 layered source calls this position lctl; normal-layer @gr emits the Greek selector carrier.
   (place greek (:xkb "ZEHA") (:kanata "lctl"))
+  ;; This shared logical position has a device-specific inactive result: Caps
+  ;; Lock here, Menu on Advantage 2.  The function patch result is common.
+  (place mode-key (:xkb "CAPS") (:kanata "caps"))
   ;; Seen arbitrary-code values, retained as unavailable physical carriers.
   (reserve-carriers 84 85 183 184 185 186 187 188 189 190 191 192 193 194
                     195 196 197 198 199 211 212 218 219 220 221 222 223 224

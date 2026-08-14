@@ -1,5 +1,10 @@
 # Implemented semantic model
 
+The normative V1 source grammar, event rules, policy parameters, and refusal
+boundary are in [language-reference-v1.md](language-reference-v1.md).  This
+document describes the current model and implementation evidence; it does not
+silently promote a decoded form to an executable backend semantic.
+
 The model separates keyboard meaning from backend mechanisms. Logical
 positions belong to a topology; physical-device placement, XKB key names,
 Kanata tokens, evdev codes, modifier slots, and carrier allocation belong to a

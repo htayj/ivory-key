@@ -6,5 +6,7 @@
 (import "topologies/kinesis-advantage.ivory")
 (import "layouts/manna-cadet.ivory")
 (import "devices/kinesis-advantage2.ivory")
+(import "devices/kinesis-advantage360.ivory")
+(import "realizations/manna-cadet-output-vocabulary.ivory")
 (import "realizations/linux-xkb-kanata.ivory")
 (import "realizations/manna-cadet-linux.ivory")

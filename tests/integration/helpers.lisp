@@ -80,9 +80,15 @@ rather than a success claim; an installed executable's failure is preserved as
 (deftest integration-manna-project-graph-loads
   (let* ((entry (merge-pathnames "manna-cadet-project.ivory"
                                  (ivory-key-project-root)))
-         (project (ivory-key.project:load-project entry))
-         (composition
-           (ivory-key.project:project-composition
-            project "manna-cadet-linux" :errorp t)))
-    (is-equal "manna-cadet-linux"
-              (ivory-key.project:project-realization-composition-name composition))))
+         (project (ivory-key.project:load-project entry)))
+    (dolist (expected '(("manna-cadet-linux" . "kinesis-advantage2")
+                        ("manna-cadet-advantage360-linux" . "kinesis-advantage360")))
+      (let ((composition
+              (ivory-key.project:project-composition project (car expected) :errorp t)))
+        (is-equal (car expected)
+                  (ivory-key.project:project-realization-composition-name composition))
+        (is-equal (cdr expected)
+                  (ivory-key.model:identifier-name
+                   (ivory-key.model:placement-name
+                    (ivory-key.project:project-realization-composition-device
+                     composition))))))))

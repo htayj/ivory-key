@@ -1,7 +1,26 @@
 (ivory-key 1)
+(define-realization manna-cadet-linux-xkb-kanata
+  (pipeline kanata xkb)
+  (uses-output-vocabulary manna-cadet-linux-output)
+  (allow-grades exact emulated)
+  (forbid-shell-actions yes)
+  (validation (kanata-check required) (xkbcli-compile-keymap required))
+)
+
 (realize
   manna-cadet-linux
   (:layout manna-cadet)
   (:device kinesis-advantage2)
-  (:profile linux-xkb-kanata)
+  (:profile manna-cadet-linux-xkb-kanata)
+)
+
+;; The frozen primary layered source has a separate Advantage 360 placement.
+;; This composition selects that placement only; it does not claim that the
+;; Advantage 360-only game layer or any unresolved carrier/timing behavior is
+;; compiled or deployed.
+(realize
+  manna-cadet-advantage360-linux
+  (:layout manna-cadet)
+  (:device kinesis-advantage360)
+  (:profile manna-cadet-linux-xkb-kanata)
 )

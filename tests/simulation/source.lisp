@@ -159,7 +159,7 @@
      (unwind-protect
           (progn ,@body)
        (when (probe-file ,directory)
-         (uiop:delete-directory-tree ,directory :validate t)))))
+         (delete-test-directory-tree ,directory)))))
 
 (deftest simulation-cli-renders-deterministic-result-and-refuses-semantic-loss
   (with-simulation-source-test-directory (directory)

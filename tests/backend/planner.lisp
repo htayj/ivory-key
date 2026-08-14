@@ -107,6 +107,44 @@
                       (ivory-key.backend::lowering-plan-selector-requirements plan)))
     (is (ivory-key.backend::require-planned-realizations plan))))
 
+(deftest planner-manna-static-inventory-is-exact-capacity-but-not-selector-proof
+  "Keep table capacity distinct from the unresolved Manna realization policy."
+  (let* ((layout (ivory-key.model:decode-layout-forms
+                  (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
+         (topology (ivory-key.model:layout-topology layout))
+         (mappings
+           (loop for binding in (ivory-key.model:layout-bindings layout)
+                 for ordinal from 1
+                 collect (cons (format nil "P~2,'0D" ordinal)
+                               (ivory-key.model:binding-position binding))))
+         (placement (planner-test-placement topology mappings))
+         (plan (planner-test-plan layout placement))
+         (bindings (ivory-key.backend::lowering-plan-bindings plan)))
+    ;; The 52 frozen symbol tables fit conventional XKB eight-level capacity;
+    ;; that does not allocate case/script/plane selectors or five modifiers.
+    (is-equal 52 (length bindings))
+    (is (every (lambda (binding)
+                 (= 8 (ivory-key.backend::static-table-requirement-state-count binding)))
+               bindings))
+    (is (every (lambda (binding)
+                 (eq :exact
+                     (ivory-key.backend:realization-grade
+                      (planner-result-for
+                       plan
+                       (ivory-key.model:identifier-name
+                        (ivory-key.backend::static-table-requirement-position binding))))))
+               bindings))
+    (is-equal '("case" "plane" "script")
+              (mapcar (lambda (requirement)
+                        (ivory-key.model:identifier-name
+                         (ivory-key.backend::selector-requirement-axis requirement)))
+                      (ivory-key.backend::lowering-plan-selector-requirements plan)))
+    (is-equal '("alt" "control" "hyper" "meta" "super")
+              (mapcar (lambda (requirement)
+                        (ivory-key.model:identifier-name
+                         (ivory-key.backend::modifier-requirement-modifier requirement)))
+                      (ivory-key.backend::lowering-plan-modifier-requirements plan)))))
+
 (deftest planner-refuses-twenty-level-static-table-without-dropping-states
   (let* ((case (ivory-key.model:make-context-axis
                 "case" '("plain" "shifted" "alternate" "titlecase")))

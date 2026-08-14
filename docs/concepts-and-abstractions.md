@@ -380,9 +380,16 @@ default. Pressing Greek, pressing A, releasing Greek, and then releasing A
 therefore still selects A's Greek value. Its full level table is not lost just
 because the same position participates in a timed interaction.
 
-The spelling is illustrative and remains subject to the language RFC. The
-semantic requirements—complete candidate behaviors, explicit context capture,
-commitment, and effect lifetime—are the important part.
+This spelling is conceptual, not an accepted V1 source fixture.  In particular,
+its `:context-at` and named duration forms are reserved, and its held candidate
+does not yet provide the required `:do` and `:exit` clauses.  The exact V1
+grammar, event rules, and refusal boundary are in
+[language-reference-v1.md](language-reference-v1.md).  The semantic
+requirements—complete candidate behaviors, explicit context capture,
+commitment, and effect lifetime—remain the important part.
+The accepted V1 defaults for unresolved migration-content questions are in
+[Decision 0002](decisions/0002-v1-policy-defaults.md); they deliberately do
+not turn this conceptual example into a historical Manna behavior claim.
 
 ### One-second and two-second holds
 

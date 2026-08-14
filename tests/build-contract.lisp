@@ -16,7 +16,7 @@
      (unwind-protect
           (progn ,@body)
        (when (probe-file ,directory)
-         (uiop:delete-directory-tree ,directory :validate t)))))
+         (delete-test-directory-tree ,directory)))))
 
 (defun build-contract-test-pipeline ()
   (ivory-key.backend:compile-xkb-kanata-request

@@ -30,6 +30,13 @@
    :bindings (list (model-product-binding position
                                           (ivory-key.model::product-axes axes)))))
 
+(defun model-validation-codes (layout)
+  "Return every static refusal code without choosing only the first signal."
+  (multiple-value-bind (ignored diagnostics)
+      (ivory-key.model::validate-layout layout :signal-on-error nil)
+    (declare (ignore ignored))
+    (mapcar #'ivory-key.model::semantic-diagnostic-code diagnostics)))
+
 (deftest model-eight-state-product-order
   (let* ((case (ivory-key.model::make-context-axis "case" '("plain" "shifted")))
          (script (ivory-key.model::make-context-axis "script" '("roman" "greek")))
@@ -69,6 +76,42 @@
               (ivory-key.model::context-tuple-key
                (ivory-key.model::normalized-entry-tuple
                 (car (last (ivory-key.model::normalized-binding-entries binding))))))))
+
+(deftest model-refuses-incomplete-and-cyclic-inheritance-tables-explicitly
+  ;; The semantic-model phase must refuse a missing product coordinate rather
+  ;; than inventing NONE or a backend-specific fallback.
+  (let* ((case (ivory-key.model::make-context-axis "case" '("plain" "shifted")))
+         (table
+           (ivory-key.model::make-behavior-table
+            '("case")
+            (list
+             (ivory-key.model::make-behavior-entry
+              '(("case" . "plain"))
+              (ivory-key.model::make-text-output "q")))))
+         (layout
+           (ivory-key.model::make-layout
+            "incomplete-table" (model-test-topology "q") (list case) nil
+            :bindings (list (ivory-key.model::make-binding "q" table)))))
+    (is (member :incomplete-level-table (model-validation-codes layout)))
+    (signals ivory-key.model::semantic-validation-error
+      (ivory-key.model::validate-layout layout)))
+  ;; Explicit inheritance remains finite only when its source graph is
+  ;; acyclic; a pair of otherwise complete entries must refuse deterministically.
+  (let* ((case (ivory-key.model::make-context-axis "case" '("plain" "shifted")))
+         (plain '(("case" . "plain")))
+         (shifted '(("case" . "shifted")))
+         (table
+           (ivory-key.model::make-behavior-table
+            '("case")
+            (list (ivory-key.model::make-inherit-entry plain shifted)
+                  (ivory-key.model::make-inherit-entry shifted plain))))
+         (layout
+           (ivory-key.model::make-layout
+            "inheritance-cycle" (model-test-topology "q") (list case) nil
+            :bindings (list (ivory-key.model::make-binding "q" table)))))
+    (is (member :inheritance-cycle (model-validation-codes layout)))
+    (signals ivory-key.model::semantic-validation-error
+      (ivory-key.model::validate-layout layout))))
 
 (deftest model-semantic-modifiers-are-unbounded
   (let* ((modifiers (loop for number below 70 collect (format nil "modifier-~D" number)))

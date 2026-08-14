@@ -25,7 +25,7 @@
      (unwind-protect
           (progn ,@body)
        (when (probe-file ,directory)
-         (uiop:delete-directory-tree ,directory :validate t)))))
+         (delete-test-directory-tree ,directory)))))
 
 (defun project-error-code-from (thunk)
   (handler-case

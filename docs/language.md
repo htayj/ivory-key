@@ -195,4 +195,7 @@ and simulator boundary. It does not lower or execute the selected realization,
 and it rejects mixed project and direct-layout arguments.
 
 The authoritative long-term language design remains [PLAN.md](../PLAN.md).
-This document draws the narrower, implemented boundary.
+For the normative V1 disposition of every representative section 5.2 form,
+event boundary, and explicit refusal, see
+[language-reference-v1.md](language-reference-v1.md).  This document draws the
+narrower, implemented decoder boundary.

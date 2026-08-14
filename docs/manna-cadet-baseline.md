@@ -93,29 +93,42 @@ applications. `NoSymbol` is the explicit XKB no-symbol entry, not a guess.
 
 `layouts/manna-cadet.ivory` contains all 52 static tables. Its
 `named-symbol` values are neutral semantic registry names, not XKB or
-private-use carrier escapes. The current bootstrap lowering does not map
-those named symbols, so this is not a generatable replacement.
+private-use carrier escapes. `realizations/manna-cadet-output-vocabulary.ivory`
+owns their frozen XKB spellings; the compiler therefore prepares the 51 static
+tables that have an evidenced device placement, while preserving physical
+Kanata events for XKB to translate. This remains a refused partial proposal,
+not a generatable replacement.
 
-The Kinesis topology has the 52 static positions plus the existing `greek`
-and `latch-latch` concepts. Both device files place 51 static positions
-(every table except `<LSGT>`) and the directly evidenced Greek selector:
+The Kinesis topology has the 52 static positions, the directly evidenced
+`greek` selector, and a shared `mode-key` whose inactive result differs by
+device. Both device files place 51 static positions (every table except
+`<LSGT>`), the Greek selector, and the common mode-key location:
 
 | Device | Physical source | XKB selector output |
 |---|---|---|
 | Advantage 2 | `lctl` | `ZEHA` |
 | Advantage 360 | `lctl` | `ZEHA` |
 
-`<LSGT>` has no direct `defsrc` token in either layered file. `latch-latch`
-also lacks an evidenced physical placement. Both remain unplaced.
+| Device | Mode-key source | XKB spelling outside function patch |
+|---|---|---|
+| Advantage 2 | `menu` | `MENU` |
+| Advantage 360 | `caps` | `CAPS` |
+
+`<LSGT>` has no direct `defsrc` token in either layered file and remains
+unplaced.  The earlier `latch-latch` fixture construct has been removed: the
+frozen primary source contains only a question in a comment, not a position or
+executable behavior.
 
 ## Commands, variants, and undecided behavior
 
 Kanata documents command carriers 183–199, 211–212, 218–226, and 240;
 the device fixtures reserve exactly those values plus selectors 84 and 85.
 The following neutral command/symbol identities preserve the evidence without
-turning private-use keysyms or carrier codes into abstract-layout values.
-They are report data rather than layout bindings because source overlays and
-timing semantics are unfinished.
+turning private-use keysyms or carrier codes into abstract-layout values. The
+29 primary function-table outputs are now present as abstract patch entries;
+the realization-owned vocabulary records each XKB/Kanata pair and compiler
+allocation. Source activation/timing semantics remain unfinished, so no final
+lowering or deployment is claimed.
 
 | Identity | Carrier | Baseline XKB result |
 |---|---:|---|
@@ -126,14 +139,21 @@ timing semantics are unfinished.
 | `finger-left`, `thumb-up`, `thumb-down`, `finger-right`, `repeat` | 222–226 | `U261A`, `U1F44D`, `U1F44E`, `U261B`, `UE00E` |
 | `end` | 240 | `UE00D` |
 
-- The common function layer, and the Advantage 360-only game layer, need
-  explicit patch-axis precedence and entry/exit behavior.
+- The common function output table is transcribed as one patch with precedence
+  100. Its two activators, and the Advantage 360-only game layer, still need
+  explicit patch-axis entry/exit behavior and precedence policy.
 - Home-row and thumb aliases have 200 ms tap-holds (250 ms for left Super),
   but their commitment/cancellation behavior is not yet transcribed.
 - The older chorded files are excluded from the primary layered migration
   and remain regression evidence only.
 - Top with Greek has an observed symbol selection but unresolved consumed-
   modifier/application-state semantics.
-- Each named symbol and command still needs a profile registry mapping.
+- The selected Linux profile now maps every named symbol and command through
+  its realization-owned vocabulary; the function activators and selector/
+  modifier semantics remain unresolved.
+
+See [manna-cadet-evidence-audit.md](manna-cadet-evidence-audit.md) for the
+complete classification, including the old 45 ms chord variants and the
+comment-only latch hypothesis.
 
 No baseline file was edited and no device was deployed.

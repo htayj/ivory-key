@@ -4,9 +4,10 @@
 ;;
 ;; The eight table cells use the documented case/script/plane order.  The
 ;; static Top XKB group is TWO_LEVEL: its Greek+Top cells therefore repeat its
-;; observed Top symbol.  This records symbol selection only; it does not claim
-;; that the surviving Mod5 state, command carriers, overlays, or timing
-;; interactions are migration-complete.
+;; observed Top symbol.  This records symbol selection only.  The primary
+;; layered function table below is also transcribed. Its realization allocates
+;; the frozen carriers; activation, selector policy, and tap-hold timing remain
+;; explicitly unresolved.
 
 (ivory-key 1)
 (define-layout
@@ -15,7 +16,7 @@
   (axis case (:states plain shifted) (:resolution product))
   (axis script (:states roman greek) (:resolution product))
   (axis plane (:states base top) (:resolution product))
-  (axis shift-latch (:states plain latch) (:resolution behavioral))
+  (axis function (:states inactive active) (:resolution patch))
   (level-order case script plane)
   (modifiers control meta super hyper alt)
 
@@ -543,29 +544,48 @@
     (at (shifted greek top) (named-symbol brokenbar))
   )
 
-  ;; Only this selector behavior was already modeled in the executable
-  ;; fragment.  Its source placement is documented separately; no timing or
-  ;; carrier behavior beyond the existing evidence is inferred here.
-  (define-behavior
-    shift-key
-    (axis state)
-    (by-axis
-      shift-latch
-      (plain (hold-axis-state axis state))
-      (latch (latch-axis-state axis state))
-    )
-  )
-  (binding greek (shift-key script greek))
-  (binding latch-latch (on-tap (latch-axis-state shift-latch latch)))
-
-  ;; The previous fragment's directly stated two-position command remains
-  ;; evidence for this abstract command only; its correspondence to the
-  ;; layered function mapping has not yet been proven.
-  (interaction
-    stop-output
-    (:participants i o)
-    (:match (and (all (down i) (down o)) (within 45 (down i) (down o))))
-    (:commit (first (up i) (up o)))
-    (:do (command stop-output))
+  ;; The frozen primary layered files contain this entire function table.  It
+  ;; is a semantic patch, not a Kanata layer spelling.  The two 200 ms
+  ;; tap-hold activators (End and PgDn) and their cancellation policy are not
+  ;; represented here: no activation behavior is guessed from Kanata.
+  (overlay primary-function
+    (:axis function)
+    (:state active)
+    (:precedence 100)
+    ;; These function results have frozen alias identities and exact carrier
+    ;; pairs.  They are named symbols rather than direct Unicode here so the
+    ;; realization—not the layout—owns the carrier/XKB spelling.
+    (binding number-1 (named-symbol roman-one))
+    (binding number-2 (named-symbol roman-two))
+    (binding number-3 (named-symbol roman-three))
+    (binding number-4 (named-symbol roman-four))
+    (binding number-7 (named-symbol finger-left))
+    (binding number-8 (named-symbol thumb-up))
+    (binding number-9 (named-symbol thumb-down))
+    (binding number-0 (named-symbol finger-right))
+    (binding q (command quote))
+    (binding w (command terminal))
+    (binding e (command macro))
+    (binding t (command over-strike))
+    (binding u (command status))
+    (binding i (command call))
+    (binding o (command stop-output))
+    (binding s (command system))
+    (binding g (command abort))
+    (binding h (command help))
+    (binding j (command line))
+    (binding k (command clear-input))
+    (binding l (command clear-screen))
+    (binding semicolon (command end))
+    (binding z (command hold-output))
+    (binding x (command network))
+    (binding c (command break))
+    (binding m (command resume))
+    (binding period (command repeat))
+    (binding grave (command mode-lock))
+    ;; The shared logical mode-key denotes the same physical location in both
+    ;; devices.  Its inactive result differs (Menu on Advantage 2, Caps Lock
+    ;; on Advantage 360), so only its common active function result is stated.
+    (binding mode-key (command alt-mode))
   )
 )

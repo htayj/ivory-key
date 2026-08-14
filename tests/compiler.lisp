@@ -24,7 +24,7 @@
      (unwind-protect
           (progn ,@body)
        (when (probe-file ,directory)
-         (uiop:delete-directory-tree ,directory :validate t)))))
+         (delete-test-directory-tree ,directory)))))
 
 (defparameter +compiler-test-layout+
   "(ivory-key 1)
@@ -213,10 +213,17 @@
       (multiple-value-bind (request issues)
           (ivory-key.cli::analyze-normalized-layout
            (ivory-key.cli::compiler-unit-normalized unit) placement)
-        (is (null request))
+        ;; Inspection retains an exact static-table proposal, but the public
+        ;; compile gate still refuses it because no selector realization has
+        ;; been selected.
+        (is request)
         (is-equal 1 (length issues))
         (is-equal :unsupported-context-selection
-                  (ivory-key.cli::compiler-fidelity-issue-code (first issues)))))))
+                  (ivory-key.cli::compiler-fidelity-issue-code (first issues)))
+        (is-equal '("U71" "U51")
+                  (ivory-key.backend:key-entry-outputs-for
+                   (first (ivory-key.backend:lowering-request-entries request))
+                   :xkb))))))
 
 (deftest compiler-cli-inspection-and-adapter-disposition-are-explicit
   (with-compiler-test-directory (directory)
@@ -646,8 +653,7 @@
         (write-compiler-test-project real-root)
         (unwind-protect
              (progn
-               (uiop:run-program (list "ln" "-s" (namestring real-root)
-                                       (namestring link-path)))
+               (make-test-symbolic-link real-root link-path)
                (is (ivory-key.project:load-project
                     (merge-pathnames "project.ivory" link-root)
                     :source-roots (list link-root))))
@@ -692,7 +698,7 @@
              (link-path (merge-pathnames "build" directory)))
         (unwind-protect
              (progn
-               (uiop:run-program (list "ln" "-s" "nowhere" (namestring link-path)))
+               (make-test-symbolic-link #p"nowhere" link-path)
                (is-equal :output-already-exists
                          (compiler-stage-code-from
                           (lambda ()
@@ -947,7 +953,77 @@ their opaque atom grammar; they do not document a real keyboard profile.
              (is (search "Fidelity: exact for the current direct pipeline" report)))
             (:missing-vocabulary-mapping
              (is (search "Fidelity: unsupported" report))
-             (is (search "[MISSING-VOCABULARY-MAPPING]" report))))))))
+             (is (search "[MISSING-VOCABULARY-MAPPING]" report)))))))))
+
+(deftest compiler-manna-static-tables-and-function-carriers-are-proposed-exactly
+  "The frozen profile may prepare only its evidenced XKB/Kanata pieces.
+
+The resulting request is deliberately not a successful compile: it retains
+the explicit selectors, semantic modifiers, missing LSGT placement, and
+function activation refusals below.  This distinguishes a mechanically
+complete carrier table from an invented Manna behavior.
+"
+  (multiple-value-bind (unit placement realization)
+      (ivory-key.cli:load-project-composition-for-compilation
+       "manna-cadet-project.ivory" "manna-cadet-linux")
+    (multiple-value-bind (request issues)
+        (ivory-key.cli::analyze-normalized-layout
+         (ivory-key.cli::compiler-unit-normalized unit) placement
+         :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization))
+      (is request)
+      ;; The frozen XKB inventory has 52 tables; <LSGT> is intentionally
+      ;; unplaced in the device evidence, leaving 51 lowerable physical rows.
+      (is-equal 51 (length (ivory-key.backend::lowering-request-entries request)))
+      (let* ((metadata (ivory-key.backend::lowering-request-metadata request))
+             (carriers (getf metadata :xkb-carrier-entries))
+             (allocations (getf metadata :carrier-allocations))
+             (q (find "q" (ivory-key.backend::lowering-request-entries request)
+                      :test #'string= :key #'ivory-key.backend:key-entry-position)))
+        (is-equal 29 (length carriers))
+        (is-equal 29 (length allocations))
+        (is-equal
+         '(183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199
+           211 212 218 219 220 221 222 223 224 225 226 240)
+         (mapcar (lambda (allocation) (getf allocation :carrier)) allocations))
+        (is-equal '("U71" "U51" "Greek_theta" "Greek_THETA"
+                    "upcaret" "NoSymbol" "upcaret" "NoSymbol")
+                  (ivory-key.backend:key-entry-outputs-for q :xkb))
+        ;; Kanata preserves the physical q event for the static XKB table.
+        (is-equal '("q") (ivory-key.backend:key-entry-outputs-for q :kanata))
+        (let ((macro (find "carrier-183/e"
+                           carriers :test #'string=
+                           :key #'ivory-key.backend:key-entry-position)))
+          (is macro)
+          (is-equal "I191" (ivory-key.backend:key-entry-code-for macro :xkb))
+          (is-equal '("UE000")
+                    (ivory-key.backend:key-entry-outputs-for macro :xkb)))
+        (let* ((pipeline (ivory-key.backend:compile-xkb-kanata-request request
+                                                                        :allow-lossy nil))
+               (artifacts (ivory-key.backend:pipeline-result-artifacts pipeline))
+               (xkb (find :xkb artifacts :key #'ivory-key.backend:pipeline-artifact-kind))
+               (kanata (find :kanata artifacts :key #'ivory-key.backend:pipeline-artifact-kind)))
+          (is (search "key <I191>" (ivory-key.backend:pipeline-artifact-content xkb)))
+          (is (search "symbols[Group1]=[ UE000 ]"
+                      (ivory-key.backend:pipeline-artifact-content xkb)))
+          (is (search "(deflayer primary-function"
+                      (ivory-key.backend:pipeline-artifact-content kanata)))
+          (is (search "(arbitrary-code 183)"
+                      (ivory-key.backend:pipeline-artifact-content kanata)))))
+      (is-equal
+       '(:unsupported-semantic-modifiers :unsupported-context-selection
+         :missing-device-placement :unsupported-context-selection
+         :unproved-patch-activation :unsupported-context-selection)
+       (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
+      ;; Final project compilation chooses the deterministic first refusal;
+      ;; it never writes a partial source proposal.
+      (is-equal :unsupported-semantic-modifiers
+                (compiler-stage-code-from
+                 (lambda ()
+                   (ivory-key.cli::make-lowering-request-from-normalized-layout
+                    (ivory-key.cli::compiler-unit-normalized unit) placement
+                    :vocabulary
+                    (ivory-key.cli::compiler-realization-vocabulary realization))))))))
+(deftest compiler-project-explain-refuses-unsafe-output-vocabulary-spelling
   ;; Opaque spelling safety remains an adapter concern.  Explain follows the
   ;; same pipeline as compile after analysis and therefore refuses this map
   ;; instead of presenting a false exact disposition.

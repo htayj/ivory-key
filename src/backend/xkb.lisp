@@ -78,9 +78,14 @@
   (declare (ignore backend))
   (unless (safe-xkb-identifier-p (lowering-request-name request))
     (error "Unsafe XKB layout name ~S." (lowering-request-name request)))
-  (let ((results nil))
-    (ensure-distinct-xkb-key-names (lowering-request-entries request))
-    (dolist (entry (lowering-request-entries request))
+  (let ((results nil)
+        (entries (append (lowering-request-entries request)
+                         (getf (lowering-request-metadata request)
+                               :xkb-carrier-entries))))
+    (unless (every (lambda (entry) (typep entry 'key-entry)) entries)
+      (error "XKB carrier entries must be KEY-ENTRY values."))
+    (ensure-distinct-xkb-key-names entries)
+    (dolist (entry entries)
       (ensure-safe-xkb-entry entry)
       (let ((levels (length (key-entry-outputs-for entry :xkb))))
         (push (make-realization-result
@@ -92,7 +97,7 @@
               results)))
     (make-instance 'xkb-plan
                    :name (lowering-request-name request)
-                   :entries (copy-list (lowering-request-entries request))
+                   :entries (copy-list entries)
                    :realizations (nreverse results))))
 
 (defun xkb-type-for-level-count (count)

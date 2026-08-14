@@ -42,7 +42,12 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
 "
   name
   topology
-  mappings)
+  mappings
+  ;; Device-reserved Linux carrier codes are not semantic layout data.  A
+  ;; realization may use one only when its profile vocabulary spells the
+  ;; exact evidenced carrier action; every other lowering treats this
+  ;; inventory as unavailable.
+  (reserved-carriers nil))
 
 (defstruct (compiler-realization
             (:constructor %make-compiler-realization
@@ -261,12 +266,32 @@ list.
                           position))
           (setf (gethash position seen) t)
           (push (cons position (list :xkb xkb :kanata kanata)) converted)))
-      (%make-compiler-placement
-       (ivory-key.model:identifier-name (ivory-key.model:placement-name device))
-       (ivory-key.model:identifier-name
-        (ivory-key.model:topology-name
-         (ivory-key.model:placement-topology device)))
-       (sort converted #'string< :key #'car)))))
+      (let ((placement
+              (%make-compiler-placement
+               (ivory-key.model:identifier-name (ivory-key.model:placement-name device))
+               (ivory-key.model:identifier-name
+                (ivory-key.model:topology-name
+                 (ivory-key.model:placement-topology device)))
+               (sort converted #'string< :key #'car))))
+        (let ((reserved
+                (%project-metadata-value
+                 (ivory-key.model:placement-metadata device) :reserved-carriers
+                 :decode :missing-device-reserved-carriers
+                 (format nil "Device ~A"
+                         (ivory-key.model:identifier-name
+                          (ivory-key.model:placement-name device))))))
+          (unless (and (listp reserved)
+                       (every (lambda (value)
+                                (and (integerp value) (not (minusp value))))
+                              reserved)
+                       (= (length reserved)
+                          (length (remove-duplicates reserved :test #'=))))
+            (%stage-error :decode :invalid-device-reserved-carriers
+                          "Device ~A has malformed reserved carrier inventory."
+                          (compiler-placement-name placement)))
+          (setf (compiler-placement-reserved-carriers placement)
+                (sort (copy-list reserved) #'<)))
+        placement))))
 
 (defun compiler-realization-from-model (realization)
   "Convert a project realization profile for the exact bootstrap bridge."
@@ -406,16 +431,19 @@ input and are not silently consumed here.
          (topology (and topology-form
                         (%identifier-string (second topology-form) :decode
                                             "Device topology name")))
-         (mappings nil))
+         (mappings nil)
+         (reserved-carriers nil))
     (unless topology
       (%stage-error :decode :missing-device-topology
                     "Device ~A has no USES-TOPOLOGY declaration." name))
     (dolist (clause clauses)
       (cond ((%named-form-p clause "uses-topology"))
-            ((%named-form-p clause "reserve-carriers")
-             ;; The resource allocator is not connected to the bootstrap
-             ;; pipeline; retaining this as a no-op would disguise that fact.
-             nil)
+          ((%named-form-p clause "reserve-carriers")
+           (dolist (carrier (cdr clause))
+             (unless (and (integerp carrier) (not (minusp carrier)))
+               (%stage-error :decode :invalid-reserved-carrier
+                             "Device ~A has invalid reserved carrier ~S." name carrier))
+             (push carrier reserved-carriers)))
             ((%named-form-p clause "place")
              (let ((position (%identifier-string (second clause) :decode
                                                  "Placed logical position")))
@@ -429,8 +457,11 @@ input and are not silently consumed here.
                      mappings)))
             (t (%stage-error :decode :unknown-device-clause
                              "Device ~A has unsupported clause ~S." name clause))))
-    (%make-compiler-placement name topology
-                              (sort mappings #'string< :key #'car))))
+    (let ((placement (%make-compiler-placement name topology
+                                                 (sort mappings #'string< :key #'car))))
+      (setf (compiler-placement-reserved-carriers placement)
+            (sort (remove-duplicates reserved-carriers :test #'=) #'<))
+      placement)))
 
 (defun decode-realization-source (pathname)
   "Decode the policy subset needed to select the XKB + Kanata bootstrap path."
@@ -553,15 +584,15 @@ partially emit a build after a missing mapping.
          (otherwise :invalid-output-vocabulary))
        (ivory-key.model:semantic-error-message condition)))))
 
-(defun %profile-output-lowering (behavior feature vocabulary)
-  "Return (:XKB SPELLING :KANATA SPELLING), or one fidelity issue.
+(defun %profile-output-lowering (behavior feature vocabulary
+                                 &key allow-kanata-forwarding allow-command-carrier)
+  "Return profile spellings for one typed semantic output.
 
-Both selected direct backends need an explicit spelling for a typed semantic
-output.  We resolve both before accepting the entry, which makes a missing
-backend or identity mapping fail before the backend adapters see a request.
-Commands still have no conservative direct lowering, even if a vocabulary
-contains opaque spellings for them: neither selected backend advertises a
-semantic command capability.
+An XKB-owned static table may omit a Kanata spelling: Kanata then forwards the
+explicit physical event to XKB.  A patch output may not use that fall-through;
+it needs its own checked Kanata action.  Semantic commands remain refused
+unless that action is the one closed, source-evidenced carrier form accepted
+by the Kanata backend.
 "
   (let ((xkb-output
           (%vocabulary-spelling-for-output vocabulary behavior "xkb" feature)))
@@ -569,15 +600,23 @@ semantic command capability.
         xkb-output
         (let ((kanata-output
                 (%vocabulary-spelling-for-output vocabulary behavior "kanata" feature)))
-          (if (typep kanata-output 'compiler-fidelity-issue)
-              kanata-output
-              (if (typep behavior 'ivory-key.model:command-output)
-                  (%make-compiler-fidelity-issue
-                   feature :unsupported-command-output
-                   "The direct XKB/Kanata pipeline has no approved semantic command lowering.")
-                  (list :xkb xkb-output :kanata kanata-output)))))))
+          (cond ((and allow-kanata-forwarding
+                      (typep kanata-output 'compiler-fidelity-issue)
+                      (eq (compiler-fidelity-issue-code kanata-output)
+                          :missing-vocabulary-mapping))
+                 (list :xkb xkb-output))
+                ((typep kanata-output 'compiler-fidelity-issue)
+                 kanata-output)
+                ((and (typep behavior 'ivory-key.model:command-output)
+                      (or (not allow-command-carrier)
+                          (not (ivory-key.backend::kanata-carrier-action-code
+                                kanata-output))))
+                 (%make-compiler-fidelity-issue
+                  feature :unsupported-command-output
+                  "A command needs an exact realization-owned Kanata carrier action."))
+                (t (list :xkb xkb-output :kanata kanata-output)))))))
 
-(defun %output-lowering (behavior feature vocabulary)
+(defun %output-lowering (behavior feature vocabulary &key allow-kanata-forwarding)
   "Return backend outputs for one static binding, or a fidelity issue.
 
 Only typed named outputs consult a selected realization vocabulary.  Unicode
@@ -589,19 +628,151 @@ remain entirely unchanged.
            (or (typep behavior 'ivory-key.model:named-key-output)
                (typep behavior 'ivory-key.model:named-symbol-output)
                (typep behavior 'ivory-key.model:command-output)))
-      (%profile-output-lowering behavior feature vocabulary)
+      (%profile-output-lowering behavior feature vocabulary
+                               :allow-kanata-forwarding allow-kanata-forwarding)
       (let ((xkb-output (%static-output-lowering behavior feature)))
         (if (typep xkb-output 'compiler-fidelity-issue)
             xkb-output
             (list :xkb xkb-output)))))
 
-(defun analyze-normalized-layout (normalized placement &key vocabulary)
-  "Return a backend-neutral lowering request and every blocking fidelity issue.
+(defun %table-output-lowering (behavior feature vocabulary)
+  "Resolve one entry of an XKB-owned static table.
 
-The request is non-NIL only when every normalized feature is exactly
-representable by the current direct XKB/Kanata path.  In particular, this
-function never converts a context level, semantic modifier, interaction, or
-unknown vocabulary entry into an approximate direct key mapping.
+The only non-static outputs admitted here are vocabulary-backed named values;
+when their Kanata spelling is intentionally absent, the caller preserves the
+physical event.  This does not prove any selector activation.
+"
+  (if (and vocabulary
+           (or (typep behavior 'ivory-key.model:named-key-output)
+               (typep behavior 'ivory-key.model:named-symbol-output)
+               (typep behavior 'ivory-key.model:command-output)))
+      (%profile-output-lowering behavior feature vocabulary
+                               :allow-kanata-forwarding t)
+      (%output-lowering behavior feature vocabulary)))
+
+(defun %kanata-table-output (lowerings physical-code feature)
+  "Return one Kanata output for an XKB-owned static table.
+
+All omitted Kanata spellings mean physical pass-through.  Distinct explicit
+spellings would require a selector/layer policy and are therefore refused.
+"
+  (let ((explicit (remove nil (mapcar (lambda (lowering)
+                                        (getf lowering :kanata))
+                                      lowerings))))
+    (cond ((null explicit) physical-code)
+          ((and (= (length explicit) (length lowerings))
+                (every (lambda (value) (string= value (first explicit)))
+                       explicit))
+           (first explicit))
+          (t (%make-compiler-fidelity-issue
+              feature :unsupported-kanata-context-selection
+              "Static table entries require different Kanata outputs; no selector/layer policy is selected.")))))
+
+(defun %xkb-carrier-key-name (carrier)
+  "Return the Linux evdev XKB key name for one checked carrier code.
+
+The frozen Manna XKB source uses the standard evdev `I` names: Linux input
+code N is XKB key name `I(N+8)`.  This conversion is realization code, never
+layout data, and is used only after the profile has supplied the exact
+`(arbitrary-code N)` spelling.
+"
+  (format nil "I~D" (+ carrier 8)))
+
+(defun %carrier-entry (feature carrier xkb-output)
+  (make-instance 'ivory-key.backend:key-entry
+                 :position (format nil "carrier-~D/~A" carrier feature)
+                 :physical-code (list :xkb (%xkb-carrier-key-name carrier))
+                 :outputs (list :xkb (list xkb-output))))
+
+(defun %patch-lowering (normalized placement vocabulary issues)
+  "Return function-layer metadata, XKB carrier entries, and updated ISSUES.
+
+Sparse patch output is emitted only as an exact, profile-owned carrier pair:
+the XKB vocabulary chooses the observable keysym while the Kanata spelling is
+the closed arbitrary-code action.  Activation remains a separate explicit
+refusal; this function never synthesizes a tap-hold, layer switch, or timing.
+"
+  (let ((layers nil)
+        (carrier-entries nil)
+        (allocations nil)
+        (reserved (compiler-placement-reserved-carriers placement)))
+    (dolist (patch (ivory-key.model:normalized-layout-patches normalized))
+      (let ((patch-name (ivory-key.model::normalized-patch-name patch))
+            (outputs nil))
+        (dolist (entry (ivory-key.model::normalized-patch-bindings patch))
+          (unless (eq (cdr entry) :transparent)
+            (let* ((binding (cdr entry))
+                   (position (ivory-key.model:normalized-binding-position binding))
+                   (feature (ivory-key.model:identifier-name position))
+                   (variants (ivory-key.model:normalized-binding-entries binding)))
+              (cond ((/= (length variants) 1)
+                     (push (%make-compiler-fidelity-issue
+                            feature :unsupported-patch-context-selection
+                            "A sparse patch binding needs one context-independent output.")
+                           issues))
+                    ((null vocabulary)
+                     (push (%make-compiler-fidelity-issue
+                            feature :missing-output-vocabulary
+                            "A patch output requires a selected realization vocabulary.")
+                           issues))
+                    (t
+                     (let ((lowering
+                             (%profile-output-lowering
+                              (ivory-key.model:normalized-entry-behavior (first variants))
+                              feature vocabulary :allow-command-carrier t)))
+                       (cond ((typep lowering 'compiler-fidelity-issue)
+                              (push lowering issues))
+                             (t
+                              (let ((carrier
+                                      (ivory-key.backend::kanata-carrier-action-code
+                                       (getf lowering :kanata))))
+                                (cond ((null carrier)
+                                       (push (%make-compiler-fidelity-issue
+                                              feature :unsupported-patch-output
+                                              "A patch output needs an exact Kanata arbitrary-code carrier action.")
+                                             issues))
+                                      ((not (member carrier reserved :test #'=))
+                                       (push (%make-compiler-fidelity-issue
+                                              feature :unreserved-carrier
+                                              (format nil "Carrier ~D is not reserved by device ~A."
+                                                      carrier
+                                                      (compiler-placement-name placement)))
+                                             issues))
+                                      (t
+                                       (push (cons feature (getf lowering :kanata)) outputs)
+                                       (push (%carrier-entry feature carrier (getf lowering :xkb))
+                                             carrier-entries)
+                                       (push (list :feature feature :carrier carrier
+                                                   :xkb-key-name (%xkb-carrier-key-name carrier)
+                                                   :keysym (getf lowering :xkb))
+                                             allocations))))))))))))
+        ;; An inactive layer declaration is safe to inspect and validate, but
+        ;; never makes this an exact realization.  The Manna evidence names
+        ;; source tap-holds, not an Ivory Key candidate/arbitration contract.
+        (push (list :name (ivory-key.model:identifier-name patch-name)
+                    :outputs (sort outputs #'string< :key #'car))
+              layers)
+        (push (%make-compiler-fidelity-issue
+               (ivory-key.model:identifier-name patch-name)
+               :unproved-patch-activation
+               "Patch carrier outputs are allocated, but no semantic activation/timing/arbitration lowering is selected.")
+              issues)))
+    (values (nreverse layers)
+            (sort carrier-entries #'string<
+                  :key (lambda (entry)
+                         (ivory-key.backend:key-entry-code-for entry :xkb)))
+            (sort allocations #'< :key (lambda (row) (getf row :carrier)))
+            issues)))
+
+(defun analyze-normalized-layout (normalized placement &key vocabulary)
+  "Return an inspectable lowering proposal and every blocking fidelity issue.
+
+The proposal retains only individually evidenced direct tables/carriers; a
+non-empty issue list means it is not compilable.  In particular, this function
+never converts a context level, semantic modifier, interaction, or unknown
+vocabulary entry into an approximate direct key mapping.  Call
+MAKE-LOWERING-REQUEST-FROM-NORMALIZED-LAYOUT to enforce the final no-issues
+compile gate.
 "
   (let ((issues nil)
         (entries nil))
@@ -626,6 +797,17 @@ unknown vocabulary entry into an approximate direct key mapping.
              :unsupported-timed-interaction
              "Generic timed interactions require an explicit Kanata template lowering.")
             issues))
+    ;; Product selectors describe meaning, not a default XKB modifier/group
+    ;; arrangement.  Preserve the table data below, but refuse final emission
+    ;; until a profile allocates every selector and proves its client-visible
+    ;; modifier behavior.
+    (dolist (axis (ivory-key.model:normalized-layout-axes normalized))
+      (when (eq (ivory-key.model:axis-resolution axis) :product)
+        (push (%make-compiler-fidelity-issue
+               (ivory-key.model:identifier-name (ivory-key.model:axis-name axis))
+               :unsupported-context-selection
+               "A product-axis selector needs an explicit realization allocation.")
+              issues)))
     (dolist (binding (ivory-key.model:normalized-layout-bindings normalized))
       (let* ((position (ivory-key.model:normalized-binding-position binding))
              (feature (ivory-key.model:identifier-name position))
@@ -637,57 +819,68 @@ unknown vocabulary entry into an approximate direct key mapping.
                   feature :missing-device-placement
                   "No physical XKB/Kanata placement is declared for this logical position.")
                  issues))
-          ((/= (length entries-for-binding) 1)
-           (push (%make-compiler-fidelity-issue
-                  feature :unsupported-context-selection
-                  "The bootstrap pipeline cannot prove exact selection of multiple abstract context entries.")
-                 issues))
           (t
            (let ((outputs
-                   (%output-lowering
-                    (ivory-key.model:normalized-entry-behavior
-                     (first entries-for-binding))
-                    feature vocabulary)))
-             (if (typep outputs 'compiler-fidelity-issue)
-                 (push outputs issues)
-                 ;; Kanata forwards the device's explicit carrier spelling to
-                 ;; XKB for static Unicode/no-output bindings.  A selected
-                 ;; realization vocabulary instead supplies a checked opaque
-                 ;; Kanata spelling for a typed named output.
-                 (push (make-instance 'ivory-key.backend:key-entry
-                                      :position feature
-                                      :physical-code
-                                      (list :xkb (getf placement-entry :xkb)
-                                            :kanata (getf placement-entry :kanata))
-                                      :outputs
-                                      (list :xkb (list (getf outputs :xkb))
-                                            :kanata
-                                            (list (or (getf outputs :kanata)
-                                                      (getf placement-entry
-                                                            :kanata)))))
-                       entries)))))))
+                   (mapcar (lambda (entry)
+                             (%table-output-lowering
+                              (ivory-key.model:normalized-entry-behavior entry)
+                              feature vocabulary))
+                           entries-for-binding)))
+             (let ((failure (find-if (lambda (output)
+                                       (typep output 'compiler-fidelity-issue))
+                                     outputs)))
+               (if failure
+                   (push failure issues)
+                   (let ((kanata-output
+                           (%kanata-table-output outputs
+                                                 (getf placement-entry :kanata)
+                                                 feature)))
+                     (if (typep kanata-output 'compiler-fidelity-issue)
+                         (push kanata-output issues)
+                         (push (make-instance 'ivory-key.backend:key-entry
+                                              :position feature
+                                              :physical-code
+                                              (list :xkb (getf placement-entry :xkb)
+                                                    :kanata (getf placement-entry :kanata))
+                                              :outputs
+                                              (list :xkb (mapcar (lambda (output)
+                                                                   (getf output :xkb))
+                                                                 outputs)
+                                                    :kanata (list kanata-output)))
+                               entries))))))))))
+    (multiple-value-bind (kanata-layers xkb-carrier-entries carrier-allocations updated-issues)
+        (%patch-lowering normalized placement vocabulary issues)
+      (setf issues updated-issues)
     (setf issues
           (sort issues #'string<
                 :key (lambda (issue)
                        (format nil "~A/~A"
                                (compiler-fidelity-issue-feature issue)
                                (compiler-fidelity-issue-code issue)))))
-    (if issues
-        (values nil issues)
-        (values (make-instance 'ivory-key.backend:lowering-request
-                               :name (ivory-key.model:identifier-name
-                                      (ivory-key.model:normalized-layout-name normalized))
-                               :entries (nreverse entries)
-                               :modifiers nil
-                               :interactions nil
-                               :metadata nil)
-                nil))))
+      ;; Keep the evidence-backed partial request available to inspection
+      ;; callers together with its blockers.  MAKE-LOWERING-REQUEST below
+      ;; remains the compile gate and rejects any non-empty issue list.
+      (values (make-instance 'ivory-key.backend:lowering-request
+                             :name (ivory-key.model:identifier-name
+                                    (ivory-key.model:normalized-layout-name normalized))
+                             :entries (nreverse entries)
+                             :modifiers nil
+                             :interactions nil
+                             :metadata
+                             (list :xkb-carrier-entries xkb-carrier-entries
+                                   :kanata-source-order
+                                   (mapcar (lambda (mapping)
+                                             (cons (car mapping) (getf (cdr mapping) :kanata)))
+                                           (compiler-placement-mappings placement))
+                                   :kanata-layers kanata-layers
+                                   :carrier-allocations carrier-allocations))
+              issues))))
 
 (defun make-lowering-request-from-normalized-layout (normalized placement &key vocabulary)
   "Return a complete bootstrap lowering request or signal its first failure."
   (multiple-value-bind (request issues)
       (analyze-normalized-layout normalized placement :vocabulary vocabulary)
-    (if request
+    (if (and request (null issues))
         request
         (let ((issue (first issues)))
           (%stage-error :lower (compiler-fidelity-issue-code issue)

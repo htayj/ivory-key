@@ -395,6 +395,8 @@
    #:plan-normalized-layout #:require-planned-realizations
    #:make-xkb-backend #:xkb-plan-realizations
    #:make-kanata-backend #:kanata-plan-realizations
+   #:make-qmk-backend #:qmk-plan-keyboard #:qmk-plan-layout
+   #:qmk-plan-layers #:qmk-plan-realizations
    #:pipeline-artifact-kind #:pipeline-artifact-relative-path
    #:pipeline-artifact-content #:pipeline-result-request
    #:pipeline-result-artifacts #:pipeline-result-realizations

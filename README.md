@@ -31,7 +31,9 @@ The bootstrap currently provides:
   tables, lists selector/modifier/resource requirements, and deterministically
   detects allocation collisions or exhaustion;
 - constrained XKB and Kanata emitters driven by a backend-neutral
-  `lowering-request`, plus optional external-tool validation; and
+  `lowering-request`, plus optional external-tool validation;
+- a separate QMK protocol backend for deterministic, explicitly ordered static
+  Configurator JSON and optional firmware compilation; and
 - a conservative end-to-end compiler for exactly representable static layouts,
   with deterministic inspection, capability explanation, fresh build-directory
   emission, machine-readable manifests/source maps, and explicit refusal of
@@ -50,6 +52,12 @@ dispatch, binding/interaction position overlap, and model patterns or actions
 the event machine cannot represent.
 
 ## Quick start
+
+The checked-in `manifest.scm` provides SBCL, ECL, XKB validation, Kanata, QMK,
+and curl through Guix. With direnv installed, approve the checkout once with
+`direnv allow`; `.envrc` then evaluates the manifest through direnv's built-in
+Guix integration. The equivalent one-shot environment is
+`guix shell -m manifest.scm`.
 
 From this checkout, load the ASDF definition and run the hermetic tests:
 
@@ -108,9 +116,11 @@ written. No spellings are inferred from the Manna transcription.
 
 ## Documentation
 
+- [PLAN.md completion audit](docs/plan-status.md)
 - [Language syntax and decoder scope](docs/language.md)
 - [Implemented semantic model and timed interactions](docs/semantics.md)
 - [XKB/Kanata backend contract and fidelity rules](docs/backend-contract.md)
+- [QMK backend validation evidence](docs/qmk-validation.md)
 - [Frozen Manna Cadet baseline and truth table](docs/manna-cadet-baseline.md)
 - [Manna Cadet migration status](docs/migration-manna-cadet.md)
 - [Conceptual overview](docs/concepts-and-abstractions.md)

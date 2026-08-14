@@ -29,38 +29,52 @@
                           :test #'ivory-key.model:identifier=
                           :key #'ivory-key.model:binding-position))
          (t-table (ivory-key.model:binding-behavior t-binding))
-         (greek-binding (find "greek" (ivory-key.model:layout-bindings layout)
-                             :test #'ivory-key.model:identifier=
-                             :key #'ivory-key.model:binding-position))
-         (interactions (ivory-key.model:layout-interactions layout))
-         (stop-output (find "stop-output" interactions :test #'ivory-key.model:identifier=
-                            :key #'ivory-key.model:interaction-name))
-         (tap (find "on-tap-latch-latch" interactions :test #'ivory-key.model:identifier=
-                    :key #'ivory-key.model:interaction-name)))
-    ;; The mechanical baseline transcription covers 52 static XKB positions,
-    ;; plus the separate semantic Greek selector binding.
-    (is-equal 53 (length (ivory-key.model:layout-bindings layout)))
-    (is-equal 2 (length interactions))
+         (overlays (ivory-key.model:layout-overlays layout))
+         (function-overlay (find "primary-function" overlays
+                                 :test #'ivory-key.model:identifier=
+                                 :key #'ivory-key.model:overlay-patch-name))
+         (mode-key (find "mode-key"
+                         (ivory-key.model:overlay-patch-bindings function-overlay)
+                         :test #'ivory-key.model:identifier=
+                         :key #'ivory-key.model:patch-binding-position))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (function-context
+           (ivory-key.model:make-semantic-context
+            (ivory-key.model:layout-axes layout)
+            :values '(("case" . "plain") ("script" . "roman")
+                      ("plane" . "base") ("function" . "active"))))
+         (function-q
+           (ivory-key.model:normalized-layout-binding-for-context
+            normalized "q" function-context :active-patches '("primary-function"))))
+    ;; The mechanically frozen table covers exactly 52 static XKB positions.
+    ;; The primary layered function table is a sparse patch; its two tap-hold
+    ;; activators and older 45 ms chord behavior are intentionally absent.
+    (is-equal 52 (length (ivory-key.model:layout-bindings layout)))
+    (is-equal 0 (length (ivory-key.model:layout-interactions layout)))
+    (is-equal 1 (length overlays))
+    (is-equal 29 (length (ivory-key.model:overlay-patch-bindings function-overlay)))
+    (is (typep (ivory-key.model:patch-binding-behavior mode-key)
+               'ivory-key.model:command-output))
+    (is-equal "alt-mode"
+              (ivory-key.model:identifier-name
+               (ivory-key.model:command-name
+                (ivory-key.model:patch-binding-behavior mode-key))))
+    (is (typep (ivory-key.model:normalized-entry-behavior function-q)
+               'ivory-key.model:command-output))
+    (is-equal "quote"
+              (ivory-key.model:identifier-name
+               (ivory-key.model:command-name
+                (ivory-key.model:normalized-entry-behavior function-q))))
     ;; FALLBACK has materialized the two genuinely absent T cells as NONE;
     ;; the other six cells come directly from the frozen XKB baseline.
     (is-equal 8 (length (ivory-key.model:behavior-table-entries t-table)))
     (is-equal 2 (count :none (ivory-key.model:behavior-table-entries t-table)
                         :key #'ivory-key.model:behavior-entry-disposition))
-    ;; The source template call has been expanded before direct validation.
-    (is (typep (ivory-key.model:binding-behavior greek-binding)
-               'ivory-key.model:axis-choice-behavior))
-    ;; Historical direct interaction spelling becomes one ordinary candidate.
-    (is-equal '("default")
-              (mapcar (lambda (candidate)
-                        (ivory-key.model:identifier-name
-                         (ivory-key.model:candidate-name candidate)))
-                      (ivory-key.model:interaction-candidates stop-output)))
-    ;; ON-TAP has no private behavior class: it is a finite down/up interaction.
-    (is-equal 1 (length (ivory-key.model:interaction-candidates tap)))
-    (is-equal :sequence
-              (ivory-key.model:temporal-pattern-kind
-               (ivory-key.model:candidate-match
-                (first (ivory-key.model:interaction-candidates tap)))))))
+    ;; The old `i`+`o` chord and a comment-only latch hypothesis are regression
+    ;; evidence, not active primary-layer semantics.
+    (is (null (find "greek" (ivory-key.model:layout-bindings layout)
+                    :test #'ivory-key.model:identifier=
+                    :key #'ivory-key.model:binding-position)))))
 
 (deftest decoder-template-arguments-are-resolved-without-evaluation
   (let* ((layout

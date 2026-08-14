@@ -18,17 +18,20 @@ and proving live keyboard behavior are different evidence levels.
   evidence for 52 symbol-producing positions in documented
   case/script/plane order. The static two-level Top group is represented by
   repeating its observed Top value in the Greek+Top cells where that is the
-  frozen evidence. It also retains separately evidenced `greek` and
-  `latch-latch` selector/timed-interaction declarations; those are not proof
-  of a complete interaction or carrier realization.
+  frozen evidence. It also transcribes the 29 output positions of the common
+  primary layered function table as an abstract patch. A realization-owned
+  vocabulary and deterministic partial proposal now resolve its 29 evidenced
+  XKB/Kanata carriers. Tap-hold activation, selector policy, modifier policy,
+  and timed interactions remain absent rather than guessed.
 - `layouts/twenty-level.ivory` demonstrates that the source model is not
   conceptually limited to eight product states. The planner retains all twenty
   states and explicitly refuses the conventional eight-level XKB realization
   unless another target or separately proven emulation is supplied.
 - `topologies/kinesis-advantage.ivory` and `topologies/one-key.ivory` record
   logical positions and descriptive geometry. The Kinesis topology includes
-  the 52 static positions plus separately identified semantic controls; it
-  does not infer missing geometry from backend names.
+  the 52 static positions, the immediate Greek selector, and the shared
+  device-variant `mode-key`; it does not infer missing geometry from backend
+  names.
 - `devices/kinesis-advantage2.ivory` and
   `devices/kinesis-advantage360.ivory` sketch separate physical mappings and
   reserved carrier numbers.
@@ -40,9 +43,10 @@ normalize. A confined project loader can resolve relative imports and a named
 `realize` composition deterministically, so topology, device, and profile
 definitions can now be selected as one project input to inspection,
 explanation, or compilation. This is not a complete cross-file realization:
-the current emitter bridge still refuses the Manna context selection,
-semantic-modifier, named-symbol/command, carrier, and timed-interaction
-requirements that it cannot prove exactly.
+inspection can construct and externally validate the static-table/carrier
+proposal, but the public compile gate still refuses unresolved semantic
+modifiers, context selectors, `<LSGT>` placement, function activation, and
+timed-interaction requirements.
 
 ## Existing baseline evidence
 
@@ -63,11 +67,13 @@ it does not prove generated or live behavior.
 
 ## Work still required before a migration claim
 
-1. Classify the remaining layered and older chorded variants that the frozen
-   static truth table deliberately leaves unresolved.
-2. Complete the semantic transcription, including every command,
-   modifier, interaction, timing policy, overlay, carrier, and intentional
-   `NoSymbol`/inheritance decision.
+1. Resolve the remaining classified layered and older chorded variants,
+   especially timed activation, game policy, and whether a chorded profile is
+   ever selected.
+2. Complete the operational transcription for every modifier, interaction,
+   timing policy, function activator, and application-visible selector
+   decision; typed command spellings, frozen carriers, and literal static
+   `NoSymbol` cells are already explicit.
 3. Simulate the complete abstract layout and compare the results with the
    reviewed truth table.
 4. Plan resources and lower the complete selected profile. Refuse unsupported
@@ -79,3 +85,8 @@ it does not prove generated or live behavior.
 
 Until all of those steps are complete, Manna Cadet remains the active external
 configuration and Ivory Key remains a non-deploying implementation effort.
+
+The full source-to-decision inventory is
+[manna-cadet-evidence-audit.md](manna-cadet-evidence-audit.md). It distinguishes
+what the primary layered files prove from regression-only chord evidence and
+from comment-only hypotheses.

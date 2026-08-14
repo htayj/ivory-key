@@ -92,6 +92,35 @@ using only alphanumeric characters plus `_` and `-`. The same
 check on the layer name is essential because it is written into the `deflayer`
 header; unsafe input is rejected rather than becoming emitted Kanata syntax.
 
+## QMK firmware backend contract
+
+The QMK backend is a separate implementation of the same CLOS backend
+protocol; it does not add a QMK form to the abstract layout language. Its
+current exact slice emits deterministic QMK Configurator JSON for one static
+base layer. A realization must explicitly provide the QMK keyboard,
+layout macro, and complete physical-position order. Every position must have
+exactly one opaque QMK keycode identifier. Although QMK itself supports more
+layers, the backend refuses them until an abstract selector has a proven QMK
+activation policy. Successful target compilation is still required. The backend refuses
+implicit matrix ordering, arbitrary C expressions, semantic modifiers, and
+timed interactions instead of guessing firmware policy.
+
+`validate-artifact` invokes `qmk compile /ABSOLUTE/FILE.json` as an argument
+vector; the absolute positional path cannot be parsed as an option. Per
+QMK's CLI contract, this is a real firmware compilation and therefore requires
+an installed QMK CLI with a configured firmware checkout. The hermetic suite
+proves deterministic emission, injection refusal, explicit ordering, fidelity
+refusal, and base-layer ordering agreement with the XKB backend; an
+environmental firmware build remains separate evidence.
+
+The first environmental build of an Ivory Key generated one-key artifact is
+recorded in [QMK backend validation evidence](qmk-validation.md). It completed
+successfully through the official QMK compile service; no firmware was flashed.
+
+This backend establishes the Phase 9 extension boundary, but it is not yet a
+compiler-selected realization profile and does not claim that Manna Cadet is
+realizable in QMK.
+
 ## Pipeline and validation evidence
 
 `compile-xkb-kanata-request` lowers one request into `keymap.xkb` and
