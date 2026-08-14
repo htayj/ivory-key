@@ -3,6 +3,9 @@
 Status: plan only. This document does not authorize implementation, migration,
 deployment, or replacement of the currently active keyboard configuration.
 
+License: GNU General Public License, version 3 or later
+(`GPL-3.0-or-later`). See `LICENSE`.
+
 ## 1. Goal
 
 Build a Common Lisp system with a Lisp-shaped, declarative keyboard language
