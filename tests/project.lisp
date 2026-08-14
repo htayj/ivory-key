@@ -366,3 +366,57 @@
       (dolist (name (list vocabulary-name backend-name identity-name))
         (is (null (find-symbol (string-upcase name) project-package)))
         (is (null (find-symbol (string-upcase name) model-package)))))))
+
+(deftest project-realization-interaction-compatibility-is-closed-and-optional
+  "Project source retains no compatibility default and accepts only two routes."
+  (with-project-test-directory (directory)
+    (labels ((load-realization (source)
+               (let ((entry
+                       (write-complete-project
+                        directory '("topology.ivory" "layout.ivory" "device.ivory"
+                                    "realization.ivory" "composition.ivory"))))
+                 (project-test-write directory "realization.ivory" source)
+                 (ivory-key.project:project-realization
+                  (ivory-key.project:load-project entry :source-roots (list directory))
+                  "linux" :errorp t)))
+             (source (suffix)
+               (format nil
+                       "(ivory-key 1)~%(define-realization linux~%  (pipeline kanata xkb)~%  (allow-grades exact emulated)~%  (forbid-shell-actions yes)~%  ~A)"
+                       suffix)))
+      (dolist (case '(("modern-no-delay" . :modern-no-delay)
+                      ("kanata-1-12-buffered" . :kanata-1-12-buffered)))
+        (let* ((profile
+                 (load-realization
+                  (source (format nil "(interaction-compatibility ~A)" (car case)))))
+               (policy
+                 (ivory-key.model::realization-profile-interaction-compatibility-policy
+                  profile)))
+          (is (typep policy
+                     'ivory-key.model::realization-interaction-compatibility-policy))
+          (is-equal (cdr case)
+                    (ivory-key.model::realization-interaction-compatibility-policy-mode
+                     policy))))
+      (is (null
+           (ivory-key.model::realization-profile-interaction-compatibility-policy
+            (load-realization (source "")))))
+      (let ((uninterned "project-compatibility-mode-must-not-intern")
+            (package (find-package :ivory-key.project)))
+        (is (null (find-symbol (string-upcase uninterned) package)))
+        (is-equal
+         :unknown-realization-interaction-compatibility-mode
+         (project-error-code-from
+          (lambda ()
+            (load-realization
+             (source (format nil "(interaction-compatibility ~A)" uninterned))))))
+        (is (null (find-symbol (string-upcase uninterned) package))))
+      (is-equal
+       :duplicate-realization-clause
+       (project-error-code-from
+        (lambda ()
+          (load-realization
+           (source "(interaction-compatibility modern-no-delay) (interaction-compatibility kanata-1-12-buffered)")))))
+      (is-equal
+       :invalid-realization-interaction-compatibility-policy
+       (project-error-code-from
+        (lambda ()
+          (load-realization (source "(interaction-compatibility \"modern-no-delay\")"))))))))

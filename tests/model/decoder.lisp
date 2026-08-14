@@ -270,6 +270,74 @@
     (:participants a)
     (:match (up (captured foreign extra))) (:commit when-matched) (:do none)))"))))
 
+(deftest decoder-keeps-kanata-1-12-buffering-and-replay-unencoded
+  "CAPTURE recognizes a foreign interval; it does not make it a delayed input.
+
+The proposed non-default KANATA-1-12-BUFFERED policy needs a typed pending
+foreign event and ordered redispatch.  Until that model exists, source forms
+that purport to buffer/replay must fail closed, and the existing capture slice
+must retain its ordinary-binding dispatch rather than falsely claiming the
+Kanata ordering.
+"
+  (dolist (form '("(buffer-foreign-event foreign)"
+                  "(replay-buffered-event foreign)"))
+    (decoder-signals-code
+     :unknown-behavior-form
+     (lambda ()
+       (decoder-layout-from-string
+        (format nil
+                "(ivory-key 1)
+(define-layout proposed-buffering
+  (interaction owner
+    (:participants a)
+    (:observe any-position)
+    (:anchor a)
+    (case foreign-release
+      (:match (sequence (down a)
+                        (capture foreign (down (other-than a)))
+                        (up (captured foreign))))
+      (:commit when-matched)
+      (:do ~A)
+      (:effect-start on-commit))))"
+                form)))))
+  ;; The supported CAPTURE slice is matching-only.  With an ordinary B
+  ;; binding, B dispatches at its physical DOWN (time 10), before the foreign
+  ;; release commits the capture candidate at time 20.  Kanata 1.12 instead
+  ;; delays that B interval, so this is a direct representability boundary,
+  ;; not an attempted compatibility simulation.
+  (let* ((layout
+           (decoder-layout-from-string
+            "(ivory-key 1)
+(define-layout capture-is-not-buffering
+  (binding b (unicode \"b\"))
+  (interaction owner
+    (:participants a)
+    (:observe any-position)
+    (:anchor a)
+    (case foreign-release
+      (:match (sequence (down a)
+                        (capture foreign (down (other-than a)))
+                        (up (captured foreign))))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit))))"))
+         (result
+           (ivory-key.simulate:simulate-normalized-layout-events
+            (ivory-key.model:normalize-layout layout)
+            (list (ivory-key.simulate::make-timed-event 0 :down "a")
+                  (ivory-key.simulate::make-timed-event 10 :down "b")
+                  (ivory-key.simulate::make-timed-event 20 :up "b")
+                  (ivory-key.simulate::make-timed-event 30 :up "a"))))
+         (ordinary-b-action
+           (find :action (ivory-key.simulate::simulation-result-trace result)
+                 :key #'ivory-key.simulate::simulation-trace-entry-kind)))
+    (is-equal '((:text "b"))
+              (ivory-key.simulate:simulation-result-outputs result))
+    (is-equal 10
+              (ivory-key.simulate::simulation-trace-entry-time ordinary-b-action))
+    (is-equal '(:emit (:text "b"))
+              (ivory-key.simulate::simulation-trace-entry-details ordinary-b-action))))
+
 (deftest decoder-never-interns-source-identifiers
   (let ((name "surface-decoder-must-not-intern-this")
         (package (find-package :ivory-key.model)))

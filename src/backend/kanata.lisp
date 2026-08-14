@@ -86,6 +86,27 @@ and arbitrary parenthesized source still fail closed.
 (defun %kanata-metadata-value (request key)
   (getf (lowering-request-metadata request) key))
 
+(defun %kanata-interaction-compatibility-refusal-detail (policy)
+  "Return one closed interaction-policy refusal without selecting an action.
+
+The two accepted values are V1 Manna/Kanata compatibility choices, not a
+generic Kanata interaction capability.  In particular, neither may be
+translated into a raw tap-hold form until a typed ownership/buffer/replay IR
+exists and can be matched to its source evidence.
+"
+  (ivory-key.model::validate-realization-interaction-compatibility-policy
+   policy)
+  (case (ivory-key.model::realization-interaction-compatibility-policy-mode policy)
+    (:modern-no-delay
+     "Kanata 1.12 buffers/replays pending foreign events, so generic Kanata actions are not exact for the selected modern no-delay policy.")
+    (:kanata-1-12-buffered
+     "The selected Kanata 1.12 buffered policy lacks a closed ownership, cancellation, and ordered-replay action IR.")
+    ;; The model validator makes this defensive branch unreachable for
+    ;; source-decoded values.  Preserve a refusal for an object changed after
+    ;; validation instead of guessing a backend action.
+    (otherwise
+     "The interaction compatibility policy is not a closed V1 Manna/Kanata route.")))
+
 (defun %kanata-source-rows (request mappings)
   "Return canonical (POSITION . SOURCE) rows for one generated config.
 
@@ -177,10 +198,33 @@ atom/action before text emission.
              modifier :unsupported
              :detail "Semantic modifier lowering requires an explicit Kanata template.")
             results))
-    (dolist (interaction (lowering-request-interactions request))
-      (push (make-realization-result interaction :unsupported
-                                     :detail "Generic interaction lowering requires an explicit Kanata template.")
-            results))
+    (let ((interactions (lowering-request-interactions request))
+          (interaction-compatibility-policy
+            (%kanata-metadata-value request :interaction-compatibility-policy)))
+      (when interaction-compatibility-policy
+        ;; Programmatic callers do not get to smuggle a plist/string through
+        ;; metadata merely because no source decoder was involved.
+        (ivory-key.model::validate-realization-interaction-compatibility-policy
+         interaction-compatibility-policy))
+      (cond
+        ((and interactions interaction-compatibility-policy)
+         (let ((detail
+                 (%kanata-interaction-compatibility-refusal-detail
+                  interaction-compatibility-policy)))
+           (push (make-realization-result
+                  :interaction-compatibility-policy :unsupported :detail detail)
+                 results)
+           (dolist (interaction interactions)
+             (push (make-realization-result interaction :unsupported :detail detail)
+                   results))))
+        (interactions
+         ;; NIL does not select a Manna compatibility route.  Preserve the
+         ;; generic interaction refusal for unrelated layouts and requests.
+         (dolist (interaction interactions)
+           (push (make-realization-result
+                  interaction :unsupported
+                  :detail "Generic interaction lowering requires an explicit Kanata template.")
+                 results))))
     ;; The typed carrier/selector policy is deliberately not a raw Kanata
     ;; action template.  Until lifecycle and source-consumption behavior are
     ;; lowered by a closed action IR, keep the policy as an explicit refusal.
@@ -207,7 +251,7 @@ atom/action before text emission.
                      :sources (mapcar #'cdr source-rows)
                      :outputs base-outputs
                      :layers layers
-                     :realizations (nreverse results))))))
+                     :realizations (nreverse results)))))))
 
 (defmethod emit-plan ((backend kanata-backend) (plan kanata-plan) stream)
   (declare (ignore backend))

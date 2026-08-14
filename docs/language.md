@@ -180,6 +180,23 @@ Missing mappings and command outputs are refusals, not guessed translations.
 A standalone realization file cannot resolve project vocabulary declarations,
 so selecting one there is also an explicit refusal.
 
+Realizations may also record one bounded, explicitly selected Manna/Kanata
+interaction-compatibility route:
+
+```lisp
+(interaction-compatibility modern-no-delay)
+;; or
+(interaction-compatibility kanata-1-12-buffered)
+```
+
+This clause is realization policy, not layout behavior or a generic tap/hold
+primitive. Its absence means unselected; there is no default. The two values
+are closed identifiers. `modern-no-delay` names the proposed ADR 0003
+foreign-event contract, while `kanata-1-12-buffered` names the versioned ADR
+0004 observation. Both currently remain backend refusals: the former differs
+from Kanata 1.12 event delivery, and the latter lacks an abstract typed
+buffer/ordered-replay operation.
+
 ## Simulation event documents
 
 `simulate --layout FILE [--topology FILE] --events FILE` reads another

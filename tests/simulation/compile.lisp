@@ -377,3 +377,251 @@
      '((:modifier :press "super") (:modifier :release "super"))
      (ivory-key.simulate::simulation-result-outputs result)
      "the generated deadline commits before its equal-time physical owner release")))
+
+;;; Proposed modern Manna release-trigger fixture ---------------------------
+
+(defun modern-release-trigger-source-layout ()
+  "Decode the explicit proposed source fixture without selecting any backend."
+  (interaction-template-decoder-layout +manna-release-trigger-v1-source+))
+
+(defun modern-release-trigger-source-interaction (name)
+  (let* ((layout (modern-release-trigger-source-layout))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (interaction
+           (find name (ivory-key.model:normalized-layout-interactions normalized)
+                 :test #'ivory-key.model:identifier=
+                 :key #'ivory-key.model:normalized-interaction-name)))
+    (values (ivory-key.simulate::compile-normalized-interaction interaction)
+            (ivory-key.simulate::model-layout-simulator-axes layout))))
+
+(defun modern-release-trigger-source-result (interaction-names events &key until)
+  (let ((interactions nil) (axes nil))
+    (dolist (name interaction-names)
+      (multiple-value-bind (interaction defaults)
+          (modern-release-trigger-source-interaction name)
+        (push interaction interactions)
+        (unless axes (setf axes defaults))))
+    (ivory-key.simulate::simulate-events (nreverse interactions) events
+                                         :axes axes :until until)))
+
+(defun modern-release-trigger-source-candidate (result interaction-name case-name)
+  (find-if
+   (lambda (candidate)
+     (and (string= interaction-name
+                   (ivory-key.simulate::sim-interaction-name
+                    (ivory-key.simulate::simulation-candidate-interaction candidate)))
+          (string= case-name
+                   (ivory-key.simulate::sim-case-name
+                    (ivory-key.simulate::simulation-candidate-case candidate)))))
+   (ivory-key.simulate:simulation-result-candidates result)))
+
+(defun modern-release-trigger-physical-positions (result)
+  (mapcar (lambda (entry)
+            (ivory-key.simulate::timed-event-position
+             (ivory-key.simulate::simulation-trace-entry-event entry)))
+          (remove-if-not
+           (lambda (entry)
+             (eq :event (ivory-key.simulate::simulation-trace-entry-kind entry)))
+           (ivory-key.simulate::simulation-result-trace result))))
+
+(deftest simulation-compile-source-modern-release-trigger-v1-triad
+  "The proposed no-delay profile has three concrete source candidates only.
+
+This proves the chosen abstract event contract, not Kanata or historical Manna
+equivalence.  In particular, the observed foreign key is not claimed by the
+interaction and no synthetic replay event is introduced."
+  ;; A short owner press reaches only TAP; neither on-commit hold acquires.
+  (let* ((result
+           (modern-release-trigger-source-result
+            '("modern-super-a")
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 199 :up "a"))))
+         (tap (modern-release-trigger-source-candidate
+               result "modern-super-a" "tap")))
+    (compile-simulation-assert-equal
+     '((:named-key "delete"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "the sub-deadline release commits the tap candidate")
+    (compile-simulation-assert-equal
+     :committed (ivory-key.simulate::simulation-candidate-status tap)
+     "the source tap candidate is the deterministic winner")
+    (compile-simulation-assert-equal
+     nil (ivory-key.simulate:simulation-result-active-effects result)
+     "a tap never leaves a held modifier owner"))
+  ;; The deadline is generated before an equal-time physical owner release.
+  (let* ((result
+           (modern-release-trigger-source-result
+            '("modern-super-a")
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 200 :up "a"))))
+         (trace (ivory-key.simulate::simulation-result-trace result))
+         (timeout (modern-release-trigger-source-candidate
+                   result "modern-super-a" "hold-timeout")))
+    (compile-simulation-assert-equal
+     '((:modifier :press "super") (:modifier :release "super"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "the deadline hold starts then releases at its owner's same-time UP")
+    (compile-simulation-assert-equal
+     :committed (ivory-key.simulate::simulation-candidate-status timeout)
+     "the fixed priority makes timeout win at its own boundary")
+    (compile-simulation-assert
+     (< (position :deadline trace
+                  :key #'ivory-key.simulate::simulation-trace-entry-kind)
+        (position-if
+         (lambda (entry)
+           (let ((event (ivory-key.simulate::simulation-trace-entry-event entry)))
+             (and event (eq :up (ivory-key.simulate::timed-event-kind event))
+                  (string= "a" (ivory-key.simulate::timed-event-position event)))))
+         trace))
+     "a generated deadline precedes the equal-time physical release"))
+  ;; The first eligible foreign DOWN is immutable.  Its UP commits the hold,
+  ;; but the foreign event remains observed/unowned and is never replayed.
+  (let* ((partial
+           (modern-release-trigger-source-result
+            '("modern-super-a")
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 1 :down "b")
+                  (compile-simulation-event 2 :down "c")
+                  (compile-simulation-event 3 :up "c")
+                  (compile-simulation-event 4 :up "b"))))
+         (foreign (modern-release-trigger-source-candidate
+                   partial "modern-super-a" "hold-after-foreign-release"))
+         (commit
+           (find-if
+            (lambda (entry)
+              (and (eq :commit (ivory-key.simulate::simulation-trace-entry-kind entry))
+                   (eq foreign (ivory-key.simulate::simulation-trace-entry-candidate entry))))
+            (ivory-key.simulate::simulation-result-trace partial))))
+    (compile-simulation-assert-equal
+     '((:modifier :press "super"))
+     (ivory-key.simulate::simulation-result-outputs partial)
+     "foreign release starts the non-speculative hold while its owner remains down")
+    (compile-simulation-assert-equal
+     '("a" "b" "c" "c" "b")
+     (modern-release-trigger-physical-positions partial)
+     "foreign physical events preserve their supplied order without delayed replay")
+    (compile-simulation-assert-equal
+     '(0) (ivory-key.simulate::simulation-candidate-claimed-event-indices foreign)
+     "the committed interaction owns only its participant, not the foreign key")
+    (compile-simulation-assert-equal
+     '(("foreign" :position "b" :down-index 1))
+     (getf (ivory-key.simulate::simulation-trace-entry-provenance commit) :captures)
+     "capture retains the first foreign position and physical down index")
+    (compile-simulation-assert
+     (ivory-key.simulate:simulation-result-active-effects partial)
+     "the foreign-release hold remains active until its own participant UP"))
+  ;; Releasing the owner first selects TAP and cancels the uncommitted foreign
+  ;; candidate before it can create a zero-lifetime modifier press.
+  (let* ((result
+           (modern-release-trigger-source-result
+            '("modern-super-a")
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 1 :down "b")
+                  (compile-simulation-event 2 :up "a")
+                  (compile-simulation-event 3 :up "b"))))
+         (foreign (modern-release-trigger-source-candidate
+                   result "modern-super-a" "hold-after-foreign-release")))
+    (compile-simulation-assert-equal
+     '((:named-key "delete"))
+     (ivory-key.simulate::simulation-result-outputs result)
+     "early owner UP falls back to tap rather than a delayed foreign hold")
+    (compile-simulation-assert-equal
+     :cancelled (ivory-key.simulate::simulation-candidate-status foreign)
+     "the losing captured candidate has a terminal cancellation")
+    (compile-simulation-assert-equal
+     nil (ivory-key.simulate:simulation-result-active-effects result)
+     "early owner UP cannot leave a stuck hold")))
+
+(deftest simulation-whole-layout-modern-release-trigger-does-not-delay-foreign-binding
+  "The proposed modern route dispatches an ordinary foreign key immediately."
+  (let* ((layout (modern-release-trigger-source-layout))
+         (result
+           (ivory-key.simulate:simulate-normalized-layout-events
+            (ivory-key.model:normalize-layout layout)
+            (list (compile-simulation-event 0 :down "a")
+                  (compile-simulation-event 1 :down "b")
+                  (compile-simulation-event 2 :up "a")
+                  (compile-simulation-event 3 :up "b"))))
+         (actions
+           (remove-if-not
+            (lambda (entry)
+              (eq :action
+                  (ivory-key.simulate:simulation-trace-entry-kind entry)))
+            (ivory-key.simulate:simulation-result-trace result))))
+    (compile-simulation-assert-equal
+     '((:text "b") (:named-key "delete"))
+     (ivory-key.simulate:simulation-result-outputs result)
+     "foreign B dispatch precedes the later owner-UP tap commitment")
+    (compile-simulation-assert-equal
+     '(1 2)
+     (mapcar #'ivory-key.simulate:simulation-trace-entry-time actions)
+     "the ordinary foreign action remains at physical DOWN with no replay")))
+
+(deftest simulation-compile-source-modern-release-trigger-v1-250-and-function-owners
+  ;; The second admitted timer pair keeps the same deadline-before-UP rule.
+  (dolist (fixture '((249 ((:named-key "a-tap")))
+                     (250 ((:modifier :press "super")
+                           (:modifier :release "super")))))
+    (destructuring-bind (release expected) fixture
+      (let ((result
+              (modern-release-trigger-source-result
+               '("modern-super-left-a")
+               (list (compile-simulation-event 0 :down "left-a")
+                     (compile-simulation-event release :up "left-a")))))
+        (compile-simulation-assert-equal
+         expected (ivory-key.simulate::simulation-result-outputs result)
+         "the explicit 250/250 fixture preserves its boundary"))))
+  ;; End and Page-Down are independent owners of the same abstract function
+  ;; state.  Their state has no backend token and remains active after either
+  ;; single owner leaves, then restores the default after the final release.
+  (flet ((function-result (events &key until)
+           (modern-release-trigger-source-result
+            '("modern-function-end" "modern-function-page-down") events :until until)))
+    (let ((both-held
+            (function-result
+             (list (compile-simulation-event 0 :down "end")
+                   (compile-simulation-event 0 :down "page-down")) :until 200)))
+      (compile-simulation-assert-equal
+       '(("function" . "active"))
+       (ivory-key.simulate:simulation-result-axes both-held)
+       "both committed function holds contribute the same effective state"))
+    (let ((one-held
+            (function-result
+             (list (compile-simulation-event 0 :down "end")
+                   (compile-simulation-event 0 :down "page-down")
+                   (compile-simulation-event 210 :up "end")))))
+      (compile-simulation-assert-equal
+       '(("function" . "active"))
+       (ivory-key.simulate:simulation-result-axes one-held)
+       "releasing the first function owner cannot clear the second"))
+    (let ((released
+            (function-result
+             (list (compile-simulation-event 0 :down "end")
+                   (compile-simulation-event 0 :down "page-down")
+                   (compile-simulation-event 210 :up "end")
+                   (compile-simulation-event 220 :up "page-down")))))
+      (compile-simulation-assert-equal
+       '(("function" . "inactive"))
+       (ivory-key.simulate:simulation-result-axes released)
+       "the final function owner release restores the declared default"))
+    ;; The reverse release order is separately observable: Page-Down may
+    ;; leave first without clearing End's still-owned function contribution.
+    (let ((one-held
+            (function-result
+             (list (compile-simulation-event 0 :down "end")
+                   (compile-simulation-event 0 :down "page-down")
+                   (compile-simulation-event 210 :up "page-down")))))
+      (compile-simulation-assert-equal
+       '(("function" . "active"))
+       (ivory-key.simulate:simulation-result-axes one-held)
+       "releasing Page-Down first cannot clear End's function hold"))
+    (let ((released
+            (function-result
+             (list (compile-simulation-event 0 :down "end")
+                   (compile-simulation-event 0 :down "page-down")
+                   (compile-simulation-event 210 :up "page-down")
+                   (compile-simulation-event 220 :up "end")))))
+      (compile-simulation-assert-equal
+       '(("function" . "inactive"))
+       (ivory-key.simulate:simulation-result-axes released)
+       "End's final release restores the declared function default"))))

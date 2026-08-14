@@ -109,8 +109,13 @@ context only: its `wev` steps are proposed checks, not captured Manna event
 traces or a frozen historical runtime oracle.  A separate source-archive-
 checked Kanata-1.12 state-machine oracle records bounded current behavior, but
 reveals pending foreign-event buffering that differs from the proposed modern
-no-replay route.  Neither source selects a Manna compatibility policy or
-closes the timing, selector, or modifier equivalence gaps above.
+no-replay route.  [ADR 0004](decisions/0004-kanata-1-12-buffered-compatibility.md)
+records a separate proposed non-default `kanata-1-12-buffered` contract and
+the complete 14+2 source inventory; the alternate selector pair still lacks a
+direct oracle trace.  It is intentionally unencoded: the current model cannot
+buffer or ordered-replay a foreign press interval, so no `.ivory` realization
+or default policy is created.  Neither source selects a Manna compatibility
+policy or closes the timing, selector, or modifier equivalence gaps above.
 
 Until all of those steps are complete, Manna Cadet remains the active external
 configuration and Ivory Key remains a non-deploying implementation effort.

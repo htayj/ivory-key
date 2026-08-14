@@ -840,6 +840,37 @@ backend emitters select grammar only after compiler completeness checks.
     (ivory-key.model::make-realization-selector-policy
      (nreverse static-types) (nreverse selectors) (nreverse carriers))))
 
+(defun %decode-realization-interaction-compatibility (context form)
+  "Decode one closed V1 Manna/Kanata compatibility selection.
+
+This is intentionally a realization choice rather than interaction syntax: it
+does not add a generic timing taxonomy or permit backend action text in a
+project source file.  Its absence is retained as NIL, meaning explicitly
+unselected rather than a default compatibility route.
+"
+  (let ((children
+          (%form-children context form 2 2
+                          "INTERACTION-COMPATIBILITY declaration")))
+    (ivory-key.model::make-realization-interaction-compatibility-policy
+     (let* ((mode-node (second children))
+            (name
+              (progn
+                (unless (and (syntax-atom-p mode-node)
+                             (eq (syntax-atom-kind mode-node) :identifier))
+                  (%fail context
+                         :invalid-realization-interaction-compatibility-policy
+                         "INTERACTION-COMPATIBILITY mode must be an Ivory Key identifier."))
+                (syntax-atom-value mode-node)))
+            (choice
+              (assoc name
+                     '(("modern-no-delay" . :modern-no-delay)
+                       ("kanata-1-12-buffered" . :kanata-1-12-buffered))
+                     :test #'string=)))
+       (unless choice
+         (%fail context :unknown-realization-interaction-compatibility-mode
+                "INTERACTION-COMPATIBILITY has unsupported mode ~A." name))
+       (cdr choice)))))
+
 (defun %decode-realization (definition output-vocabularies)
   (let* ((context (%make-project-context (project-definition-path definition)
                                          (source-span-import-stack
@@ -851,7 +882,8 @@ backend emitters select grammar only after compiler completeness checks.
     (dolist (clause clauses)
       (unless (member (%form-name clause)
                       '("pipeline" "uses-output-vocabulary" "allow-grades"
-                        "forbid-shell-actions" "validation" "selector-policy")
+                        "forbid-shell-actions" "validation" "selector-policy"
+                        "interaction-compatibility")
                       :test #'string=)
         (%fail context :unknown-realization-clause
                "Realization ~A has unsupported clause ~S." name (%form-name clause))))
@@ -872,11 +904,18 @@ backend emitters select grammar only after compiler completeness checks.
              (remove-if-not (lambda (clause)
                               (%named-form-p clause "selector-policy"))
                             clauses))
+           (interaction-compatibility-matches
+             (remove-if-not
+              (lambda (clause)
+                (%named-form-p clause "interaction-compatibility"))
+              clauses))
            (pipeline-form (first pipeline-matches))
            (vocabulary-form (first vocabulary-matches))
            (grades-form (first grade-matches))
            (shell-form (first shell-matches))
            (selector-policy-form (first selector-policy-matches))
+           (interaction-compatibility-form
+             (first interaction-compatibility-matches))
            (validation-forms (remove-if-not (lambda (clause)
                                               (%named-form-p clause "validation"))
                                             clauses)))
@@ -885,7 +924,8 @@ backend emitters select grammar only after compiler completeness checks.
                "Realization ~A requires PIPELINE." name))
       (when (or (rest pipeline-matches) (rest vocabulary-matches)
                 (rest grade-matches) (rest shell-matches)
-                (rest selector-policy-matches))
+                (rest selector-policy-matches)
+                (rest interaction-compatibility-matches))
         ;; The exact identity tests above deliberately reject duplicate closed
         ;; policy forms without converting their source names into symbols.
         (%fail context :duplicate-realization-clause
@@ -917,6 +957,15 @@ backend emitters select grammar only after compiler completeness checks.
                      (semantic-error (condition)
                        (%fail context (semantic-error-code condition)
                               "Could not decode selector policy for realization ~A: ~A"
+                              name (semantic-error-message condition))))))
+            (interaction-compatibility-policy
+              (and interaction-compatibility-form
+                   (handler-case
+                       (%decode-realization-interaction-compatibility
+                        context interaction-compatibility-form)
+                     (semantic-error (condition)
+                       (%fail context (semantic-error-code condition)
+                              "Could not decode interaction compatibility for realization ~A: ~A"
                               name (semantic-error-message condition)))))))
         (when (null pipeline)
           (%fail context :empty-realization-pipeline
@@ -935,6 +984,7 @@ backend emitters select grammar only after compiler completeness checks.
               (make-realization-profile
                name :pipeline pipeline :vocabulary vocabulary :permitted-losses grades
                :selector-policy selector-policy
+               :interaction-compatibility-policy interaction-compatibility-policy
                :metadata (list :forbid-shell-actions forbid-shell
                                :validation (mapcar #'%node->safe-value validation-forms)))
             (semantic-error (condition)

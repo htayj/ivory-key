@@ -161,6 +161,51 @@
      (ivory-key.model:make-realization-profile
       "not-a-vocabulary" :pipeline '("backend-a") :vocabulary "backend-a"))))
 
+(deftest realization-interaction-compatibility-policy-is-closed-and-unselected-by-default
+  "The bounded V1 Manna/Kanata choice is typed, opt-in, and not generic IR."
+  (dolist (mode '(:modern-no-delay :kanata-1-12-buffered))
+    (let ((policy
+            (ivory-key.model::make-realization-interaction-compatibility-policy
+             mode)))
+      (is (typep policy
+                 'ivory-key.model::realization-interaction-compatibility-policy))
+      (is-equal mode
+                (ivory-key.model::realization-interaction-compatibility-policy-mode
+                 policy))
+      (is (eq policy
+              (ivory-key.model::validate-realization-interaction-compatibility-policy
+               policy)))
+      (let ((profile
+              (ivory-key.model:make-realization-profile
+               "selected-compatibility" :pipeline '("kanata" "xkb")
+               :interaction-compatibility-policy policy)))
+        (is (eq policy
+                (ivory-key.model::realization-profile-interaction-compatibility-policy
+                 profile))))))
+  ;; Omission remains an explicit unselected state, not a modern/no-delay
+  ;; default hidden in the profile constructor.
+  (is (null
+       (ivory-key.model::realization-profile-interaction-compatibility-policy
+        (ivory-key.model:make-realization-profile
+         "unselected-compatibility" :pipeline '("kanata" "xkb")))))
+  (vocabulary-signals-code
+   :unsupported-realization-interaction-compatibility-mode
+   (lambda ()
+     (ivory-key.model::make-realization-interaction-compatibility-policy
+      :generic-tap-hold)))
+  (vocabulary-signals-code
+   :unsupported-realization-interaction-compatibility-mode
+   (lambda ()
+     (ivory-key.model::validate-realization-interaction-compatibility-policy
+      (make-instance 'ivory-key.model::realization-interaction-compatibility-policy
+                     :mode :generic-tap-hold))))
+  (vocabulary-signals-code
+   :invalid-realization-interaction-compatibility-policy
+   (lambda ()
+     (ivory-key.model:make-realization-profile
+      "stringly-compatibility" :pipeline '("kanata" "xkb")
+      :interaction-compatibility-policy "modern-no-delay"))))
+
 (deftest device-coverage-programmatic-mappings-must-be-one-to-one-and-covered
   "Coverage-bearing placements cannot bypass DEFINE-DEVICE source invariants."
   (let* ((topology

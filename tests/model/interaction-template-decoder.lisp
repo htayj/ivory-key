@@ -33,6 +33,166 @@
   ;; wrapper's nested call delegates without a second instance name.
   (instantiate-interaction source-tap tap-wrapper (:position a)))")
 
+;;; Modern no-delay release-trigger profile ---------------------------------
+
+(defparameter +manna-release-trigger-v1-source+
+  "(ivory-key 1)
+(define-layout modern-manna-release-trigger-v1
+  (axis function (:states inactive active) (:resolution patch))
+  (modifiers super)
+  ;; A foreign ordinary binding makes the no-delay dispatch boundary
+  ;; executable in the whole-layout simulator.  It is not a participant in
+  ;; any release-trigger candidate.
+  (binding b (unicode \"b\"))
+  ;; This is an ordinary finite interaction template, not a TAP-HOLD source
+  ;; primitive.  Its literal 200 ms pair is part of the explicit proposed
+  ;; modern compatibility fixture, not an ambient timing default.
+  (define-interaction-template manna-release-trigger-v1 (position)
+    (interaction release-trigger-body
+      (:participants position)
+      (:observe any-position)
+      (:anchor position)
+      (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+      (case hold-timeout
+        (:match (deadline 200 :after (down position) :while-down position))
+        (:commit when-matched)
+        (:do none)
+        (:effect-start on-commit)
+        (:while (hold-modifier super)))
+      (case hold-after-foreign-release
+        (:match (sequence
+                  (down position)
+                  (capture foreign (down (other-than position)))
+                  (up (captured foreign))))
+        (:commit when-matched)
+        (:do none)
+        (:effect-start on-commit)
+        (:while (hold-modifier super)))
+      (case tap
+        (:match (and (sequence (down position) (up position))
+                     (duration position :less-than 200)))
+        (:commit when-matched)
+        (:do (named-key delete)))))
+  ;; The frozen left-side A alias is the only admitted second timer pair.  It
+  ;; is a separate literal template rather than a free timing argument.
+  (define-interaction-template manna-release-trigger-v1-250 (position)
+    (interaction release-trigger-250-body
+      (:participants position)
+      (:observe any-position)
+      (:anchor position)
+      (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+      (case hold-timeout
+        (:match (deadline 250 :after (down position) :while-down position))
+        (:commit when-matched)
+        (:do none)
+        (:effect-start on-commit)
+        (:while (hold-modifier super)))
+      (case hold-after-foreign-release
+        (:match (sequence
+                  (down position)
+                  (capture foreign (down (other-than position)))
+                  (up (captured foreign))))
+        (:commit when-matched)
+        (:do none)
+        (:effect-start on-commit)
+        (:while (hold-modifier super)))
+      (case tap
+        (:match (and (sequence (down position) (up position))
+                     (duration position :less-than 250)))
+        (:commit when-matched)
+        (:do (named-key a-tap)))))
+  ;; The function activators share the same finite triad, but their held
+  ;; behavior is an owner-scoped abstract axis contribution.  This source
+  ;; fixture has no backend token or historical Kanata claim.
+  (define-interaction-template manna-release-trigger-function-v1 (position)
+    (interaction release-trigger-function-body
+      (:participants position)
+      (:observe any-position)
+      (:anchor position)
+      (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+      (case hold-timeout
+        (:match (deadline 200 :after (down position) :while-down position))
+        (:commit when-matched)
+        (:do none)
+        (:effect-start on-commit)
+        (:while (hold-axis-state function active)))
+      (case hold-after-foreign-release
+        (:match (sequence
+                  (down position)
+                  (capture foreign (down (other-than position)))
+                  (up (captured foreign))))
+        (:commit when-matched)
+        (:do none)
+        (:effect-start on-commit)
+        (:while (hold-axis-state function active)))
+      (case tap
+        (:match (and (sequence (down position) (up position))
+                     (duration position :less-than 200)))
+        (:commit when-matched)
+        (:do none))))
+  (instantiate-interaction modern-super-a manna-release-trigger-v1 (:position a))
+  (instantiate-interaction modern-super-s manna-release-trigger-v1 (:position s))
+  (instantiate-interaction modern-super-left-a manna-release-trigger-v1-250 (:position left-a))
+  (instantiate-interaction modern-function-end
+                           manna-release-trigger-function-v1 (:position end))
+  (instantiate-interaction modern-function-page-down
+                           manna-release-trigger-function-v1 (:position page-down)))")
+
+(defun interaction-template-decoder-interaction (layout name)
+  (find name (ivory-key.model:layout-interactions layout)
+        :test #'ivory-key.model:identifier=
+        :key #'ivory-key.model:interaction-name))
+
+(deftest interaction-template-decoder-materializes-modern-release-trigger-v1
+  "The proposed modern profile is ordinary closed source interaction algebra.
+
+It has no generic TAP-HOLD form, no named timing variable, and no backend
+spelling.  The fixed source templates are intentionally the only route in
+this fixture to the documented 200/200 and 250/250 pairs."
+  (let* ((layout (interaction-template-decoder-layout
+                  +manna-release-trigger-v1-source+))
+         (interaction
+           (interaction-template-decoder-interaction layout "modern-super-a"))
+         (candidates (ivory-key.model:interaction-candidates interaction))
+         (normalized (ivory-key.model:normalize-layout layout)))
+    (ivory-key.model:validate-layout layout)
+    (is-equal '("modern-super-a" "modern-super-s" "modern-super-left-a"
+                "modern-function-end" "modern-function-page-down")
+              (mapcar (lambda (entry)
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:interaction-name entry)))
+                      (ivory-key.model:layout-interactions layout)))
+    (is-equal '(:priority ("hold-timeout" "hold-after-foreign-release" "tap"))
+              (let ((arbitration
+                      (ivory-key.model:interaction-arbitration interaction)))
+                (list (first arbitration)
+                      (mapcar #'ivory-key.model:identifier-name
+                              (second arbitration)))))
+    (is-equal '(("hold-timeout" :on-commit)
+                ("hold-after-foreign-release" :on-commit)
+                ("tap" :on-match))
+              (mapcar (lambda (candidate)
+                        (list (ivory-key.model:identifier-name
+                               (ivory-key.model:candidate-name candidate))
+                              (ivory-key.model:candidate-effect-start candidate)))
+                      candidates))
+    (is-equal 250
+              (first (ivory-key.model:temporal-pattern-arguments
+                      (ivory-key.model:candidate-match
+                       (first (ivory-key.model:interaction-candidates
+                               (interaction-template-decoder-interaction
+                                layout "modern-super-left-a")))))))
+    (is-equal
+     '(:priority ("hold-timeout" "hold-after-foreign-release" "tap"))
+     (let ((arbitration
+             (ivory-key.model:normalized-interaction-arbitration
+              (find "modern-super-a"
+                    (ivory-key.model:normalized-layout-interactions normalized)
+                    :test #'ivory-key.model:identifier=
+                    :key #'ivory-key.model:normalized-interaction-name))))
+       (list (first arbitration)
+             (mapcar #'ivory-key.model:identifier-name (second arbitration)))))))
+
 (deftest interaction-template-decoder-expands-forward-named-arguments
   (let* ((layout (interaction-template-decoder-layout
                   +interaction-template-decoder-layout+))

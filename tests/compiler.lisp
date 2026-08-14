@@ -1699,6 +1699,144 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                 (compiler-stage-code-from
                  (lambda () (ivory-key.cli::decode-realization-source bad-carrier)))))))
 
+(defparameter +compiler-test-interaction-compatibility-layout+
+  "(ivory-key 1)
+(define-layout interaction-compatibility
+  (uses-topology one)
+  (interaction q-tap
+    (:participants q)
+    (case tap
+      (:match (sequence (down q) (up q)))
+      (:commit (up q))
+      (:do (unicode \"q\")))))
+")
+
+(defun compiler-test-interaction-compatibility-realization (&optional mode)
+  (format nil
+          "(ivory-key 1)
+(define-realization interaction-compatibility-linux
+  (pipeline kanata xkb)
+  (allow-grades exact emulated)
+  (forbid-shell-actions yes)~@[~%  (interaction-compatibility ~A)~%~])
+"
+          mode))
+
+(deftest compiler-interaction-compatibility-is-opt-in-and-refused-per-mode
+  "The narrow Manna/Kanata choice never becomes a generic interaction default."
+  (with-compiler-test-directory (directory)
+    (let* ((layout-path
+             (compiler-test-write directory "interaction-layout.ivory"
+                                  +compiler-test-interaction-compatibility-layout+))
+           (topology-path
+             (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (device-path
+             (compiler-test-write directory "device.ivory" +compiler-test-device+))
+           (unit
+             (ivory-key.cli::load-layout-for-compilation
+              layout-path :topology-path topology-path))
+           (placement (ivory-key.cli::decode-device-source device-path)))
+      (labels ((check (mode expected-codes selection expected-detail)
+                 (let* ((realization-path
+                          (compiler-test-write
+                           directory
+                           (format nil "realization-~A.ivory" (or mode "nil"))
+                           (compiler-test-interaction-compatibility-realization mode)))
+                        (realization
+                          (ivory-key.cli::decode-realization-source realization-path))
+                        (policy
+                          (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+                           realization)))
+                   (if selection
+                       (is-equal selection
+                                 (ivory-key.model::realization-interaction-compatibility-policy-mode
+                                  policy))
+                       (is (null policy)))
+                   (multiple-value-bind (request issues)
+                       (ivory-key.cli::analyze-normalized-layout
+                        (ivory-key.cli::compiler-unit-normalized unit) placement
+                        :interaction-compatibility-policy policy)
+                     (is request)
+                     (is-equal expected-codes
+                               (mapcar #'ivory-key.cli::compiler-fidelity-issue-code
+                                       issues))
+                     (is (eq policy
+                             (getf (ivory-key.backend::lowering-request-metadata request)
+                                   :interaction-compatibility-policy)))
+                     (when expected-detail
+                       (is (search expected-detail
+                                   (ivory-key.cli::compiler-fidelity-issue-detail
+                                    (first issues)))))
+                     (is-equal
+                      (first expected-codes)
+                      (compiler-stage-code-from
+                       (lambda ()
+                         (ivory-key.cli::make-lowering-request-from-normalized-layout
+                          (ivory-key.cli::compiler-unit-normalized unit) placement
+                          :interaction-compatibility-policy policy))))
+                     (let ((planned
+                             (ivory-key.cli::planned-layout-dump-string
+                              unit placement realization)))
+                       (is (search "Interaction compatibility selection" planned))
+                       (is (search (or mode "unselected") planned)))))))
+        ;; An unrelated generic interaction retains precisely its established
+        ;; refusal.  NIL does not leak this Manna-specific taxonomy into it.
+        (check nil '(:unsupported-timed-interaction) nil nil)
+        (check "modern-no-delay"
+               '(:unsupported-kanata-modern-no-delay-interaction-policy
+                 :unsupported-timed-interaction)
+               :modern-no-delay "buffers/replays")
+        (check "kanata-1-12-buffered"
+               '(:unimplemented-kanata-1-12-buffered-interaction-policy
+                 :unsupported-timed-interaction)
+               :kanata-1-12-buffered "ownership, cancellation, and ordered-replay")))))
+
+(deftest compiler-interaction-compatibility-source-is-closed-in-direct-and-project-modes
+  (with-compiler-test-directory (directory)
+    (let ((bad-source
+            (compiler-test-write
+             directory "bad-realization.ivory"
+             "(ivory-key 1)
+(define-realization bad
+  (pipeline kanata xkb)
+  (allow-grades exact)
+  (forbid-shell-actions yes)
+  (interaction-compatibility \"modern-no-delay\"))")))
+      (is-equal :invalid-realization-interaction-compatibility-policy
+                (compiler-stage-code-from
+                 (lambda () (ivory-key.cli::decode-realization-source bad-source)))))
+    (let ((unknown-source
+            (compiler-test-write
+             directory "unknown-realization.ivory"
+             "(ivory-key 1)
+(define-realization unknown
+  (pipeline kanata xkb)
+  (allow-grades exact)
+  (forbid-shell-actions yes)
+  (interaction-compatibility arbitrary-generic-policy))")))
+      (is-equal :unknown-realization-interaction-compatibility-mode
+                (compiler-stage-code-from
+                 (lambda () (ivory-key.cli::decode-realization-source unknown-source)))))
+    (let ((project
+            (write-compiler-test-project
+             directory
+             :realization-source
+             (compiler-test-interaction-compatibility-realization
+              "kanata-1-12-buffered")
+             :composition-source
+             "(ivory-key 1)
+(realize interaction-compatibility-build
+  (:layout direct) (:device test-device)
+  (:profile interaction-compatibility-linux))")))
+      (multiple-value-bind (unit placement realization)
+          (ivory-key.cli:load-project-composition-for-compilation
+           project "interaction-compatibility-build")
+        (declare (ignore unit placement))
+        (is-equal
+         :kanata-1-12-buffered
+         (ivory-key.model::realization-interaction-compatibility-policy-mode
+          (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+           realization)))))))
+
 (deftest compiler-project-realization-decoder-retains-the-typed-policy
   "Project loading and explicit-file inspection use the same public contract."
   (with-compiler-test-directory (directory)

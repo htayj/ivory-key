@@ -994,6 +994,12 @@ because one backend happens to spell something differently.
 - Semantic modifiers are not context selectors.
 - Tap, hold, combo, tap dance, roll, and sequence are templates over one
   unified timed-interaction model, not separate semantic primitives.
+- The disputed Manna release-trigger behavior has two explicit, non-default
+  realization-policy routes: `modern-no-delay` and
+  `kanata-1-12-buffered`. Absence means unselected. The former may use the
+  existing finite interaction algebra; the latter must not be approximated
+  until pending foreign-input ownership and ordered redispatch are represented
+  in the abstract model.
 - A logical-position press is an interval bounded by down and up events;
   patterns relate interval endpoints, deadlines, absence, overlap, repetition,
   and context.

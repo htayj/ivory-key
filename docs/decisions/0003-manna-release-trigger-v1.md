@@ -15,12 +15,16 @@ continues to refuse timed Manna-candidate priorities.
 
 This ADR proposes a modern, explicit compatibility policy named
 `manna-release-trigger-v1`. It is a design candidate for a future review. It
-does not change the selected language, source grammar, simulator, Manna
-fixture, generated output, or backend behavior. In particular, this ADR is not
-evidence that the policy is historically equivalent to Kanata.
+does not select the existing Manna fixture, generated output, or backend
+behavior. The candidate is now represented by a source-decoded abstract test
+fixture and executed by the reference simulator, using already-implemented
+finite interaction forms; that is semantic evidence, not a selected migration
+or lowering. In particular, this ADR is not evidence that the policy is
+historically equivalent to Kanata.
 
-The notation below describes the proposed model only; it is not newly accepted
-surface syntax.
+The notation below uses current interaction source syntax. It does not add a
+generic `tap-hold` form, a profile-supplied timing default, or a backend
+spelling to the language.
 
 ## Post-proposal Kanata 1.12 evidence
 
@@ -62,6 +66,29 @@ For the Manna compatibility route, only equal timer pairs are admitted:
 `R = H = 200 ms`, and `R = H = 250 ms` for the left-side `a` alias. Mixed
 tap/hold deadlines, named clocks, inferred defaults, repetition, and broader
 capture patterns are outside this proposal.
+
+## Candidate source and reference implementation
+
+`tests/model/interaction-template-decoder.lisp` contains the explicit
+source-decoded candidate fixture. Its `manna-release-trigger-v1` template has
+the literal 200/200 pair; the only second template has literal 250/250. Both
+expand into the three candidates above, with explicit priority and
+`:effect-start on-commit` on the two held candidates. A separate function
+template uses the same triad with an owner-scoped `hold-axis-state` effect.
+These are ordinary interaction templates, not a newly privileged source form.
+
+`tests/simulation/compile.lisp` then compiles those normalized interactions
+through the reference machine. It covers tap, deadline hold, captured foreign
+release, early owner-up tap fallback, immutable capture position/down index,
+deadline-before-equal-time physical release, supplied foreign-event order with
+no synthetic replay, the 250/250 boundary, and first/final owner function
+lifetime. The fixture is intentionally not the checked-in Manna layout and
+does not materialize any frozen alias or device placement.
+
+This evidence establishes the bounded abstract contract only. Current
+backends have no exact lowering proof for this interaction, so this ADR still
+authorizes no artifact emission, Kanata configuration, deployment, or
+historical-equivalence claim.
 
 ### Foreign capture and ownership
 
@@ -146,9 +173,10 @@ foreign-release sequence.
 
 ### Materialize all fourteen aliases immediately
 
-Rejected. An ADR alone is not source-model, simulator, lowering, or
-event-level proof. The aliases remain explicit migration refusals until the
-acceptance conditions below are met.
+Rejected. The candidate source/simulator fixture is now stronger than an ADR
+alone, but it is not the fourteen source-derived instances, a selected
+realization, a lowerer, or an event-level backend proof. The aliases remain
+explicit migration refusals until the acceptance conditions below are met.
 
 ## Migration consequences if accepted
 
@@ -171,16 +199,21 @@ This ADR remains Proposed until all of the following occur:
 
 - an owner explicitly selects this modern compatibility route and updates the
   selected V1 priority/refusal policy accordingly;
-- a closed source/model representation validates the finite capture form and
-  rejects capture in alternatives, repetition, nesting, reference-before-bind,
-  and rebind cases;
-- deterministic inspection evidence shows capture position and down-event
-  index, candidate priority, and equal-time ordering;
-- focused and whole-layout traces prove deadline-before-physical ordering,
-  tap versus hold commitment, immutable foreign capture, no foreign replay,
-  the early-`up P` tap fallback, same-owner release, cancellation release,
-  first/last shared modifier and axis holds, conflicting-axis refusal, and
-  two-owner function-overlay lifetime; and
+- the selected realization links the policy to its complete intended
+  interaction-instance set, rather than applying a Manna-specific rule to
+  every unrelated interaction in the composition;
+- the existing closed source/model representation continues to validate the
+  finite capture form and reject capture in alternatives, repetition, nesting,
+  reference-before-bind, and rebind cases;
+- the fixture-level inspection evidence is extended to all selected aliases,
+  preserving capture position/down-event index, candidate priority, and
+  equal-time ordering;
+- whole-layout traces cover every selected instance. The candidate fixture
+  already covers deadline-before-physical ordering, tap versus hold commitment,
+  immutable foreign capture, no synthetic replay, early-`up P` tap fallback,
+  owner release, and first/final function owners; it does not substitute for
+  a complete Manna trace, conflicting-axis review, or source-row projection;
+  and
 - each selected backend has an exact lowering proof and generated-artifact
   review, or explicitly refuses the interaction before emission.
 

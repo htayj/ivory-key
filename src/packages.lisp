@@ -272,7 +272,13 @@
    #:realization-profile-name #:realization-profile-pipeline
    #:realization-profile-placement #:realization-profile-vocabulary
    #:realization-profile-permitted-losses
-   #:realization-profile-selector-policy #:realization-profile-metadata
+   #:realization-profile-selector-policy
+   #:realization-profile-interaction-compatibility-policy
+   #:realization-profile-metadata
+   #:realization-interaction-compatibility-policy
+   #:make-realization-interaction-compatibility-policy
+   #:validate-realization-interaction-compatibility-policy
+   #:realization-interaction-compatibility-policy-mode
    #:realization-selector-policy #:make-realization-selector-policy
    #:validate-realization-selector-policy
    #:realization-selector-policy-static-types

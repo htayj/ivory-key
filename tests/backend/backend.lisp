@@ -170,6 +170,63 @@
     (ivory-key.backend:compile-xkb-kanata-request
      (backend-test-request :interactions '(generic-tap-hold)))))
 
+(deftest backend-kanata-interaction-compatibility-is-narrow-and-fails-closed
+  "Only selected Manna/Kanata modes affect the generic interaction refusal."
+  (let ((backend (ivory-key.backend:make-kanata-backend)))
+    ;; NIL remains the existing target-generic refusal.  It neither assigns a
+    ;; Manna compatibility mode nor adds a policy realization result.
+    (let* ((plan (ivory-key.backend:lower-request
+                  backend (backend-test-request :interactions '(ordinary-tap-hold))))
+           (results (ivory-key.backend::kanata-plan-realizations plan))
+           (interaction (find 'ordinary-tap-hold results
+                              :key #'ivory-key.backend:realization-feature)))
+      (is interaction)
+      (is-equal :unsupported (ivory-key.backend:realization-grade interaction))
+      (is (search "Generic interaction lowering"
+                  (ivory-key.backend:realization-detail interaction)))
+      (is (null (find :interaction-compatibility-policy results
+                      :key #'ivory-key.backend:realization-feature))))
+    (dolist (case
+             '((:modern-no-delay . "modern no-delay")
+               (:kanata-1-12-buffered . "buffered policy lacks")))
+      (let* ((policy
+               (ivory-key.model::make-realization-interaction-compatibility-policy
+                (car case)))
+             (plan
+               (ivory-key.backend:lower-request
+                backend
+                (backend-test-request
+                 :interactions '(manna-tap-hold)
+                 :metadata (list :interaction-compatibility-policy policy))))
+             (results (ivory-key.backend::kanata-plan-realizations plan))
+             (policy-result
+               (find :interaction-compatibility-policy results
+                     :key #'ivory-key.backend:realization-feature))
+             (interaction
+               (find 'manna-tap-hold results
+                     :key #'ivory-key.backend:realization-feature)))
+        (is policy-result)
+        (is interaction)
+        (is-equal :unsupported
+                  (ivory-key.backend:realization-grade policy-result))
+        (is-equal :unsupported
+                  (ivory-key.backend:realization-grade interaction))
+        (is (search (cdr case)
+                    (ivory-key.backend:realization-detail policy-result)))
+        (is-equal (ivory-key.backend:realization-detail policy-result)
+                  (ivory-key.backend:realization-detail interaction))
+        ;; An inspectable plan is still non-emittable, so neither mode can
+        ;; accidentally become a parseable Kanata action claim.
+        (signals error
+          (ivory-key.backend:emit-plan-to-string backend plan))))
+    (signals error
+      (ivory-key.backend:lower-request
+       backend
+       (backend-test-request
+        :interactions '(invalid-policy)
+        :metadata
+        (list :interaction-compatibility-policy "kanata-1-12-buffered"))))))
+
 (deftest backend-pipeline-emits-deterministic-xkb-and-kanata-strings
   (let* ((result
            (ivory-key.backend:compile-xkb-kanata-request

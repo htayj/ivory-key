@@ -1373,6 +1373,7 @@ claim zero unchecked differences.
     (format stream "|---|---|---|---|~%")
     (format stream "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` | Static table is exact, but neither primary `defsrc` has a direct token; both device records refuse a placement. |~%")
     (format stream "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` | Frozen source is `menu` / `caps`; only the common active `alt-mode` output is transcribed. |~%")
+    (format stream "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `proposed-profile-unencoded` | The hash-pinned Kanata-1.12 oracle records delayed foreign-event ordering, but the current model has no pending-input buffer or ordered replay; no `.ivory` profile is selected. |~%")
     (dolist (row +unresolved-primary-tap-holds+)
       (destructuring-bind (alias position family) row
         (format stream "| `@~A` at `~A` (~A) | A2 and 360 | `tap-hold-policy-refused` | Timeout, interruption, commitment, owner release, and lowerer semantics are not selected. |~%"

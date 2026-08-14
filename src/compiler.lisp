@@ -55,7 +55,8 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
 
 (defstruct (compiler-realization
             (:constructor %make-compiler-realization
-                (name pipeline grades vocabulary selector-policy)))
+                (name pipeline grades vocabulary selector-policy
+                 interaction-compatibility-policy)))
   "The subset of a realization profile consumed by this bootstrap pipeline."
   name
   pipeline
@@ -66,7 +67,11 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
   vocabulary
   ;; A typed realization-owned allocation.  NIL is significant: no source
   ;; profile may obtain native selectors by falling back to compiler guesses.
-  selector-policy)
+  selector-policy
+  ;; NIL means the V1 Manna/Kanata foreign-event route has not been selected.
+  ;; It is not a default compatibility mode and must remain visible whenever
+  ;; timed interactions are present.
+  interaction-compatibility-policy)
 
 (defstruct (compiler-fidelity-issue
             (:constructor %make-compiler-fidelity-issue (feature code detail)))
@@ -329,7 +334,10 @@ list.
           (grades (ivory-key.model:realization-profile-permitted-losses realization))
           (vocabulary (ivory-key.model:realization-profile-vocabulary realization))
           (selector-policy
-            (ivory-key.model::realization-profile-selector-policy realization)))
+            (ivory-key.model::realization-profile-selector-policy realization))
+          (interaction-compatibility-policy
+            (ivory-key.model::realization-profile-interaction-compatibility-policy
+             realization)))
       (unless (and (listp pipeline) (every #'stringp pipeline)
                    (listp grades) (every #'stringp grades))
         (%stage-error :decode :invalid-project-realization
@@ -366,10 +374,20 @@ list.
                           (ivory-key.model:identifier-name
                            (ivory-key.model:realization-profile-name realization))
                           (ivory-key.model:identifier-name backend)))))
+      (when interaction-compatibility-policy
+        (handler-case
+            (ivory-key.model::validate-realization-interaction-compatibility-policy
+             interaction-compatibility-policy)
+          (ivory-key.model:semantic-error (condition)
+            (%stage-error
+             :decode (ivory-key.model:semantic-error-code condition)
+             "Could not validate interaction compatibility policy: ~A"
+             (ivory-key.model:semantic-error-message condition)))))
       (%make-compiler-realization
        (ivory-key.model:identifier-name
         (ivory-key.model:realization-profile-name realization))
-       (copy-list pipeline) (copy-list grades) vocabulary selector-policy))))
+       (copy-list pipeline) (copy-list grades) vocabulary selector-policy
+       interaction-compatibility-policy))))
 
 (defun %project-layout-compiler-unit (project-path layout)
   "Normalize an already validated project layout without a second source load."
@@ -608,6 +626,45 @@ both paths construct the one public MODEL policy value.
                       "Could not decode selector policy: ~A"
                       (ivory-key.model:semantic-error-message condition))))))
 
+(defun %decode-realization-interaction-compatibility-source (node)
+  "Decode one closed source-level V1 Manna/Kanata compatibility selection."
+  (unless (ivory-key.syntax:syntax-list-p node)
+    (%stage-error :decode :invalid-realization-interaction-compatibility-policy
+                  "INTERACTION-COMPATIBILITY must be a list."))
+  (let ((children (ivory-key.syntax:syntax-list-children node)))
+    (unless (= (length children) 2)
+      (%stage-error :decode :invalid-realization-interaction-compatibility-policy
+                    "INTERACTION-COMPATIBILITY requires exactly one mode."))
+    (handler-case
+        (ivory-key.model::make-realization-interaction-compatibility-policy
+         (let* ((mode-node (second children))
+                ;; Keep this clause's public error vocabulary independent of
+                ;; SELECTOR-POLICY: malformed compatibility modes are not
+                ;; selector-policy errors.
+                (name
+                  (progn
+                    (unless (and (ivory-key.syntax:syntax-atom-p mode-node)
+                                 (eq (ivory-key.syntax:syntax-atom-kind mode-node)
+                                     :identifier))
+                      (%stage-error
+                       :decode :invalid-realization-interaction-compatibility-policy
+                       "INTERACTION-COMPATIBILITY mode must be an Ivory Key identifier."))
+                    (ivory-key.syntax:syntax-atom-value mode-node)))
+                (choice
+                  (assoc name
+                         '(("modern-no-delay" . :modern-no-delay)
+                           ("kanata-1-12-buffered" . :kanata-1-12-buffered))
+                         :test #'string=)))
+           (unless choice
+             (%stage-error
+              :decode :unknown-realization-interaction-compatibility-mode
+              "INTERACTION-COMPATIBILITY has unsupported mode ~S." name))
+           (cdr choice)))
+      (ivory-key.model:semantic-error (condition)
+        (%stage-error :decode (ivory-key.model:semantic-error-code condition)
+                      "Could not decode interaction compatibility policy: ~A"
+                      (ivory-key.model:semantic-error-message condition))))))
+
 (defun decode-realization-source (pathname)
   "Decode the policy subset needed to select the XKB + Kanata bootstrap path."
   (let* ((parsed (%parse-required-file pathname "realization"))
@@ -634,6 +691,12 @@ both paths construct the one public MODEL policy value.
             (lambda (node)
               (string= (or (%compiler-syntax-form-name node) "") "selector-policy"))
             (cddr (ivory-key.syntax:syntax-list-children syntax-form))))
+         (interaction-compatibility-nodes
+           (remove-if-not
+            (lambda (node)
+              (string= (or (%compiler-syntax-form-name node) "")
+                       "interaction-compatibility"))
+            (cddr (ivory-key.syntax:syntax-list-children syntax-form))))
          (selector-policy
            (cond ((null policy-nodes) nil)
                  ((rest policy-nodes)
@@ -644,7 +707,14 @@ both paths construct the one public MODEL policy value.
                       (ivory-key.model:semantic-error (condition)
                         (%stage-error :decode (ivory-key.model:semantic-error-code condition)
                                       "Could not decode selector policy: ~A"
-                                      (ivory-key.model:semantic-error-message condition))))))))
+                                      (ivory-key.model:semantic-error-message condition)))))))
+         (interaction-compatibility-policy
+           (cond ((null interaction-compatibility-nodes) nil)
+                 ((rest interaction-compatibility-nodes)
+                 (%stage-error :decode :duplicate-realization-clause
+                                "Realization ~A repeats INTERACTION-COMPATIBILITY." name))
+                 (t (%decode-realization-interaction-compatibility-source
+                     (first interaction-compatibility-nodes))))))
     ;; Output vocabularies are project declarations and may be imported or
     ;; forward-referenced.  The one-file compiler intentionally has no
     ;; project graph to resolve them, so refusing is safer than discarding a
@@ -666,7 +736,7 @@ both paths construct the one public MODEL policy value.
         (%stage-error :decode :unknown-realization-grade
                       "Realization ~A allows unknown fidelity grade ~S." name grade)))
     (%make-compiler-realization name (copy-list pipeline) (copy-list grades) nil
-                                selector-policy)))
+                                selector-policy interaction-compatibility-policy)))
 
 (defun %layout-topology-name (layout)
   (ivory-key.model:identifier-name
@@ -1121,7 +1191,9 @@ the independent Kanata refusal.
                 :libxkbcommon-depressed-group-two-with-visible-level-three))
            (otherwise nil)))))
 
-(defun analyze-normalized-layout (normalized placement &key vocabulary selector-policy)
+(defun analyze-normalized-layout
+    (normalized placement &key vocabulary selector-policy
+                           interaction-compatibility-policy)
   "Return an inspectable lowering proposal and every blocking fidelity issue.
 
 The proposal retains only individually evidenced direct tables/carriers; a
@@ -1132,7 +1204,9 @@ MAKE-LOWERING-REQUEST-FROM-NORMALIZED-LAYOUT to enforce the final no-issues
 compile gate.
 "
   (let ((issues nil)
-        (entries nil))
+        (entries nil)
+        (interactions
+          (ivory-key.model:normalized-layout-interactions normalized)))
     (when selector-policy
       (handler-case
           (ivory-key.model::validate-realization-selector-policy selector-policy)
@@ -1140,6 +1214,15 @@ compile gate.
           (%stage-error :lower (ivory-key.model:semantic-error-code condition)
                         "Invalid selector policy: ~A"
                         (ivory-key.model:semantic-error-message condition)))))
+    (when interaction-compatibility-policy
+      (handler-case
+          (ivory-key.model::validate-realization-interaction-compatibility-policy
+           interaction-compatibility-policy)
+        (ivory-key.model:semantic-error (condition)
+          (%stage-error
+           :lower (ivory-key.model:semantic-error-code condition)
+           "Invalid interaction compatibility policy: ~A"
+           (ivory-key.model:semantic-error-message condition)))))
     ;; The evidence-named three-control policy is proven only for the emitted
     ;; XKB map/state boundary.  It clears the generic XKB selector diagnostic,
     ;; but never selects the still-absent Kanata action/lifetime lowering.
@@ -1182,7 +1265,33 @@ compile gate.
              :semantic-modifiers :unsupported-semantic-modifiers
              "The bootstrap pipeline has no modifier allocation or consumed-modifier plan.")
             issues))
-    (dolist (interaction (ivory-key.model:normalized-layout-interactions normalized))
+    ;; This narrow V1 policy is not a generic interaction taxonomy.  An
+    ;; absent policy leaves every interaction on its established generic
+    ;; refusal path.  Only an explicit Manna/Kanata selection adds its own
+    ;; mode-specific blocker; it still does not invent the missing typed
+    ;; Kanata action IR.
+    (when (and interactions interaction-compatibility-policy)
+      (let ((mode
+              (ivory-key.model::realization-interaction-compatibility-policy-mode
+               interaction-compatibility-policy)))
+        (push
+         (%make-compiler-fidelity-issue
+          :interaction-compatibility-policy
+          (cond ((eq mode :modern-no-delay)
+                 :unsupported-kanata-modern-no-delay-interaction-policy)
+                ((eq mode :kanata-1-12-buffered)
+                 :unimplemented-kanata-1-12-buffered-interaction-policy)
+                ;; Validation above makes this unreachable for conventional
+                ;; source/model values, but retain a stable analysis refusal
+                ;; if an identity-bearing object changes concurrently.
+                (t :invalid-interaction-compatibility-policy))
+          (cond ((eq mode :modern-no-delay)
+                 "Kanata 1.12 buffers/replays pending foreign events, so its generic action is not exact for the selected modern no-delay route.")
+                ((eq mode :kanata-1-12-buffered)
+                 "The selected Kanata 1.12 buffer/replay route lacks a closed ownership, cancellation, and ordered-replay action IR.")
+                (t "The interaction compatibility policy is not one closed V1 Manna/Kanata route.")))
+         issues)))
+    (dolist (interaction interactions)
       ;; Participants are physical inputs even if their behavior is mediated
       ;; by a timed interaction rather than an ordinary binding.  Do not let
       ;; the generic interaction refusal conceal missing/unreachable coverage.
@@ -1301,6 +1410,8 @@ compile gate.
                              :metadata
                              (list :xkb-carrier-entries xkb-carrier-entries
                                    :selector-policy selector-policy
+                                   :interaction-compatibility-policy
+                                   interaction-compatibility-policy
                                    :input-coverage
                                    (%input-coverage-records normalized placement)
                                    :kanata-source-order
@@ -1311,12 +1422,15 @@ compile gate.
                                    :carrier-allocations carrier-allocations))
               issues))))
 
-(defun make-lowering-request-from-normalized-layout (normalized placement
-                                                       &key vocabulary selector-policy)
+(defun make-lowering-request-from-normalized-layout
+    (normalized placement &key vocabulary selector-policy
+                           interaction-compatibility-policy)
   "Return a complete bootstrap lowering request or signal its first failure."
   (multiple-value-bind (request issues)
       (analyze-normalized-layout normalized placement :vocabulary vocabulary
-                                 :selector-policy selector-policy)
+                                 :selector-policy selector-policy
+                                 :interaction-compatibility-policy
+                                 interaction-compatibility-policy)
     (if (and request (null issues))
         request
         (let ((issue (first issues)))
@@ -1342,7 +1456,10 @@ compile gate.
                   (compiler-unit-normalized unit) placement
                   :vocabulary (compiler-realization-vocabulary realization)
                   :selector-policy
-                  (compiler-realization-selector-policy realization))))
+                  (compiler-realization-selector-policy realization)
+                  :interaction-compatibility-policy
+                  (compiler-realization-interaction-compatibility-policy
+                   realization))))
     (handler-case
         (ivory-key.backend:compile-xkb-kanata-request request :allow-lossy nil)
       (error (condition)
@@ -1580,6 +1697,17 @@ modifiers, named symbols, commands, or interactions.
                    (ivory-key.model:normalized-interaction-name interaction))))
         (format stream "  none~%"))))
 
+(defun %write-interaction-compatibility-inspection (stream policy)
+  "Write the closed V1 route selection without implying an action lowering."
+  (format stream "Interaction compatibility selection~%")
+  (if policy
+      (format stream "  ~A (selected; no Kanata action IR is implied)~%"
+              (string-downcase
+               (symbol-name
+                (ivory-key.model::realization-interaction-compatibility-policy-mode
+                 policy))))
+      (format stream "  unselected (no compatibility default)~%")))
+
 (defun %write-planner-inspection (stream plan refusal)
   "Write a canonical capability-planner report without implying emission."
   (format stream "Planner inspection~%")
@@ -1673,6 +1801,8 @@ plans, artifact text, contract data, or output paths.
       (format stream "device ~A~%realization ~A~%"
               (compiler-placement-name placement)
               (compiler-realization-name realization))
+      (%write-interaction-compatibility-inspection
+       stream (compiler-realization-interaction-compatibility-policy realization))
       (%write-planner-inspection stream plan refusal))))
 
 (defun %write-backend-request-entry (stream entry)
@@ -1700,6 +1830,14 @@ plans, artifact text, contract data, or output paths.
         (format stream "    none~%")))
   (format stream "  metadata: only closed backend fields are shown~%")
   (let ((metadata (ivory-key.backend:lowering-request-metadata request)))
+    (let ((policy (getf metadata :interaction-compatibility-policy)))
+      (format stream "    interaction compatibility: ~A~%"
+              (if policy
+                  (string-downcase
+                   (symbol-name
+                    (ivory-key.model::realization-interaction-compatibility-policy-mode
+                     policy)))
+                  "unselected")))
     (dolist (record (or (getf metadata :input-coverage) nil))
       (format stream "    coverage ~A: ~A~%"
               (getf record :position)
@@ -1748,7 +1886,9 @@ plans, artifact text, contract data, or output paths.
       (analyze-normalized-layout
        (compiler-unit-normalized unit) placement
        :vocabulary (compiler-realization-vocabulary realization)
-       :selector-policy (compiler-realization-selector-policy realization))
+       :selector-policy (compiler-realization-selector-policy realization)
+       :interaction-compatibility-policy
+       (compiler-realization-interaction-compatibility-policy realization))
     (unless request
       (%stage-error :backend :missing-lowering-request
                     "No inspectable backend request was produced."))
@@ -2661,7 +2801,9 @@ timed interaction it cannot lower exactly.
          (compiler-unit-normalized unit) placement
          :vocabulary (compiler-realization-vocabulary realization)
          :selector-policy
-         (compiler-realization-selector-policy realization))
+         (compiler-realization-selector-policy realization)
+         :interaction-compatibility-policy
+         (compiler-realization-interaction-compatibility-policy realization))
       (format stream "Ivory Key capability explanation~%")
       (format stream "Layout: ~A~%Device: ~A~%Realization: ~A~%"
               (ivory-key.model:identifier-name
@@ -2674,6 +2816,8 @@ timed interaction it cannot lower exactly.
         (format stream "  ~A: ~A~%"
                 (getf record :position)
                 (%coverage-disposition-name (getf record :disposition))))
+      (%write-interaction-compatibility-inspection
+       stream (compiler-realization-interaction-compatibility-policy realization))
       (%write-planner-inspection stream plan planner-refusal)
       (if issues
           (progn

@@ -19,6 +19,14 @@
    ;; interpret an opaque profile plist or a backend snippet.
    (selector-policy :initarg :selector-policy :initform nil
                     :reader realization-profile-selector-policy)
+   ;; A deliberately narrow selection for the one currently disputed
+   ;; Manna/Kanata timed-interaction boundary.  NIL means no route has been
+   ;; selected; it must never be interpreted as a modern or versioned-runtime
+   ;; default by a compiler or backend.  V1 has no per-interaction applicability
+   ;; link yet, so selected values remain refusal/inspection policy only.
+   (interaction-compatibility-policy
+    :initarg :interaction-compatibility-policy :initform nil
+    :reader realization-profile-interaction-compatibility-policy)
    (metadata :initarg :metadata :initform nil :reader realization-profile-metadata)))
 
 (defun %realization-error (code control &rest arguments)
@@ -89,6 +97,16 @@ prove a carrier/pass-through stage without inventing a backend token here.
 (defparameter +realization-carrier-xkb-keys+
   '(:zeha :lvl3))
 
+;; This is intentionally not a general interaction taxonomy.  It names the
+;; only two V1 Manna/Kanata foreign-event routes presently under review: the
+;; proposed modern no-delay rule and the versioned Kanata 1.12 buffering rule.
+;; No realization receives either by default.
+(defparameter +realization-interaction-compatibility-modes+
+  '(:modern-no-delay :kanata-1-12-buffered))
+
+(defclass realization-interaction-compatibility-policy ()
+  ((mode :initarg :mode :reader realization-interaction-compatibility-policy-mode)))
+
 (defclass realization-static-type ()
   ((position :initarg :position :reader realization-static-type-position)
    ;; The two values are deliberately separate: a Group1 four-level table
@@ -129,6 +147,34 @@ prove a carrier/pass-through stage without inventing a backend token here.
   (unless (member value permitted)
     (%realization-error code "~A has unsupported value ~S." role value))
   value)
+
+(defun make-realization-interaction-compatibility-policy (mode)
+  "Select one closed V1 Manna/Kanata timed-interaction compatibility route.
+
+MODE is either :MODERN-NO-DELAY, the proposed `manna-release-trigger-v1`
+foreign-event rule, or :KANATA-1-12-BUFFERED, the bounded versioned Kanata
+1.12 buffer/replay observation.  This model value selects neither a generic
+interaction meaning nor a backend action.  A NIL profile slot is deliberately
+unselected rather than a default MODE.
+"
+  (%realization-closed-value
+   mode +realization-interaction-compatibility-modes+
+   :unsupported-realization-interaction-compatibility-mode
+   "Realization interaction compatibility mode")
+  (make-instance 'realization-interaction-compatibility-policy :mode mode))
+
+(defun validate-realization-interaction-compatibility-policy (policy)
+  "Validate POLICY as one closed, selected V1 compatibility route."
+  (unless (typep policy 'realization-interaction-compatibility-policy)
+    (%realization-error
+     :invalid-realization-interaction-compatibility-policy
+     "Expected a REALIZATION-INTERACTION-COMPATIBILITY-POLICY, got ~S."
+     policy))
+  ;; Reuse the public constructor so programmatically assembled values get
+  ;; exactly the same closed-enum validation as decoded source.
+  (make-realization-interaction-compatibility-policy
+   (realization-interaction-compatibility-policy-mode policy))
+  policy)
 
 (defun make-realization-static-type (position type group-two-type)
   "Allocate a source-derived conventional XKB static-table type to POSITION.
@@ -341,7 +387,8 @@ obligations.
              :key #'realization-carrier-position)))
 
 (defun make-realization-profile (name &key pipeline placement vocabulary
-                                      permitted-losses selector-policy metadata)
+                                      permitted-losses selector-policy
+                                      interaction-compatibility-policy metadata)
   "Create a profile describing permitted lowering policy, not keyboard meaning.
 
 When VOCABULARY is supplied, each of its backend identities must be selected
@@ -357,8 +404,19 @@ interpreting either as a backend grammar.
                         selector-policy))
   (when selector-policy
     (validate-realization-selector-policy selector-policy))
+  (when (and interaction-compatibility-policy
+             (not (typep interaction-compatibility-policy
+                         'realization-interaction-compatibility-policy)))
+    (%realization-error
+     :invalid-realization-interaction-compatibility-policy
+     "A realization interaction compatibility policy must be a REALIZATION-INTERACTION-COMPATIBILITY-POLICY, got ~S."
+     interaction-compatibility-policy))
+  (when interaction-compatibility-policy
+    (validate-realization-interaction-compatibility-policy
+     interaction-compatibility-policy))
   (make-instance 'realization-profile :name (ensure-identifier name)
                  :pipeline (copy-list pipeline) :placement placement
                  :vocabulary vocabulary :permitted-losses (copy-list permitted-losses)
                  :selector-policy selector-policy
+                 :interaction-compatibility-policy interaction-compatibility-policy
                  :metadata metadata))

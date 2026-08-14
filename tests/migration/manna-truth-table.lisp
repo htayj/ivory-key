@@ -107,6 +107,14 @@
     ("function" "HscL" "end" "(layer-while-held fun)" 200 200)
     ("function" "HscR" "pgdn" "(layer-while-held fun)" 200 200)))
 
+;; The two alternate selector aliases are not part of the selected direct
+;; selector interactions.  Keep their source rows separate from the fourteen
+;; primary modifier/function aliases so a proposed compatibility profile cannot
+;; silently omit them or treat the direct holders as tap-holds.
+(defparameter +frozen-primary-selector-tap-hold-rows+
+  '(("script" "gdel" "del" "@gr" 200 200)
+    ("plane" "rtop" "ent" "@top" 200 200)))
+
 (defparameter +frozen-primary-direct-case-holders+ '("lshift" "rshift"))
 (defparameter +frozen-primary-tap-hold-policy+
   '("process-unmapped-keysyes" "concurrent-tap-holdyes"))
@@ -190,6 +198,9 @@
 
 (defun frozen-primary-tap-hold-evidence-p (root)
   "Check raw primary source facts without executing or lowering them."
+  (unless (= 16 (+ (length +frozen-primary-tap-hold-rows+)
+                    (length +frozen-primary-selector-tap-hold-rows+)))
+    (error "The Kanata-1.12 candidate inventory must remain exactly 14+2 aliases."))
   (dolist (relative +frozen-primary-kanata-files+ t)
     (let* ((source (uiop:read-file-string
                     (merge-pathnames relative (uiop:ensure-directory-pathname root))))
@@ -211,6 +222,23 @@
                      relative family alias))
             (unless (physical-source-token-p position defsrc)
               (error "Frozen primary source ~A lost physical source ~A for ~A."
+                     relative position alias))
+            (unless (string= (format nil "@~A" alias)
+                             (normal-action-at-physical-source
+                              position defsrc normal-layer relative))
+              (error "Frozen primary source ~A no longer maps ~A to @~A in normal."
+                     relative position alias)))))
+      (dolist (row +frozen-primary-selector-tap-hold-rows+)
+        (destructuring-bind (axis alias position hold tap-repress hold-time) row
+          (let ((definition
+                  (compact-source-line
+                   (format nil "~A(tap-hold-release~D~D~A~A)"
+                           alias tap-repress hold-time position hold))))
+            (unless (some (lambda (line) (search definition line)) compact-lines)
+              (error "Frozen primary source ~A lost ~A selector tap-hold alias ~A."
+                     relative axis alias))
+            (unless (physical-source-token-p position defsrc)
+              (error "Frozen primary source ~A lost physical source ~A for @~A."
                      relative position alias))
             (unless (string= (format nil "@~A" alias)
                              (normal-action-at-physical-source
@@ -378,6 +406,7 @@ raw rows are considered evidence."
                  (= 8 (count-prefixed-lines first-diff "| 360 only | `@"))
                  (search "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` |" first-diff)
                  (search "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` |" first-diff)
+                 (search "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `proposed-profile-unencoded` |" first-diff)
                  (search "| `case-left-shift` | `lshift` → `lshift` |" first-diff)
                  (search "| `greek` | `lctl` → `@gr` |" first-diff)
                  (search "| `top` | `rctl` → `@top` |" first-diff)

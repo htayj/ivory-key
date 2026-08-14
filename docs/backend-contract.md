@@ -160,6 +160,27 @@ sub-contract only. The combined compiler still refuses its Kanata selector
 action/lifetime and the other unresolved Manna features before any artifact
 write.
 
+## Typed interaction-compatibility selection
+
+A realization can opt into exactly one bounded Manna/Kanata policy value:
+`modern-no-delay` or `kanata-1-12-buffered`. Omission is an explicit
+unselected state, not a backend default; without the clause, unrelated
+interactions do not acquire a Manna-specific requirement merely by existing.
+
+The selection is carried as typed model metadata so `planned`, `backend`, and
+`explain` output can identify the intended contract. It does not authorize a
+Kanata action. The modern route is unsupported because Kanata 1.12 buffers and
+redispatches pending foreign input, contrary to its no-delay rule. The
+versioned buffered route is unimplemented because the abstract IR has no
+closed pending-input ownership, cancellation, and ordered-replay operation.
+In either case the compiler retains the per-interaction refusal and the Kanata
+backend refuses before emission; no raw `tap-hold-release` text is inferred.
+The selected value is currently profile-wide because the model has no typed
+link from a policy to particular interaction instances. That is safe only
+while every such interaction remains refused. Per-interaction applicability
+and completeness validation are required before any positive realization can
+use either policy.
+
 ## Current Kanata contract
 
 The Kanata backend emits one `defsrc` and one `deflayer`; direct entries receive
