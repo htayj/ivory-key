@@ -167,6 +167,17 @@
       (is (ivory-key.model:realization-kanata-buffered-allocation-policy-close-unmapped-input-p
            allocation))
       (is-equal
+       '(("k18" 127 "f18") ("k19" 130 "f19")
+         ("k20" 115 "f20") ("k21" 142 "f21"))
+       (mapcar
+        (lambda (row)
+          (list
+           (ivory-key.model:realization-kanata-buffered-local-key-token row)
+           (ivory-key.model:realization-kanata-buffered-local-key-code row)
+           (ivory-key.model:realization-kanata-buffered-local-key-output-token row)))
+        (ivory-key.model:realization-kanata-buffered-allocation-policy-native-local-keys
+         allocation)))
+      (is-equal
        '("case-left-shift" "case-right-shift" "control-plane-alt"
          "direct-hyper" "mode-key")
        (mapcar #'ivory-key.model:identifier-name

@@ -1604,6 +1604,7 @@ complete carrier table from an invented Manna behavior.
                      (ivory-key.backend:lower-request
                       (ivory-key.backend:make-kanata-backend) request))
                    (config (ivory-key.backend:kanata-plan-buffered-config plan))
+                   (proposal (ivory-key.backend:kanata-plan-proposal-string plan))
                    (carrier-cells
                      (remove-if-not
                       (lambda (cell)
@@ -1623,8 +1624,22 @@ complete carrier table from an invented Manna behavior.
                           (lambda (cell)
                             (ivory-key.backend:kanata-arbitrary-code-action-code
                              (ivory-key.backend:kanata-buffered-layer-cell-action cell)))
-                          carrier-cells)
-                         #'<)))
+                         carrier-cells)
+                         #'<))
+              (is (search "process-unmapped-keys no" proposal))
+              (is (search "(tap-hold-release 250 250 a lmet)" proposal))
+              (is (search "(arbitrary-code 84)" proposal))
+              (is (search "(arbitrary-code 85)" proposal))
+              (if (string= composition "manna-cadet-advantage360-linux")
+                  (progn
+                    (is (search "(deflocalkeys-linux" proposal))
+                    (is (search "k18 127" proposal))
+                    (is (search "k21 142" proposal))
+                    (is (search " f18 " proposal)))
+                  (is (null (search "(deflocalkeys-linux" proposal))))
+              (signals ivory-key.backend:kanata-action-validation-error
+                (ivory-key.backend:emit-plan-to-string
+                 (ivory-key.backend:make-kanata-backend) plan)))
             (is issues)
             (is-equal 16
                       (length
@@ -1895,7 +1910,7 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                (compiler-test-write
                 directory "buffered.ivory"
                 (source
-                 "(kanata-buffered-allocations (route q q) (action q-tap (alias q-tap-alias) (tap q) (hold modifier control lctl) (routes q)))")))
+                 "(kanata-buffered-allocations (local-key K18 127 f18) (route q q) (action q-tap (alias q-tap-alias) (tap q) (hold modifier control lctl) (routes q)))")))
              (realization (ivory-key.cli::decode-realization-source path))
              (allocation
                (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
@@ -1908,6 +1923,19 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                            #'ivory-key.model::realization-kanata-buffered-action-interaction
                            (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
                             allocation))))
+        (let ((local-key
+                (first
+                 (ivory-key.model:realization-kanata-buffered-allocation-policy-native-local-keys
+                  allocation))))
+          (is-equal "k18"
+                    (ivory-key.model:realization-kanata-buffered-local-key-token
+                     local-key))
+          (is-equal 127
+                    (ivory-key.model:realization-kanata-buffered-local-key-code
+                     local-key))
+          (is-equal "f18"
+                    (ivory-key.model:realization-kanata-buffered-local-key-output-token
+                     local-key)))
         ;; Decoding records an allocation contract only; it does not call a
         ;; backend emitter or create a build directory.
         (is-equal "buffered" (ivory-key.cli::compiler-realization-name realization)))

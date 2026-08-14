@@ -172,6 +172,16 @@ prove a carrier/pass-through stage without inventing a backend token here.
   (:documentation
    "One selected interaction's typed, non-emitting Kanata allocation row."))
 
+(defclass realization-kanata-buffered-local-key ()
+  ((token :initarg :token
+          :reader realization-kanata-buffered-local-key-token)
+   (code :initarg :code
+         :reader realization-kanata-buffered-local-key-code)
+   (output-token :initarg :output-token
+                 :reader realization-kanata-buffered-local-key-output-token))
+  (:documentation
+   "One realization-owned Linux local-key alias and evdev code."))
+
 (defclass realization-kanata-buffered-allocation-policy ()
   ((actions :initarg :actions
             :reader realization-kanata-buffered-allocation-policy-actions)
@@ -182,6 +192,9 @@ prove a carrier/pass-through stage without inventing a backend token here.
    (native-pass-through-positions
     :initarg :native-pass-through-positions :initform nil
     :reader realization-kanata-buffered-allocation-policy-native-pass-through-positions)
+   (native-local-keys
+    :initarg :native-local-keys :initform nil
+    :reader realization-kanata-buffered-allocation-policy-native-local-keys)
    ;; True means the emitted Kanata boundary must use
    ;; PROCESS-UNMAPPED-KEYS NO and prove every DEFSRC row classified.
    (close-unmapped-input-p
@@ -408,12 +421,14 @@ interaction identity into a backend alias spelling on its own.
 
 (defun make-realization-kanata-buffered-allocation-policy
     (actions foreign-routes &key native-pass-through-positions
+                                  native-local-keys
                                   close-unmapped-input-p)
   "Create a canonical finite allocation table for inert buffered Kanata ASTs."
   (unless (and (listp actions) (listp foreign-routes)
-               (listp native-pass-through-positions))
+               (listp native-pass-through-positions)
+               (listp native-local-keys))
     (%realization-error :invalid-realization-kanata-buffered-allocation-policy
-                        "Buffered action, foreign-route, and pass-through allocations must be lists."))
+                        "Buffered action, foreign-route, pass-through, and local-key allocations must be lists."))
   (unless (member close-unmapped-input-p '(nil t))
     (%realization-error :invalid-realization-kanata-buffered-unmapped-policy
                         "Buffered close-unmapped-input flag must be boolean."))
@@ -422,6 +437,20 @@ interaction identity into a backend alias spelling on its own.
                         "Buffered allocation policy needs at least one action row."))
   (mapc #'%validate-realization-kanata-buffered-action-allocation actions)
   (mapc #'%validate-realization-kanata-buffered-route foreign-routes)
+  (dolist (local-key native-local-keys)
+    (unless (typep local-key 'realization-kanata-buffered-local-key)
+      (%realization-error :invalid-realization-kanata-buffered-local-key
+                          "Buffered local-key rows must be typed."))
+    (%realization-kanata-buffered-token
+     (realization-kanata-buffered-local-key-token local-key)
+     "Buffered local-key token")
+    (%realization-kanata-buffered-token
+     (realization-kanata-buffered-local-key-output-token local-key)
+     "Buffered local-key output token")
+    (unless (and (integerp (realization-kanata-buffered-local-key-code local-key))
+                 (<= 1 (realization-kanata-buffered-local-key-code local-key) 767))
+      (%realization-error :invalid-realization-kanata-buffered-local-key
+                          "Buffered local-key code must be an integer from 1 through 767.")))
   (%ensure-realization-policy-unique
    actions (lambda (action)
              (identifier-key (realization-kanata-buffered-action-interaction action)))
@@ -434,6 +463,12 @@ interaction identity into a backend alias spelling on its own.
                     (identifier-key
                      (realization-kanata-buffered-foreign-route-position route)))
    :duplicate-realization-kanata-buffered-route "Buffered foreign routes")
+  (%ensure-realization-policy-unique
+   native-local-keys #'realization-kanata-buffered-local-key-token
+   :duplicate-realization-kanata-buffered-local-key "Buffered local-key tokens")
+  (%ensure-realization-policy-unique
+   native-local-keys #'realization-kanata-buffered-local-key-code
+   :duplicate-realization-kanata-buffered-local-key-code "Buffered local-key codes")
   (let ((pass-throughs
           (%realization-kanata-buffered-identifiers
            native-pass-through-positions
@@ -462,7 +497,26 @@ interaction identity into a backend alias spelling on its own.
                    (sort (copy-list foreign-routes) #'identifier<
                          :key #'realization-kanata-buffered-foreign-route-position)
                    :native-pass-through-positions pass-throughs
+                   :native-local-keys
+                   (sort (copy-list native-local-keys) #'string<
+                         :key #'realization-kanata-buffered-local-key-token)
                    :close-unmapped-input-p close-unmapped-input-p)))
+
+(defun make-realization-kanata-buffered-local-key (token code output-token)
+  (let ((local-key
+          (make-instance 'realization-kanata-buffered-local-key
+                         :token (%realization-kanata-buffered-token
+                                 token "Buffered local-key token")
+                         :code code
+                         :output-token
+                         (%realization-kanata-buffered-token
+                          output-token "Buffered local-key output token"))))
+    ;; Reuse the parent constructor's closed validation without manufacturing
+    ;; backend text or interning the source spelling.
+    (unless (and (integerp code) (<= 1 code 767))
+      (%realization-error :invalid-realization-kanata-buffered-local-key
+                          "Buffered local-key code must be an integer from 1 through 767."))
+    local-key))
 
 (defun validate-realization-kanata-buffered-allocation-policy (policy)
   "Validate POLICY and reject noncanonical programmatic list order."
@@ -476,6 +530,8 @@ interaction identity into a backend alias spelling on its own.
            :native-pass-through-positions
            (realization-kanata-buffered-allocation-policy-native-pass-through-positions
             policy)
+           :native-local-keys
+           (realization-kanata-buffered-allocation-policy-native-local-keys policy)
            :close-unmapped-input-p
            (realization-kanata-buffered-allocation-policy-close-unmapped-input-p
             policy))))
@@ -507,7 +563,18 @@ interaction identity into a backend alias spelling on its own.
                  (eq (realization-kanata-buffered-allocation-policy-close-unmapped-input-p
                       policy)
                      (realization-kanata-buffered-allocation-policy-close-unmapped-input-p
-                      canonical)))
+                      canonical))
+                 (equal
+                  (mapcar (lambda (row)
+                            (cons (realization-kanata-buffered-local-key-token row)
+                                  (list (realization-kanata-buffered-local-key-code row)
+                                        (realization-kanata-buffered-local-key-output-token row))))
+                          (realization-kanata-buffered-allocation-policy-native-local-keys policy))
+                  (mapcar (lambda (row)
+                            (cons (realization-kanata-buffered-local-key-token row)
+                                  (list (realization-kanata-buffered-local-key-code row)
+                                        (realization-kanata-buffered-local-key-output-token row))))
+                          (realization-kanata-buffered-allocation-policy-native-local-keys canonical))))
       (%realization-error :noncanonical-realization-kanata-buffered-allocation-policy
                           "Buffered allocation policy rows must be canonical.")))
   policy)

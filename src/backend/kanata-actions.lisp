@@ -774,6 +774,10 @@ which a later exact emitter would need to prove again.
    ;; Only owner aliases and realization-owned direct named-key routes occur
    ;; here.  The ordinary plan supplies every other base layer cell.
    (layer-cells :initarg :layer-cells :reader kanata-buffered-config-layer-cells)
+   ;; Canonical (TOKEN LINUX-EVDEV-CODE OUTPUT-TOKEN) rows.  These are
+   ;; declarations, never inferred aliases for unknown source atoms.
+   (local-keys :initarg :local-keys :initform nil
+               :reader kanata-buffered-config-local-keys)
    (native-domain-closed-p :initarg :native-domain-closed-p :initform nil
                            :reader kanata-buffered-config-native-domain-closed-p)
    (validated-p :initform nil :accessor %kanata-buffered-config-validated-p)))
@@ -836,7 +840,7 @@ which a later exact emitter would need to prove again.
 
 (defun make-kanata-buffered-config
     (actions source-rows &key mapped-positions pass-through-positions
-                              direct-carriers close-unmapped-input-p)
+                              direct-carriers local-keys close-unmapped-input-p)
   "Build a complete typed alias/defcfg/layer-cell proposal from ACTIONS.
 
 Every alias is explicit in its realization allocation; every owner and direct
@@ -847,12 +851,34 @@ result is non-emitting until the independent native-domain proof gate clears.
     (%kanata-action-error :empty-kanata-buffered-config
                           "Buffered configuration requires one or more actions."))
   (dolist (action actions) (validate-kanata-buffered-interaction-action action))
+  (unless (listp local-keys)
+    (%kanata-action-error :invalid-kanata-buffered-local-key
+                          "Buffered local-key declarations must be a list."))
   (%kanata-action-distinct actions #'kanata-buffered-interaction-action-alias
                            :duplicate-kanata-buffered-config-alias
                            "Buffered configuration alias")
   (multiple-value-bind (source-by-position ignored-source-by-input)
       (%kanata-buffered-source-table source-rows)
-    (declare (ignore ignored-source-by-input))
+    (let ((seen-local-tokens (make-hash-table :test #'equal))
+          (seen-local-codes (make-hash-table :test #'eql)))
+      (dolist (row local-keys)
+        (unless (and (listp row) (= (length row) 3)
+                     (stringp (first row))
+                     (integerp (second row)) (<= 1 (second row) 767)
+                     (stringp (third row)))
+          (%kanata-action-error :invalid-kanata-buffered-local-key
+                                "Buffered local-key rows must pair one token with an evdev code."))
+        (let ((token (%kanata-action-token (first row) "Buffered local-key token")))
+          (%kanata-action-token (third row) "Buffered local-key output token")
+          (unless (gethash token ignored-source-by-input)
+            (%kanata-action-error :unknown-kanata-buffered-local-key
+                                  "Buffered local-key token ~A is absent from DEFSRC." token))
+          (when (or (gethash token seen-local-tokens)
+                    (gethash (second row) seen-local-codes))
+            (%kanata-action-error :duplicate-kanata-buffered-local-key
+                                  "Buffered local-key token/code is duplicated."))
+          (setf (gethash token seen-local-tokens) t
+                (gethash (second row) seen-local-codes) t))))
     (let* ((ordered-actions (sort (copy-list actions) #'%kanata-buffered-action<))
            (defcfg (kanata-buffered-interaction-action-defcfg (first ordered-actions)))
            (cells nil)
@@ -960,6 +986,8 @@ result is non-emitting until the independent native-domain proof gate clears.
       (let ((config (make-instance 'kanata-buffered-config
                                    :defcfg defcfg :aliases ordered-actions
                                    :layer-cells cells
+                                   :local-keys
+                                   (sort (copy-list local-keys) #'string< :key #'car)
                                    :native-domain-closed-p close-unmapped-input-p)))
         (setf (%kanata-buffered-config-validated-p config) t)
         (validate-kanata-buffered-config config)
@@ -1004,6 +1032,11 @@ result is non-emitting until the independent native-domain proof gate clears.
                        #'%kanata-buffered-layer-cell<))
     (%kanata-action-error :noncanonical-kanata-buffered-config-layer-order
                           "Buffered configuration layer cells must be canonical."))
+  (unless (equal (kanata-buffered-config-local-keys config)
+                 (sort (copy-list (kanata-buffered-config-local-keys config))
+                       #'string< :key #'car))
+    (%kanata-action-error :noncanonical-kanata-buffered-local-key-order
+                          "Buffered local-key declarations must be canonical."))
   config)
 
 (defun kanata-buffered-config-canonical-data (config)
@@ -1018,6 +1051,7 @@ result is non-emitting until the independent native-domain proof gate clears.
         (kanata-buffered-config-native-domain-closed-p config)
         :aliases (mapcar #'kanata-buffered-interaction-action-canonical-data
                          (kanata-buffered-config-aliases config))
+        :local-keys (copy-tree (kanata-buffered-config-local-keys config))
         :layer-cells
         (mapcar (lambda (cell)
                   (list :position

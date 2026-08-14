@@ -952,7 +952,7 @@ The grammar deliberately contains closed atoms, semantic identities, explicit
 alias names, and route references only.  It cannot carry a parenthesized
 action or arbitrary configuration fragment.
 "
-  (let ((actions nil) (routes nil) (pass-throughs nil)
+  (let ((actions nil) (routes nil) (pass-throughs nil) (local-keys nil)
         (close-unmapped-input-p nil) (close-clause-seen-p nil))
     (dolist (clause (cdr (%form-children context form 1 nil
                                          "KANATA-BUFFERED-ALLOCATIONS declaration")))
@@ -972,6 +972,17 @@ action or arbitrary configuration fragment.
              (push (%identifier-node-name
                     context position "Buffered native pass-through position")
                    pass-throughs))))
+        ((%named-form-p clause "local-key")
+         (let ((children (%form-children context clause 4 4
+                                         "Buffered LOCAL-KEY clause")))
+           (push (ivory-key.model:make-realization-kanata-buffered-local-key
+                  (%text-node-value context (second children)
+                                    "Buffered local-key token")
+                  (%integer-node-value context (third children)
+                                       "Buffered local-key code")
+                  (%text-node-value context (fourth children)
+                                    "Buffered local-key output token"))
+                 local-keys)))
         ((%named-form-p clause "close-unmapped-input")
          (when close-clause-seen-p
            (%fail context :duplicate-realization-kanata-buffered-unmapped-policy
@@ -1030,6 +1041,7 @@ action or arbitrary configuration fragment.
     (ivory-key.model::make-realization-kanata-buffered-allocation-policy
      (nreverse actions) (nreverse routes)
      :native-pass-through-positions (nreverse pass-throughs)
+     :native-local-keys (nreverse local-keys)
      :close-unmapped-input-p close-unmapped-input-p)))
 
 (defun %decode-realization (definition output-vocabularies)

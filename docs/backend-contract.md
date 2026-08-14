@@ -198,6 +198,7 @@ the existing non-emitting Kanata action IR:
 ```lisp
 (kanata-buffered-allocations
   (close-unmapped-input yes)
+  (local-key K18 127 f18)
   (pass-through case-left-shift case-right-shift mode-key)
   (route b b)
   (action tap-hold-case-f
@@ -210,7 +211,10 @@ the existing non-emitting Kanata action IR:
 `close-unmapped-input yes` selects `process-unmapped-keys no`; it is the
 fail-closed generated-profile boundary, not a claim about the frozen files,
 which used `yes`. `pass-through` explicitly names reviewed physical rows that
-have no abstract binding. `route` associates one admitted logical position
+have no abstract binding. `local-key` gives one source-only local alias its
+Linux evdev code and explicit normal-layer output token; it is used for the
+Advantage360 K18-K21 to F18-F21 rows and is never inferred from a name.
+`route` associates one admitted logical position
 with one opaque Kanata token. An `action` names one selected interaction, its
 realization-owned alias, tap token, one typed hold, and a nonempty set of
 declared route positions. The closed hold forms are
@@ -229,6 +233,15 @@ function layer are aligned against all 68/72 `defsrc` positions. Construction
 fails if any physical row is unclassified or an explicit pass-through is
 absent. This structural closure does not itself prove temporal or downstream
 XKB equivalence.
+
+`kanata-plan-proposal-string` renders that closed typed proposal without
+calling the artifact emitter or changing any grade. The separately tagged
+`tests/external/manna-kanata-generated.lisp` check proves that the installed
+Kanata parser accepts deterministic A2 and Advantage360 proposal text,
+including `process-unmapped-keys no`, the typed function layer, selector
+carriers, and the 360 local-key declarations. It is syntax/configuration
+acceptance only: the normal emitter still refuses, and this check does not
+prove timing, queue behavior, XKB delivery, or live-device equivalence.
 
 These allocations authorize inspection only. The compiler may construct the
 typed action values, but it retains

@@ -153,9 +153,12 @@ the hermetic ASDF suite:
 ```sh
 direnv exec . sbcl --script tests/external/xkb-kanata.lisp
 direnv exec . ecl -norc -shell tests/external/xkb-kanata.lisp
+direnv exec . sbcl --script tests/external/manna-kanata-generated.lisp
 ```
 
 Besides parser acceptance, it compiles a focused XKB plan and checks its
 compiled groups, levels, symbols, actions, and consumed/unconsumed Shift state
-through libxkbcommon. It does not claim Kanata interaction simulation, live
+through libxkbcommon. The Manna-specific script separately checks that the
+installed Kanata parser accepts both closed, deterministic, non-emitting
+device proposals. Neither check claims Kanata interaction simulation, live
 device behavior, or Manna equivalence.

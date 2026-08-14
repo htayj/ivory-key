@@ -320,7 +320,31 @@ semantic output for those pass-through events.
                   (cons (car mapping) (car mapping)))
                 mappings))))
 
-(defun %kanata-layer-rows (request source-rows)
+(defun %kanata-native-layer-name (layer buffered-actions)
+  "Return the realization-owned Kanata layer token for LAYER when allocated."
+  (let ((axis (getf layer :axis))
+        (state (getf layer :state))
+        (tokens nil))
+    (when (and axis state)
+      (dolist (buffered-action buffered-actions)
+        (let ((hold
+                (kanata-tap-hold-release-action-hold-action
+                 (kanata-buffered-interaction-action-tap-hold buffered-action))))
+          (when (and (typep hold 'kanata-layer-while-held-action)
+                     (string= axis
+                              (ivory-key.model:identifier-name
+                               (kanata-layer-while-held-action-axis hold)))
+                     (string= state
+                              (ivory-key.model:identifier-name
+                               (kanata-layer-while-held-action-state hold))))
+            (pushnew (kanata-layer-while-held-action-token hold)
+                     tokens :test #'string=)))))
+    (cond ((null tokens) (getf layer :name))
+          ((null (cdr tokens)) (car tokens))
+          (t (error "Conflicting Kanata layer tokens ~S for ~A/~A."
+                    (sort tokens #'string<) axis state)))))
+
+(defun %kanata-layer-rows (request source-rows buffered-actions)
   "Validate realization-owned sparse Kanata layer output rows.
 
 The layer declaration is compiler IR.  Its values have already been resolved
@@ -335,7 +359,7 @@ atom/action before text emission.
        (unless (and (listp layer) (stringp (getf layer :name))
                     (listp (getf layer :outputs)))
          (error "Malformed Kanata layer declaration ~S." layer))
-       (let ((name (getf layer :name))
+       (let ((name (%kanata-native-layer-name layer buffered-actions))
              (outputs (getf layer :outputs))
              (by-position (make-hash-table :test #'equal)))
          (unless (safe-kanata-token-p name)
@@ -476,7 +500,7 @@ atom/action before text emission.
                         ;; semantic binding.
                         (or (gethash (cdr row) outputs-by-source) (cdr row)))
                       source-rows))
-            (layers (%kanata-layer-rows request source-rows))
+            (layers (%kanata-layer-rows request source-rows buffered-actions))
             (buffered-config
               (and buffered-actions
                    (let* ((selector-policy
@@ -505,6 +529,18 @@ atom/action before text emission.
                               (lowering-request-entries request))
                       :pass-through-positions pass-throughs
                       :direct-carriers carriers
+                      :local-keys
+                      (and buffered-allocation-policy
+                           (loop for row in
+                                   (ivory-key.model:realization-kanata-buffered-allocation-policy-native-local-keys
+                                    buffered-allocation-policy)
+                                 for token =
+                                   (ivory-key.model:realization-kanata-buffered-local-key-token row)
+                                 when (find token source-rows :test #'string-equal :key #'cdr)
+                                   collect
+                                   (list token
+                                         (ivory-key.model:realization-kanata-buffered-local-key-code row)
+                                         (ivory-key.model:realization-kanata-buffered-local-key-output-token row))))
                       :close-unmapped-input-p closed-p)))))
       (make-instance 'kanata-plan
                      :name (lowering-request-name request)
@@ -515,25 +551,23 @@ atom/action before text emission.
                      :buffered-config buffered-config
                      :realizations (nreverse results)))))))
 
-(defmethod emit-plan ((backend kanata-backend) (plan kanata-plan) stream)
-  (declare (ignore backend))
+(defun %write-kanata-plan-proposal (plan stream)
+  "Render validated PLAN text without changing its unsupported grades."
   (let ((buffered-config (kanata-plan-buffered-config plan)))
-    (when buffered-config
-      (validate-kanata-buffered-config buffered-config)
-      ;; This is intentionally a second, backend-local gate rather than
-      ;; relying solely on planner grades.  A programmatically forged PLAN
-      ;; cannot turn a structurally valid proposal into a native artifact.
-      (%kanata-action-error
-       :unproved-kanata-buffered-native-domain
-       "Buffered Kanata aliases remain non-emitting: cancellation, foreign arbitration, queue bounds, and the complete native input domain are not proved."))
-    (require-permitted-realizations (kanata-plan-realizations plan))
+    (when buffered-config (validate-kanata-buffered-config buffered-config))
     (format stream "(defcfg~%  process-unmapped-keys ~A~@[~%  concurrent-tap-hold yes~])~%~%"
             (if (and buffered-config
                      (null (kanata-defcfg-requirements-process-unmapped-keys
                             (kanata-buffered-config-defcfg buffered-config))))
                 "no" "yes")
             buffered-config)
-  (format stream "(defsrc~%  ~{~A~^ ~})~%~%" (kanata-plan-sources plan))
+    (when (and buffered-config
+               (kanata-buffered-config-local-keys buffered-config))
+      (format stream "(deflocalkeys-linux~%")
+      (dolist (row (kanata-buffered-config-local-keys buffered-config))
+        (format stream "  ~A ~D~%" (first row) (second row)))
+      (format stream ")~%~%"))
+    (format stream "(defsrc~%  ~{~A~^ ~})~%~%" (kanata-plan-sources plan))
     (when buffered-config
       (format stream "(defalias~%")
       (dolist (action (kanata-buffered-config-aliases buffered-config))
@@ -553,18 +587,53 @@ atom/action before text emission.
                               (if cell
                                   (kanata-action-emission-string
                                    (kanata-buffered-layer-cell-action cell))
-                                  output))))
+                                  (let ((local-key
+                                          (and buffered-config
+                                               (find source
+                                                     (kanata-buffered-config-local-keys
+                                                      buffered-config)
+                                                     :test #'string= :key #'first))))
+                                    (if local-key (third local-key) output))))))
     (dolist (layer (kanata-plan-layers plan))
       (format stream "~%~%(deflayer ~A~%  ~{~A~^ ~})~%" (car layer) (cdr layer))))))
+
+(defun kanata-plan-proposal-string (plan)
+  "Return deterministic read-only Kanata text for external proof.
+
+This does not call EMIT-PLAN, write an artifact, or change a realization
+grade. A buffered proposal must already have a closed typed native domain.
+"
+  (let ((config (kanata-plan-buffered-config plan)))
+    (unless (and config (kanata-buffered-config-native-domain-closed-p config))
+      (%kanata-action-error :open-kanata-plan-proposal
+                            "Kanata proposal rendering requires a closed typed native domain.")))
+  (with-output-to-string (stream)
+    (%write-kanata-plan-proposal plan stream)))
+
+(defmethod emit-plan ((backend kanata-backend) (plan kanata-plan) stream)
+  (declare (ignore backend))
+  (let ((buffered-config (kanata-plan-buffered-config plan)))
+    (when buffered-config
+      (validate-kanata-buffered-config buffered-config)
+      ;; This is intentionally a second, backend-local gate rather than
+      ;; relying solely on planner grades.  A programmatically forged PLAN
+      ;; cannot turn a structurally valid proposal into a native artifact.
+      (%kanata-action-error
+       :unproved-kanata-buffered-native-domain
+       "Buffered Kanata aliases remain non-emitting: cancellation, foreign arbitration, queue bounds, and the complete native input domain are not proved."))
+    (require-permitted-realizations (kanata-plan-realizations plan))
+    (%write-kanata-plan-proposal plan stream)))
 
 (defmethod validate-artifact ((backend kanata-backend) pathname)
   (declare (ignore backend))
   (let ((arguments (list "kanata" "--check" "-c" (namestring pathname))))
     (handler-case
-        (values t
-                (uiop:run-program arguments
-                                  :output :string
-                                  :error-output :output)
-                arguments)
+        (multiple-value-bind (output error-output status)
+            (uiop:run-program arguments
+                              :output :string
+                              :error-output :output
+                              :ignore-error-status t)
+          (declare (ignore error-output))
+          (values (zerop status) output arguments))
       (error (condition)
         (values nil (princ-to-string condition) arguments)))))

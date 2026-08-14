@@ -768,7 +768,7 @@ both paths construct the one public MODEL policy value.
   (unless (ivory-key.syntax:syntax-list-p node)
     (%stage-error :decode :invalid-realization-kanata-buffered-allocation-policy
                   "KANATA-BUFFERED-ALLOCATIONS must be a list."))
-  (let ((actions nil) (routes nil) (pass-throughs nil)
+  (let ((actions nil) (routes nil) (pass-throughs nil) (local-keys nil)
         (close-unmapped-input-p nil) (close-clause-seen-p nil))
     (dolist (clause (rest (ivory-key.syntax:syntax-list-children node)))
       (unless (ivory-key.syntax:syntax-list-p clause)
@@ -793,6 +793,18 @@ both paths construct the one public MODEL policy value.
              (push (%compiler-syntax-identifier
                     position "Buffered native pass-through position")
                    pass-throughs)))
+          ((string= (or name "") "local-key")
+           (unless (= (length children) 4)
+             (%stage-error :decode :invalid-realization-kanata-buffered-local-key
+                           "Malformed buffered LOCAL-KEY allocation."))
+           (push (ivory-key.model:make-realization-kanata-buffered-local-key
+                  (%compiler-syntax-text (second children)
+                                         "Buffered local-key token")
+                  (%compiler-syntax-integer (third children)
+                                            "Buffered local-key code")
+                  (%compiler-syntax-text (fourth children)
+                                         "Buffered local-key output token"))
+                 local-keys))
           ((string= (or name "") "close-unmapped-input")
            (when close-clause-seen-p
              (%stage-error :decode :duplicate-realization-kanata-buffered-unmapped-policy
@@ -853,6 +865,7 @@ both paths construct the one public MODEL policy value.
         (ivory-key.model::make-realization-kanata-buffered-allocation-policy
          (nreverse actions) (nreverse routes)
          :native-pass-through-positions (nreverse pass-throughs)
+         :native-local-keys (nreverse local-keys)
          :close-unmapped-input-p close-unmapped-input-p)
       (ivory-key.model:semantic-error (condition)
         (%stage-error :decode (ivory-key.model:semantic-error-code condition)
@@ -1351,6 +1364,10 @@ refusal; this function never synthesizes a tap-hold, layer switch, or timing.
         ;; never makes this an exact realization.  The Manna evidence names
         ;; source tap-holds, not an Ivory Key candidate/arbitration contract.
         (push (list :name (ivory-key.model:identifier-name patch-name)
+                    :axis (ivory-key.model:identifier-name
+                           (ivory-key.model:normalized-patch-axis patch))
+                    :state (ivory-key.model:identifier-name
+                            (ivory-key.model:normalized-patch-state patch))
                     :outputs (sort outputs #'string< :key #'car))
               layers)
         (push (%make-compiler-fidelity-issue

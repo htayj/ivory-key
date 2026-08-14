@@ -335,7 +335,13 @@
    #:realization-kanata-buffered-allocation-policy-actions
    #:realization-kanata-buffered-allocation-policy-foreign-routes
    #:realization-kanata-buffered-allocation-policy-native-pass-through-positions
+   #:realization-kanata-buffered-allocation-policy-native-local-keys
    #:realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+   #:realization-kanata-buffered-local-key
+   #:make-realization-kanata-buffered-local-key
+   #:realization-kanata-buffered-local-key-token
+   #:realization-kanata-buffered-local-key-code
+   #:realization-kanata-buffered-local-key-output-token
    #:validate-realization-kanata-buffered-allocation-policy
    #:realization-selector-policy #:make-realization-selector-policy
    #:validate-realization-selector-policy
@@ -525,6 +531,7 @@
    #:kanata-buffered-config-defcfg
    #:kanata-buffered-config-aliases
    #:kanata-buffered-config-layer-cells
+   #:kanata-buffered-config-local-keys
    #:kanata-buffered-config-native-domain-closed-p
    #:kanata-buffered-layer-cell
    #:kanata-buffered-layer-cell-position
@@ -593,6 +600,7 @@
    #:make-kanata-backend #:kanata-plan-realizations
    #:kanata-plan-buffered-actions
    #:kanata-plan-buffered-config
+   #:kanata-plan-proposal-string
    #:make-qmk-backend #:qmk-plan-keyboard #:qmk-plan-layout
    #:qmk-plan-layers #:qmk-plan-realizations
    #:pipeline-artifact-kind #:pipeline-artifact-relative-path

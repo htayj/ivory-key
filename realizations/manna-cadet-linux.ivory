@@ -11,6 +11,8 @@
 ;; Kanata 1.12 source.  The closed allocation table records only observed
 ;; atoms/codes; the compiler still refuses artifact publication until the
 ;; full native input-domain differential is complete.
+;; Frozen Advantage 360 source-only aliases.  They are harmlessly unused
+;; by the Advantage2 composition and keep their distinct F18-F21 outputs.
 
 (ivory-key 1)
 (define-realization
@@ -26,6 +28,10 @@
   )
   (kanata-buffered-allocations
     (close-unmapped-input yes)
+    (local-key K18 127 f18)
+    (local-key K19 130 f19)
+    (local-key K20 115 f20)
+    (local-key K21 142 f21)
     (pass-through case-left-shift case-right-shift control-plane-alt direct-hyper mode-key)
     (route down down)
     (route home home)
