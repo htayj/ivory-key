@@ -1701,6 +1701,51 @@ ordinary compiler lifecycle refusal and backend emission gate are independent.
                   (list (ivory-key.backend::kanata-action-validation-error-code condition)
                         (ivory-key.backend::kanata-action-validation-error-message condition)))))))
 
+(defparameter +manna-xkb-semantic-modifier-specifications+
+  '(("control" "lctl" "LCTL" "Control_L" "Control")
+    ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+    ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
+    ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+    ("super" "lmet" "LWIN" "Super_L" "Mod4"))
+  "The sole typed semantic-modifier bridge admitted for the Manna XKB map.")
+
+(defun %manna-xkb-semantic-modifier-allocations (normalized actions)
+  "Return the closed XKB modifier rows only when ACTIONS prove every member."
+  (let ((modifiers
+          (sort
+           (mapcar #'ivory-key.model:identifier-name
+                   (ivory-key.model:modifier-set-members
+                    (ivory-key.model:normalized-layout-modifiers normalized)))
+           #'string<))
+        (expected
+          (sort (copy-tree +manna-xkb-semantic-modifier-specifications+)
+                #'string< :key #'first)))
+    (when (and actions
+               (equal modifiers (mapcar #'first expected)))
+      (dolist (specification expected)
+        (destructuring-bind (identity token key-name keysym modifier) specification
+          (declare (ignore key-name keysym modifier))
+          (let ((holds nil))
+            (dolist (action actions)
+              (let ((hold
+                      (ivory-key.backend::kanata-tap-hold-release-action-hold-action
+                       (ivory-key.backend::kanata-buffered-interaction-action-tap-hold
+                        action))))
+                (when (and (typep hold 'ivory-key.backend::kanata-modifier-hold-action)
+                           (string= identity
+                                    (ivory-key.model:identifier-name
+                                     (ivory-key.backend::kanata-modifier-hold-action-identity
+                                      hold))))
+                  (push hold holds))))
+            (unless (and holds
+                         (every (lambda (hold)
+                                  (string= token
+                                           (ivory-key.backend::kanata-modifier-hold-action-token
+                                            hold)))
+                                holds))
+              (return-from %manna-xkb-semantic-modifier-allocations nil)))))
+      expected)))
+
 (defun analyze-normalized-layout
     (normalized placement &key vocabulary selector-policy
                            interaction-compatibility-policy
@@ -1719,6 +1764,7 @@ compile gate.
         (buffered-contracts nil)
         (buffered-actions nil)
         (buffered-action-refusal nil)
+        (xkb-semantic-modifier-allocations nil)
         (interactions
           (ivory-key.model:normalized-layout-interactions normalized)))
     (when selector-policy
@@ -1782,12 +1828,6 @@ compile gate.
              (%coverage-fidelity-issue placement
                                        (ivory-key.model:position-name position))
              issues)))
-    (when (ivory-key.model:modifier-set-members
-           (ivory-key.model:normalized-layout-modifiers normalized))
-      (push (%make-compiler-fidelity-issue
-             :semantic-modifiers :unsupported-semantic-modifiers
-             "The bootstrap pipeline has no modifier allocation or consumed-modifier plan.")
-            issues))
     ;; This narrow V1 policy is not a generic interaction taxonomy.  Every
     ;; explicitly named target must exist after normalization; each unnamed
     ;; interaction remains on the established generic refusal path.
@@ -1804,6 +1844,15 @@ compile gate.
       (%kanata-buffered-action-handoff normalized placement
                                        interaction-compatibility-policy
                                        kanata-buffered-allocation-policy))
+    (setf xkb-semantic-modifier-allocations
+          (%manna-xkb-semantic-modifier-allocations normalized buffered-actions))
+    (when (and (ivory-key.model:modifier-set-members
+                (ivory-key.model:normalized-layout-modifiers normalized))
+               (null xkb-semantic-modifier-allocations))
+      (push (%make-compiler-fidelity-issue
+             :semantic-modifiers :unsupported-semantic-modifiers
+             "Semantic modifiers require the complete typed Manna Kanata/XKB allocation map.")
+            issues))
     (when (and interaction-compatibility-policy
                (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
                     interaction-compatibility-policy)
@@ -1976,6 +2025,8 @@ compile gate.
                                    :kanata-buffered-actions buffered-actions
                                    :kanata-buffered-action-refusal
                                    buffered-action-refusal
+                                   :xkb-semantic-modifier-allocations
+                                   xkb-semantic-modifier-allocations
                                    :input-coverage
                                    (%input-coverage-records normalized placement)
                                    :kanata-source-order

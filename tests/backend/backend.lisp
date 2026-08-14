@@ -741,3 +741,35 @@ three normalized candidates MODEL originally proved.
         :entries
         (list (backend-test-observed-selector-entry)
               (backend-test-entry :position "carrier-collision" :xkb-code "ZEHA")))))))
+
+(deftest backend-xkb-semantic-modifier-map-is-closed-and-non-stringly
+  (let* ((backend (ivory-key.backend:make-xkb-backend))
+         (allocations
+           '(("control" "lctl" "LCTL" "Control_L" "Control")
+             ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+             ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
+             ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+             ("super" "lmet" "LWIN" "Super_L" "Mod4")))
+         (request
+           (backend-test-request
+            :entries (list (backend-test-entry))
+            :metadata (list :xkb-semantic-modifier-allocations allocations)))
+         (text
+           (ivory-key.backend:emit-plan-to-string
+            backend (ivory-key.backend:lower-request backend request))))
+    (is (search "modifier_map None { <RALT>, <LCTL>, <RWIN>, <LALT>, <LWIN> };"
+                text))
+    (is (search "replace key <RWIN>" text))
+    (is (search "symbols[Group1]=[ Hyper_L ]" text))
+    (dolist (bad
+             (list (butlast allocations)
+                   (substitute '("hyper" "rmet" "RWIN" "Super_R" "Mod4")
+                               (third allocations) allocations :test #'equal)
+                   (append allocations
+                           '(("injected" "x" "ABCD" "x" "Mod5")))))
+      (signals error
+        (ivory-key.backend:lower-request
+         backend
+         (backend-test-request
+          :entries (list (backend-test-entry))
+          :metadata (list :xkb-semantic-modifier-allocations bad)))))))

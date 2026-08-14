@@ -297,12 +297,17 @@ Kanata selector action/lifetime implementation exists.
          (ivory-key.cli::compiler-unit-normalized unit) placement
          :vocabulary (ivory-key.cli::compiler-realization-vocabulary realization)
          :selector-policy
-         (ivory-key.cli::compiler-realization-selector-policy realization))
+         (ivory-key.cli::compiler-realization-selector-policy realization)
+         :interaction-compatibility-policy
+         (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+          realization)
+         :kanata-buffered-allocation-policy
+         (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
+          realization))
       (unless request
         (error "Manna selector probe could not construct an inspection request."))
       (dolist (required-issue
                '(:unsupported-kanata-selector-action-plan
-                 :unsupported-semantic-modifiers
                  :unsupported-timed-interaction
                  :unreachable-device-position
                  :unproved-patch-activation))
@@ -369,7 +374,7 @@ only the separately selected typed carrier contract.
                 (manna-keymap (generated-manna-selector-keymap directory))
                 (manna-output
                   (uiop:run-program
-                   (list (namestring binary) (namestring manna-keymap))
+                   (list (namestring binary) "--manna" (namestring manna-keymap))
                    :output :string :error-output :output))
                 (kanata-records
                   (and kanata-archive

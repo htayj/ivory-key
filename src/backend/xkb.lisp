@@ -13,6 +13,9 @@
    ;; group action.
    (selector-static-entries :initarg :selector-static-entries :initform nil
                             :reader xkb-plan-selector-static-entries)
+   (semantic-modifier-allocations
+    :initarg :semantic-modifier-allocations :initform nil
+    :reader xkb-plan-semantic-modifier-allocations)
    (realizations :initarg :realizations :reader xkb-plan-realizations)))
 
 (defstruct (xkb-selector-static-entry
@@ -31,6 +34,63 @@
 The explicit XKB keycodes use the evdev XKB offset but are constants here: no
 backend derives a carrier number from an arbitrary profile value.  In
 particular, ZEHA is keycode 93, not an alias of LVL5 or LVL3.")
+
+(defparameter +xkb-semantic-modifier-specifications+
+  '(("control" "lctl" "LCTL" "Control_L" "Control")
+    ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+    ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
+    ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+    ("super" "lmet" "LWIN" "Super_L" "Mod4"))
+  "The closed Manna semantic-modifier allocation admitted by this XKB slice.")
+
+(defun %xkb-semantic-modifier-allocations (request)
+  "Validate and canonicalize the optional closed semantic modifier metadata."
+  (let ((allocations
+          (getf (lowering-request-metadata request)
+                :xkb-semantic-modifier-allocations)))
+    (when allocations
+      (unless (and (listp allocations)
+                   (= (length allocations)
+                      (length +xkb-semantic-modifier-specifications+))
+                   (every (lambda (row)
+                            (and (listp row)
+                                 (= (length row) 5)
+                                 (every #'stringp row)))
+                          allocations))
+        (error "Malformed XKB semantic modifier allocation metadata."))
+      (let ((canonical (sort (copy-tree allocations) #'string< :key #'first))
+            (expected (sort (copy-tree +xkb-semantic-modifier-specifications+)
+                            #'string< :key #'first)))
+        (unless (equal canonical expected)
+          (error "XKB semantic modifier allocations do not match the closed Manna map."))
+        canonical))))
+
+(defun %xkb-interaction-name (interaction)
+  (when (typep interaction
+               'ivory-key.model::release-trigger-interaction-compatibility-contract)
+    (ivory-key.model:identifier-name
+     (ivory-key.model:normalized-interaction-name
+      (ivory-key.model::interaction-compatibility-contract-interaction
+       interaction)))))
+
+(defun %xkb-validated-upstream-buffered-interactions (request)
+  "Return strict action identities only after the Kanata protocol revalidates them."
+  (let ((actions (getf (lowering-request-metadata request)
+                       :kanata-buffered-actions)))
+    (when actions
+      (unless (and (fboundp '%validate-kanata-buffered-actions)
+                   (fboundp '%kanata-buffered-action-identifier))
+        (error "Kanata buffered action validator is unavailable."))
+      (mapcar
+       (lambda (action)
+         (ivory-key.model:identifier-name
+          (funcall (symbol-function '%kanata-buffered-action-identifier) action)))
+       (funcall
+        (symbol-function '%validate-kanata-buffered-actions)
+        (getf (lowering-request-metadata request)
+              :interaction-compatibility-policy)
+        (lowering-request-interactions request)
+        actions)))))
 
 (defun make-xkb-backend ()
   (make-instance 'xkb-backend :name "xkb"))
@@ -66,7 +126,8 @@ particular, ZEHA is keycode 93, not an alias of LVL5 or LVL3.")
        (every (lambda (character)
                 (let ((code (char-code character)))
                   (or (<= (char-code #\A) code (char-code #\Z))
-                      (<= (char-code #\0) code (char-code #\9)))))
+                      (<= (char-code #\0) code (char-code #\9))
+                      (find character "+-"))))
               value)))
 
 (defun safe-xkb-keysym-p (value)
@@ -351,6 +412,8 @@ turn a missing XKB entry into an implicit omission.
     (error "Unsafe XKB layout name ~S." (lowering-request-name request)))
   (let ((results nil)
         (selector-static-entries nil)
+        (semantic-modifier-allocations
+          (%xkb-semantic-modifier-allocations request))
         (entries (append (lowering-request-entries request)
                          (getf (lowering-request-metadata request)
                                :xkb-carrier-entries))))
@@ -377,11 +440,23 @@ turn a missing XKB entry into an implicit omission.
              modifier :unsupported
              :detail "Semantic modifier lowering needs an explicit XKB policy.")
             results))
-    (dolist (interaction (lowering-request-interactions request))
+    (dolist (allocation semantic-modifier-allocations)
       (push (make-realization-result
-             interaction :unsupported
-             :detail "Timed interaction lowering needs an explicit XKB action policy.")
+             (first allocation) :exact
+             :detail "Typed Manna modifier allocation is emitted as a distinct XKB keysym/modifier map.")
             results))
+    (let ((upstream (%xkb-validated-upstream-buffered-interactions request)))
+      (dolist (interaction (lowering-request-interactions request))
+        (let ((name (%xkb-interaction-name interaction)))
+          (push (make-realization-result
+                 (or name interaction)
+                 (if (and name (member name upstream :test #'string=))
+                     :exact :unsupported)
+                 :detail
+                 (if (and name (member name upstream :test #'string=))
+                     "Typed interaction is realized by the upstream Kanata action; XKB receives its routed key/modifier edges."
+                     "Timed interaction lowering needs an explicit XKB action policy."))
+                results))))
     ;; The evidence-named Group2 client boundary is the sole selector policy
     ;; that may become an XKB result.  The construction below checks the
     ;; complete three-axis binary table, the two non-colliding carriers, and
@@ -410,6 +485,8 @@ turn a missing XKB entry into an implicit omission.
                    :name (lowering-request-name request)
                    :entries (copy-list entries)
                    :selector-static-entries selector-static-entries
+                   :semantic-modifier-allocations
+                   semantic-modifier-allocations
                    :realizations (nreverse results))))
 
 (defun xkb-type-for-level-count (count)
@@ -448,6 +525,19 @@ model policy merely selects one of these two verified carrier identities.
                 (:mod5 "Mod5"))
               key-name))))
 
+(defun %emit-xkb-semantic-modifier-symbols (stream allocations)
+  "Replace stock pc modifier identities with the closed typed Manna map."
+  (when allocations
+    (format stream "    modifier_map None { ~{<~A>~^, ~} };~%"
+            (mapcar #'third allocations))
+    (dolist (allocation allocations)
+      (destructuring-bind (identity token key-name keysym modifier) allocation
+        (declare (ignore identity token))
+        (format stream
+                "    replace key <~A> { type[Group1]=\"ONE_LEVEL\", symbols[Group1]=[ ~A ] };~%"
+                key-name keysym)
+        (format stream "    modifier_map ~A { <~A> };~%" modifier key-name)))))
+
 (defun %emit-xkb-selector-static-entry (stream static-entry)
   (let ((entry (xkb-selector-static-entry-entry static-entry)))
     (format stream "    key <~A> { type[Group1]=\"~A\", symbols[Group1]=[ ~{~A~^, ~} ], type[Group2]=\"TWO_LEVEL\", symbols[Group2]=[ ~{~A~^, ~} ] };~%"
@@ -471,6 +561,8 @@ model policy merely selects one of these two verified carrier identities.
   (format stream "  xkb_symbols {~%")
   (format stream "    include \"pc+us\"~%")
   (format stream "    name[Group1] = \"~A\";~%" (xkb-plan-name plan))
+  (%emit-xkb-semantic-modifier-symbols
+   stream (xkb-plan-semantic-modifier-allocations plan))
   (dolist (entry (sort (copy-list (xkb-plan-entries plan))
                        #'string<
                        :key (lambda (entry) (key-entry-code-for entry :xkb))))

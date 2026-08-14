@@ -142,7 +142,7 @@ can become active migration behavior:
 | Source area | Current fail-closed disposition | Owner decision required for activation |
 |---|---|---|
 | fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and timings are transcribed; the Manna realization selects the versioned Kanata-1.12 buffered contract for all 16 and records closed allocations | finish native-domain and whole-pipeline differential proof before permitting emission; proposed ADR 0003 remains an unselected alternative |
-| five semantic modifiers | target-neutral identities and historical sources are transcribed; their tap-hold activation is refused | select the timed lifecycle and application-visible realization, including any side distinction beyond P-14's source-neutral default |
+| five semantic modifiers | target-neutral identities, explicit Kanata hold allocations, and distinct generated XKB Control/Mod1/Mod2/Mod3/Mod4 maps are transcribed; the selected buffered lifecycle remains non-emitting | finish the native-domain and whole-pipeline proof before treating the generated modifier intervals as a deployable realization |
 | function overlay | all 29 active-table results are transcribed; End/PgDn activation is refused | select function hold commitment, first/last-owner overlay lifetime, patch interaction, and an exact lowerer |
 | direct Greek and Top selectors | immediate abstract held lifecycles are transcribed; the selected generated-XKB carrier map has a separately probed libxkbcommon state sub-contract | select Kanata carrier/lifetime lowering and any historical/client/live-equivalence claim; the generated sub-contract is not frozen-source equivalence |
 | Advantage-360 game layer | source aliases and layer are classified, while the selected common profile excludes it | select a separate 360 profile with its own overlay, timing, and interaction policy, or preserve its exclusion |
@@ -402,7 +402,7 @@ only; the primary layered table itself is the authority for every row above.
 | Direct Greek selector | `lctl → @gr → (arbitrary-code 85)` in both primary normal layers | transcribed as immediate one-participant `hold-greek-selector`; it holds `script=greek` and explicitly restores `roman` on release |
 | Direct Top selector | `rctl → @top → (arbitrary-code 84)` in both primary normal layers | transcribed as immediate one-participant `hold-top-selector`; it holds `plane=top` and explicitly restores `base` on release |
 | Direct physical case holders | `lshift` and `rshift` are unchanged at their `defsrc` indexes in both primary normal layers; XKB maps `<LFSH>` / `<RTSH>` to `Shift_L` / `Shift_R` | transcribed as `hold-case-left-shift` / `hold-case-right-shift`; owner-scoped hold state keeps `case=shifted` until the last release |
-| Case and five semantic modifier tap-holds | exact 12 alias rows in the frozen-primary table above: 200/200 ms except `a → lmet` at 250/250 ms | raw aliases, literal output actions, and current Kanata early-hold rule are recorded; version-pinned commitment/arbitration and owner-scoped release remain unresolved |
+| Case and five semantic modifier tap-holds | exact 12 alias rows in the frozen-primary table above: 200/200 ms except `a → lmet` at 250/250 ms | raw aliases, typed hold allocations, version-pinned buffered scheduling evidence, owner-scoped release, and distinct generated XKB modifier maps are recorded; full native-domain and whole-pipeline equivalence remain unresolved |
 | Function activation | End and PgDn `tap-hold-release 200 200` to `layer-while-held fun` | both exact aliases are recorded; overlay table transcribed, but activation remains explicitly unresolved/refused |
 | Escape / apostrophe Hyper | `tap-hold-release 200 200` | unresolved |
 | Number-row Shift aliases | `osft` and `csft`, `tap-hold-release 0 0`, are declared but unused by either primary normal layer | excluded as inactive aliases until an owner selects a behavior |
@@ -501,9 +501,12 @@ checks. This is still not a combined Manna compile: the compiler refuses before
 artifact write. Its deterministic first refusal is
 `:unsupported-kanata-selector-action-plan`; the four direct held interactions
 have no current Kanata action/lifetime lowering even though their model
-lifecycle is simulated. The remaining independent blockers are application
-visibility, typed-unreachable `<LSGT>`, semantic modifiers, and missing
-function activation/timing/arbitration semantics.
+lifecycle is simulated. The five semantic modifier identities now have closed
+Kanata allocations and distinct generated XKB Control/Mod1/Mod2/Mod3/Mod4
+maps, with effective/unconsumed state checked on AD01. The remaining
+independent blockers are the selector/direct-holder plan, the reviewed
+typed-unreachable `<LSGT>` projection, the full buffered native-domain proof,
+and final function/command and whole-pipeline equivalence.
 
 Before a Phase 7 migration claim, reviewers still need an explicit decision
 for each unresolved row above, a complete simulation proof,

@@ -1603,6 +1603,10 @@ complete carrier table from an invented Manna behavior.
             (let* ((plan
                      (ivory-key.backend:lower-request
                       (ivory-key.backend:make-kanata-backend) request))
+                   (xkb-backend (ivory-key.backend:make-xkb-backend))
+                   (xkb-plan (ivory-key.backend:lower-request xkb-backend request))
+                   (xkb-text
+                     (ivory-key.backend:emit-plan-to-string xkb-backend xkb-plan))
                    (config (ivory-key.backend:kanata-plan-buffered-config plan))
                    (proposal (ivory-key.backend:kanata-plan-proposal-string plan))
                    (carrier-cells
@@ -1630,6 +1634,25 @@ complete carrier table from an invented Manna behavior.
               (is (search "(tap-hold-release 250 250 a lmet)" proposal))
               (is (search "(arbitrary-code 84)" proposal))
               (is (search "(arbitrary-code 85)" proposal))
+              (dolist (fragment
+                       '("replace key <LCTL>" "symbols[Group1]=[ Control_L ]"
+                         "modifier_map Control { <LCTL> }"
+                         "replace key <LALT>" "symbols[Group1]=[ Meta_L ]"
+                         "modifier_map Mod1 { <LALT> }"
+                         "replace key <RWIN>" "symbols[Group1]=[ Hyper_L ]"
+                         "modifier_map Mod2 { <RWIN> }"
+                         "replace key <RALT>" "symbols[Group1]=[ Alt_L ]"
+                         "modifier_map Mod3 { <RALT> }"
+                         "replace key <LWIN>" "symbols[Group1]=[ Super_L ]"
+                         "modifier_map Mod4 { <LWIN> }"))
+                (is (search fragment xkb-text)))
+              (is (null
+                   (find :unsupported
+                         (ivory-key.backend::xkb-plan-realizations xkb-plan)
+                         :key #'ivory-key.backend:realization-grade)))
+              (is (null
+                   (find :unsupported-semantic-modifiers issues
+                         :key #'ivory-key.cli::compiler-fidelity-issue-code)))
               (if (string= composition "manna-cadet-advantage360-linux")
                   (progn
                     (is (search "(deflocalkeys-linux" proposal))

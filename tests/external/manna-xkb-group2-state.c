@@ -430,6 +430,49 @@ require_lvl5_inherited_boundary(struct xkb_keymap *keymap,
         fail("generated inherited LVL5 release left Mod3 active");
 }
 
+struct semantic_modifier_case {
+    const char *key_name;
+    xkb_keysym_t keysym;
+    const char *modifier;
+};
+
+static void
+require_semantic_modifier_map(struct xkb_keymap *keymap)
+{
+    static const struct semantic_modifier_case cases[] = {
+        {"LCTL", XKB_KEY_Control_L, "Control"},
+        {"LALT", XKB_KEY_Meta_L, "Mod1"},
+        {"RWIN", XKB_KEY_Hyper_L, "Mod2"},
+        {"RALT", XKB_KEY_Alt_L, "Mod3"},
+        {"LWIN", XKB_KEY_Super_L, "Mod4"}
+    };
+    xkb_keycode_t q = xkb_keymap_key_by_name(keymap, "AD01");
+
+    if (q == XKB_KEYCODE_INVALID)
+        fail("semantic modifier probe lacks AD01");
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        struct xkb_state *state = xkb_state_new(keymap);
+        xkb_keycode_t key = xkb_keymap_key_by_name(keymap, cases[index].key_name);
+        xkb_mod_index_t modifier = xkb_keymap_mod_get_index(
+            keymap, cases[index].modifier);
+
+        if (state == NULL || key == XKB_KEYCODE_INVALID ||
+            modifier == XKB_MOD_INVALID)
+            fail("generated map lacks one semantic modifier allocation");
+        if (xkb_state_key_get_one_sym(state, key) != cases[index].keysym)
+            fail("generated semantic modifier keysym differs");
+        xkb_state_update_key(state, key, XKB_KEY_DOWN);
+        require_modifier_visibility(
+            state, q, modifier, 0,
+            "generated semantic modifier was not effective and unconsumed");
+        xkb_state_update_key(state, key, XKB_KEY_UP);
+        require_modifier_inactive(
+            state, modifier,
+            "generated semantic modifier remained active after release");
+        xkb_state_unref(state);
+    }
+}
+
 static void
 run_frozen_manna_contract(struct xkb_keymap *keymap)
 {
@@ -499,9 +542,13 @@ main(int argc, char **argv)
     const char *records_path = NULL;
     int differential = 0;
     int frozen = 0;
+    int manna = 0;
 
     if (argc == 2) {
         keymap_path = argv[1];
+    } else if (argc == 3 && strcmp(argv[1], "--manna") == 0) {
+        manna = 1;
+        keymap_path = argv[2];
     } else if (argc == 4 && strcmp(argv[1], "--frozen") == 0) {
         frozen = 1;
         keymap_path = argv[2];
@@ -510,7 +557,7 @@ main(int argc, char **argv)
         records_path = argv[2];
         keymap_path = argv[3];
     } else {
-        fail("usage: manna-xkb-group2-state GENERATED-KEYMAP | --frozen FROZEN-KEYMAP XKB-INCLUDE-DIRECTORY | --kanata-ad01 RECORDS GENERATED-KEYMAP");
+        fail("usage: manna-xkb-group2-state GENERATED-KEYMAP | --manna GENERATED-MANNA-KEYMAP | --frozen FROZEN-KEYMAP XKB-INCLUDE-DIRECTORY | --kanata-ad01 RECORDS GENERATED-KEYMAP");
     }
     file = fopen(keymap_path, "rb");
     if (file == NULL)
@@ -538,6 +585,7 @@ main(int argc, char **argv)
     if (differential) {
         require_ad01_shape(keymap);
         require_lsgt_inherited_boundary(keymap);
+        require_semantic_modifier_map(keymap);
         run_ad01_differential(keymap, records_path);
         xkb_keymap_unref(keymap);
         xkb_context_unref(context);
@@ -547,6 +595,8 @@ main(int argc, char **argv)
 
     require_ad01_shape(keymap);
     require_lsgt_inherited_boundary(keymap);
+    if (manna)
+        require_semantic_modifier_map(keymap);
     ad01 = xkb_keymap_key_by_name(keymap, "AD01");
     shift = xkb_keymap_key_by_name(keymap, "LFSH");
     lvl3 = xkb_keymap_key_by_name(keymap, "LVL3");

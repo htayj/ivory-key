@@ -150,15 +150,18 @@ generic interactions remain independent refusals.
 The same tagged probe also emits the selected Manna Cadet XKB partial request
 from project analysis and runs it through the state checks. That request has
 52 hash-pinned source type declarations, 51 generated Manna selector
-overrides, and the two carrier keys; its sole omitted type is `less-greater`,
-whose two device records explicitly declare it unreachable because neither
-reviewed primary `defsrc` contains a direct source token. Because the partial
-map includes `pc+us`, compiled `<LSGT>` still has the inherited default keycode
-and less/greater behavior. It is outside the selected device-input domain and
-is not the frozen Manna eight-state table. This validates the generated XKB
-sub-contract only. The combined compiler still refuses its Kanata selector
-action/lifetime and the other unresolved Manna features before any artifact
-write.
+overrides, the two carrier keys, and closed mappings for the five semantic
+modifier identities: Control, Mod1, Mod2, Mod3, and Mod4. The probe checks the
+five generated keysyms and modifier maps and proves that each modifier is
+effective yet unconsumed on an ordinary AD01 key. Its sole omitted type is
+`less-greater`, whose two device records explicitly declare it unreachable
+because neither reviewed primary `defsrc` contains a direct source token.
+Because the partial map includes `pc+us`, compiled `<LSGT>` still has the
+inherited default keycode and less/greater behavior. It is outside the selected
+device-input domain and is not the frozen Manna eight-state table. This
+validates the generated XKB sub-contract only. The combined compiler still
+refuses its Kanata selector action/lifetime and the other unresolved Manna
+features before any artifact write.
 
 ## Typed interaction-compatibility selection
 
