@@ -1260,6 +1260,40 @@ member of POLICY.  This helper intentionally names no generic interaction.
            issues))))
     (nreverse issues)))
 
+(defun %kanata-buffered-action-handoff (normalized placement policy)
+  "Derive the inert Kanata buffered AST from MODEL contracts, never source text.
+
+The third value is a canonical refusal code/message pair when no selected
+realization allocation can construct direct route/hold actions.  It is
+inspection evidence only; the ordinary compiler refusal and no-artifact gate
+remain independently in force.
+"
+  (declare (ignore placement))
+  (if (not (and policy
+                (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
+                     policy)
+                    :kanata-1-12-buffered)))
+      (values nil nil nil)
+      (handler-case
+          (let ((contracts
+                  (ivory-key.model:derive-interaction-compatibility-contracts
+                   policy normalized)))
+            ;; Structural MODEL contracts are now available for inspection.
+            ;; They still do not contain realization-owned modifier/layer or
+            ;; named-key token allocations, so the compiler must not assemble
+            ;; an action AST by guessing those backend values.
+            (values contracts nil
+                    (list :missing-kanata-buffered-hold-allocation
+                          "Buffered action handoff requires explicit realization-owned modifier/layer and named-key token allocations.")))
+        (ivory-key.model:semantic-error (condition)
+          (values nil nil
+                  (list (ivory-key.model:semantic-error-code condition)
+                        (ivory-key.model:semantic-error-message condition))))
+        (ivory-key.backend::kanata-action-validation-error (condition)
+          (values nil nil
+                  (list (ivory-key.backend::kanata-action-validation-error-code condition)
+                        (ivory-key.backend::kanata-action-validation-error-message condition)))))))
+
 (defun analyze-normalized-layout
     (normalized placement &key vocabulary selector-policy
                            interaction-compatibility-policy)
@@ -1274,6 +1308,9 @@ compile gate.
 "
   (let ((issues nil)
         (entries nil)
+        (buffered-contracts nil)
+        (buffered-actions nil)
+        (buffered-action-refusal nil)
         (interactions
           (ivory-key.model:normalized-layout-interactions normalized)))
     (when selector-policy
@@ -1341,6 +1378,37 @@ compile gate.
              (%interaction-compatibility-policy-unknown-target-issues
               interaction-compatibility-policy interactions))
       (push issue issues))
+    ;; The typed action handoff is deliberately narrower than the established
+    ;; refusal: it appears only after MODEL has derived the explicit buffered
+    ;; contracts.  Missing realization-owned routes/tokens/holds withhold the
+    ;; action AST; a derivation failure cannot turn malformed input into an
+    ;; artifact path.
+    (multiple-value-setq (buffered-contracts buffered-actions buffered-action-refusal)
+      (%kanata-buffered-action-handoff normalized placement
+                                       interaction-compatibility-policy))
+    (when (and interaction-compatibility-policy
+               (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
+                    interaction-compatibility-policy)
+                   :kanata-1-12-buffered))
+      (push (%make-compiler-fidelity-issue
+             :kanata-buffered-runtime
+             :unproved-kanata-buffered-pending-lifecycle
+             "Kanata 1.12 single-owner deadline custody is proven, but cancellation, multi-owner/foreign arbitration, and bounded native queue closure remain unproved; the typed buffered action handoff is inert.")
+            issues))
+    (when buffered-contracts
+      ;; MODEL has proved the finite interaction shape, but profile-owned
+      ;; Kanata spellings/allocation are intentionally absent.  Keep each
+      ;; missing obligation separate and stable for inspection and tests.
+      (push (%make-compiler-fidelity-issue
+             :kanata-buffered-allocation
+             :missing-kanata-buffered-hold-allocation
+             "Buffered contract has no explicit realization-owned modifier/layer hold allocation.")
+            issues)
+      (push (%make-compiler-fidelity-issue
+             :kanata-buffered-allocation
+             :missing-kanata-buffered-token-allocation
+             "Buffered contract has no explicit realization-owned named-key Kanata token allocation.")
+            issues))
     (dolist (interaction interactions)
       ;; Participants are physical inputs even if their behavior is mediated
       ;; by a timed interaction rather than an ordinary binding.  Do not let
@@ -1462,12 +1530,19 @@ compile gate.
                                     (ivory-key.model:normalized-layout-name normalized))
                              :entries (nreverse entries)
                              :modifiers nil
-                             :interactions nil
+                             ;; Kanata receives only contracts which the
+                             ;; MODEL derivation produced.  Generic normalized
+                             ;; interactions remain represented by compiler
+                             ;; refusal results, never as untyped backend IR.
+                             :interactions buffered-contracts
                              :metadata
                              (list :xkb-carrier-entries xkb-carrier-entries
                                    :selector-policy selector-policy
                                    :interaction-compatibility-policy
                                    interaction-compatibility-policy
+                                   :kanata-buffered-actions buffered-actions
+                                   :kanata-buffered-action-refusal
+                                   buffered-action-refusal
                                    :input-coverage
                                    (%input-coverage-records normalized placement)
                                    :kanata-source-order
@@ -1902,6 +1977,22 @@ plans, artifact text, contract data, or output paths.
                           (ivory-key.model::realization-interaction-compatibility-policy-interactions
                            policy)))
           (format stream "    interaction compatibility: unselected~%")))
+    (let ((actions (getf metadata :kanata-buffered-actions))
+          (refusal (getf metadata :kanata-buffered-action-refusal)))
+      (cond
+        (actions
+         (format stream "    buffered Kanata action handoff (inert; non-emittable)~%")
+         (dolist (action actions)
+           ;; The AST's canonical data never prints a source pathname, host
+           ;; object, or raw parenthesized Kanata action fragment.
+           (format stream "      ~S~%"
+                   (ivory-key.backend::kanata-buffered-interaction-action-canonical-data
+                    action))))
+        (refusal
+         (format stream "    buffered Kanata action handoff: withheld [~A]~%"
+                 (first refusal)))
+        (t
+         (format stream "    buffered Kanata action handoff: none~%"))))
     (dolist (record (or (getf metadata :input-coverage) nil))
       (format stream "    coverage ~A: ~A~%"
               (getf record :position)
@@ -1941,6 +2032,13 @@ plans, artifact text, contract data, or output paths.
                 (format stream "    ~A => ~A~%" source output))
         (format stream "    none~%")))
   (format stream "  realization grades~%")
+  (let ((actions (ivory-key.backend::kanata-plan-buffered-actions plan)))
+    (when actions
+      (format stream "  buffered action handoff (inert; non-emittable)~%")
+      (dolist (action actions)
+        (format stream "    ~S~%"
+                (ivory-key.backend::kanata-buffered-interaction-action-canonical-data
+                 action)))))
   (%write-realization-results stream (ivory-key.backend:kanata-plan-realizations plan)))
 
 (defun %backend-request-for-inspection (unit placement realization)

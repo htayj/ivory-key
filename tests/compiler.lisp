@@ -1826,14 +1826,52 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                  :unsupported-timed-interaction)
                :modern-no-delay "buffers/replays")
         (check "kanata-1-12-buffered" '("q-tap")
-               '(:unimplemented-kanata-1-12-buffered-interaction-policy
+               '(:unproved-kanata-buffered-pending-lifecycle
+                 :unimplemented-kanata-1-12-buffered-interaction-policy
                  :unsupported-timed-interaction)
-               :kanata-1-12-buffered "ownership, cancellation, and ordered-replay")
+               :kanata-1-12-buffered "single-owner deadline")
         (check "modern-no-delay" '("missing-instance")
                '(:unknown-realization-interaction-compatibility-interaction
                  :unsupported-timed-interaction
                  :unsupported-timed-interaction)
                :modern-no-delay nil)))))
+
+(deftest compiler-buffered-contract-handoff-requires-realization-allocations
+  "MODEL contracts are inspectable, but no direct/project compiler path gets ASTs."
+  (let* ((normalized (pending-input-normalized-layout))
+         (topology (ivory-key.model:normalized-layout-topology normalized))
+         (policy (pending-input-policy
+                  :names +pending-input-buffered-evidence-names+))
+         (placement
+           (ivory-key.cli::%make-compiler-placement
+            "pending-input-device"
+            (ivory-key.model:identifier-name (ivory-key.model:topology-name topology))
+            (mapcar
+             (lambda (position)
+               (let ((name (ivory-key.model:identifier-name
+                            (ivory-key.model:position-name position))))
+                 (cons name (list :xkb "AD01" :kanata name))))
+             (ivory-key.model:topology-positions topology)))))
+    (multiple-value-bind (request issues)
+        (ivory-key.cli::analyze-normalized-layout
+         normalized placement :interaction-compatibility-policy policy)
+      (is request)
+      (is (member :missing-kanata-buffered-hold-allocation
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
+      (is (member :missing-kanata-buffered-token-allocation
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
+      (is (member :unproved-kanata-buffered-pending-lifecycle
+                  (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues)))
+      (is (null (getf (ivory-key.backend::lowering-request-metadata request)
+                     :kanata-buffered-actions)))
+      (is-equal :missing-kanata-buffered-hold-allocation
+                (first (getf (ivory-key.backend::lowering-request-metadata request)
+                             :kanata-buffered-action-refusal)))
+      ;; The compiler's common exact-only gate runs before pipeline creation,
+      ;; so an ordinary direct call cannot write either backend artifact.
+      (signals ivory-key.cli::compiler-stage-error
+        (ivory-key.cli::make-lowering-request-from-normalized-layout
+         normalized placement :interaction-compatibility-policy policy)))))
 
 (deftest compiler-interaction-compatibility-source-is-closed-in-direct-and-project-modes
   (with-compiler-test-directory (directory)

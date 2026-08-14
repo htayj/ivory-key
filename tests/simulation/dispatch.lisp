@@ -12,6 +12,16 @@
                   (ivory-key.simulate::semantic-key-transition-key edge)))
           (ivory-key.simulate::simulation-result-semantic-transitions result)))
 
+(defun dispatch-physical-event-positions (result)
+  "The raw event trace excludes generated deadlines and routed notices."
+  (mapcar (lambda (entry)
+            (ivory-key.simulate::timed-event-position
+             (ivory-key.simulate::simulation-trace-entry-event entry)))
+          (remove-if-not
+           (lambda (entry)
+             (eq :event (ivory-key.simulate::simulation-trace-entry-kind entry)))
+           (ivory-key.simulate:simulation-result-trace result))))
+
 (defun dispatch-layout-with-named-b ()
   "Make B the one direct named-key binding eligible for buffered custody."
   (let* ((layout (pending-input-normalized-layout))
@@ -392,6 +402,68 @@
           (is-equal :complete (getf transaction :state))
           (is-equal nil (getf transaction :foreign-position))
           (is-equal nil (getf transaction :terminal-foreign-position)))))))
+
+(deftest simulation-dispatch-whole-layout-resolves-one-foreign-across-deadline
+  "The single proven timeout route preserves either later physical UP order."
+  (flet ((run (events)
+           (ivory-key.simulate:simulate-normalized-layout-events
+            (dispatch-layout-with-named-b) events
+            :interaction-compatibility-policy
+            (pending-input-policy :names '("tap-hold-super-semicolon")))))
+    (dolist (case
+             (list
+              (list (list (dispatch-event 0 :down "semicolon")
+                          (dispatch-event 50 :down "b")
+                          (dispatch-event 201 :up "b")
+                          (dispatch-event 251 :up "semicolon"))
+                    3 201 '("semicolon" "b" "b" "semicolon"))
+              (list (list (dispatch-event 0 :down "semicolon")
+                          (dispatch-event 50 :down "b")
+                          (dispatch-event 201 :up "semicolon")
+                          (dispatch-event 251 :up "b"))
+                    4 251 '("semicolon" "b" "semicolon" "b"))))
+      (destructuring-bind (events terminal-index terminal-time physical-order) case
+        (let* ((result (run events))
+               (transaction
+                 (first (ivory-key.simulate:simulation-result-dispatch-transactions result)))
+               (redispatch
+                 (find-if
+                  (lambda (entry)
+                    (and (eq :redispatch
+                             (ivory-key.simulate::simulation-trace-entry-kind entry))
+                         (eq :down
+                             (getf (ivory-key.simulate::simulation-trace-entry-details entry)
+                                   :kind))))
+                  (ivory-key.simulate:simulation-result-trace result)))
+               (deadline
+                 (find :deadline (ivory-key.simulate:simulation-result-trace result)
+                       :key #'ivory-key.simulate::simulation-trace-entry-kind)))
+          (is-equal '((:modifier :press "super") (:named-key "b")
+                      (:modifier :release "super"))
+                    (ivory-key.simulate:simulation-result-outputs result))
+          (is-equal '((:press "b") (:release "b"))
+                    (dispatch-semantic-edges result))
+          (is-equal '(:complete :timeout :deadline-hold)
+                    (list (getf transaction :state)
+                          (getf transaction :committed-role)
+                          (getf transaction :disposition)))
+          (is-equal "b" (getf transaction :foreign-position))
+          (is-equal 1 (getf transaction :foreign-down-index))
+          (is-equal 50 (getf transaction :foreign-down-time))
+          (is-equal "b" (getf transaction :terminal-foreign-position))
+          (is-equal terminal-index (getf transaction :terminal-foreign-index))
+          (is-equal terminal-time (getf transaction :terminal-foreign-time))
+          ;; B's physical interval appears exactly once.  Its logical DOWN is
+          ;; a separate timeout-frontier notice, not replayed input.
+          (is-equal physical-order
+                    (dispatch-physical-event-positions result))
+          (is-equal 200
+                    (ivory-key.simulate::timed-event-time
+                     (ivory-key.simulate::simulation-trace-entry-event deadline)))
+          (is-equal 1 (getf (ivory-key.simulate::simulation-trace-entry-details redispatch)
+                            :original-index))
+          (is-equal 2 (getf (ivory-key.simulate::simulation-trace-entry-details redispatch)
+                            :dispatch-frontier)))))))
 
 (deftest simulation-dispatch-refuses-overlay-foreign-route
   (let* ((layout (dispatch-layout-with-named-b))

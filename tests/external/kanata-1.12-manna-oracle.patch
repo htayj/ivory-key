@@ -1,6 +1,6 @@
 --- a/src/tests/sim_tests/tap_hold_tests.rs
 +++ b/src/tests/sim_tests/tap_hold_tests.rs
-@@ -1279,3 +1279,91 @@
+@@ -1279,3 +1279,112 @@
          result
      );
  }
@@ -71,6 +71,27 @@
 +         "t:210ms out-code:185;Press t:10ms out-code:185;Release t:20ms out-code:185;Press t:10ms out-code:185;Release t:20ms dn:Q t:10ms up:Q"),
 +    ] {
 +        assert_eq!(expected, simulate(cfg, events).to_ascii());
++    }
++}
++
++#[test]
++fn ivory_key_actual_advantage2_post_deadline_oracle() {
++    let cfg = include_str!("../../../cfg_samples/ivory-key-manna.kbd");
++    for (label, events, expected) in [
++        ("foreign-up-after-deadline-owner-last",
++         "d:f t:50 d:b t:151 u:b t:50 u:f t:10",
++         "t:199ms dn:LShift t:1ms dn:B t:1ms up:B t:50ms up:LShift"),
++        ("owner-up-after-deadline-foreign-last",
++         "d:f t:50 d:b t:151 u:f t:50 u:b t:10",
++         "t:199ms dn:LShift t:1ms dn:B t:1ms up:LShift t:50ms up:B"),
++        ("post-hold-foreign-then-owner-release",
++         "d:f t:200 d:b t:50 u:b t:50 u:f t:10",
++         "t:199ms dn:LShift t:1ms dn:B t:50ms up:B t:50ms up:LShift"),
++        ("two-owner-foreign-after-first-deadline",
++         "d:f t:10 d:j t:50 d:b t:151 u:b t:50 u:f t:10 u:j t:10",
++         "t:199ms dn:LShift t:11ms dn:B t:1ms up:B t:60ms up:LShift"),
++    ] {
++        assert_eq!(expected, simulate(cfg, events).to_ascii(), "{}", label);
 +    }
 +}
 +

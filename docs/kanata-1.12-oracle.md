@@ -41,7 +41,7 @@ suite and the Guix-only core proof.
 
 ## Observed state-machine contract
 
-The four checked tests use both small synthetic configurations and the actual
+The five checked tests use both small synthetic configurations and the actual
 hash-frozen Advantage 2 configuration. They exercise its two equal timer
 shapes, 200/200 ms and 250/250 ms, with `concurrent-tap-hold yes`, and assert:
 
@@ -54,6 +54,24 @@ shapes, 200/200 ms and 250/250 ms, with `concurrent-tap-hold yes`, and assert:
   modifier pairs; and
 - two owners of `layer-while-held` retain the function layer until the final
   owner releases, in either release order.
+
+The hash-frozen Advantage 2 configuration now also records the pending foreign
+key across the owner deadline.  In each row `f` is pressed at zero, `b` is
+pressed at 50 ms, and the 200 ms `f` deadline is crossed before the first
+listed release.  These are raw `simulated_output` strings, not a normalized
+model interpretation:
+
+| Label | Input events | Observed output |
+|---|---|---|
+| foreign-up after deadline, owner last | `d:f t:50 d:b t:151 u:b t:50 u:f t:10` | `t:199ms dn:LShift t:1ms dn:B t:1ms up:B t:50ms up:LShift` |
+| owner-up after deadline, foreign last | `d:f t:50 d:b t:151 u:f t:50 u:b t:10` | `t:199ms dn:LShift t:1ms dn:B t:1ms up:LShift t:50ms up:B` |
+| foreign input after owner hold | `d:f t:200 d:b t:50 u:b t:50 u:f t:10` | `t:199ms dn:LShift t:1ms dn:B t:50ms up:B t:50ms up:LShift` |
+| two owners plus foreign input | `d:f t:10 d:j t:50 d:b t:151 u:b t:50 u:f t:10 u:j t:10` | `t:199ms dn:LShift t:11ms dn:B t:1ms up:B t:60ms up:LShift` |
+
+The last row is only an observed precedence result for this exact configuration
+and scheduler.  It does not define an arbitration rule for an abstract
+multi-owner buffered transaction.  Likewise, post-hold owner release is an
+observable release, not evidence for an unmodeled cancellation operation.
 
 The oracle also establishes an important incompatibility with the currently
 proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md): Kanata 1.12.0

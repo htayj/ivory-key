@@ -1217,6 +1217,41 @@ closed before the second snapshot becomes viable.
              (buffered-dispatch-transaction-owner-index transaction))))
    (simulator-candidates machine)))
 
+(defun resolve-withheld-buffered-deadline (machine transaction event)
+  "Resolve the one proven timeout path for a withheld direct foreign route.
+
+EVENT is the generated owner deadline.  The physical foreign DOWN was already
+published exactly once; this function only emits its bounded routed-dispatch
+notice after the timeout candidate has committed its held result.
+"
+  (let* ((candidate (buffered-transaction-committed-candidate machine transaction))
+         (role (and candidate
+                    (buffered-contract-role-for-candidate transaction candidate))))
+    (unless (and role
+                 (eq (ivory-key.model:interaction-compatibility-role-reference-role role)
+                     :timeout))
+      (buffered-dispatch-refuse :unproved-deadline-role transaction event))
+    (setf (buffered-dispatch-transaction-committed-candidate transaction) candidate
+          (buffered-dispatch-transaction-committed-role transaction) :timeout
+          (buffered-dispatch-transaction-disposition transaction) :deadline-hold)
+    (trace-entry
+     machine :dispatch-resolved :event event
+     :interaction (buffered-dispatch-transaction-interaction transaction)
+     :case (simulation-candidate-case candidate) :candidate candidate
+     :details
+     (list :transaction (buffered-dispatch-transaction-id transaction)
+           :disposition :deadline-hold :role :timeout
+           :foreign-down-index (buffered-dispatch-transaction-withheld-index transaction)
+           :origin (buffered-dispatch-transaction-origin transaction))
+     :provenance
+     (list :route-kind :timed
+           :transaction (buffered-dispatch-transaction-id transaction)
+           :origin (buffered-dispatch-transaction-origin transaction)))
+    ;; The timeout candidate's held effect was acquired by
+    ;; UPDATE-CANDIDATES-FOR-CURRENT-PREFIX before this call.  Only then may
+    ;; the one direct named-key B route receive its logical DOWN notice.
+    (routed-dispatch-down machine transaction)))
+
 (defun complete-armed-buffered-transactions (machine event)
   (dolist (transaction (armed-buffered-transactions machine))
     (let ((candidate (buffered-transaction-committed-candidate machine transaction)))
@@ -1333,8 +1368,13 @@ ambiguous event, and accepted events are appended exactly once by the caller."
                             (equal position (timed-event-position withheld)))))
               (buffered-dispatch-refuse :mismatched-terminal transaction event))))
           (:down-redispatched-awaiting-up
+           ;; Once the deadline has routed B-DOWN, either physical terminal
+           ;; order is proven: B-UP may arrive before P-UP, or P-UP may end
+           ;; the held owner while B remains physically down.  No new DOWN or
+           ;; unrelated UP joins this bounded transaction.
            (unless (and (eq (timed-event-kind event) :up)
-                        (equal position (timed-event-position withheld)))
+                        (or (equal position owner)
+                            (equal position (timed-event-position withheld))))
              (buffered-dispatch-refuse :nested-or-mismatched-terminal
                                        transaction event))))))))
 
@@ -1606,14 +1646,13 @@ symbols, no-output actions, and overlays from foreign custody.
 
 (defun process-deadline (machine time)
   (setf (simulator-now machine) time)
-  (let ((transaction (active-buffered-transaction machine)))
-    (when (and transaction
-               (eq (buffered-dispatch-transaction-state transaction) :withheld-down))
-      (buffered-dispatch-refuse :pending-at-deadline transaction
-                                (make-deadline-event time))))
   (let ((event (make-deadline-event time)))
     (append-event machine event)
     (update-candidates-for-current-prefix machine)
+    (let ((transaction (active-buffered-transaction machine)))
+      (when (and transaction
+                 (eq (buffered-dispatch-transaction-state transaction) :withheld-down))
+        (resolve-withheld-buffered-deadline machine transaction event)))
     (complete-armed-buffered-transactions machine event)))
 
 (defun next-deadline-through (machine limit)

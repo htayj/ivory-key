@@ -441,6 +441,55 @@
    #:lowering-request #:lowering-request-name #:lowering-request-entries
    #:lowering-request-modifiers #:lowering-request-interactions
    #:lowering-request-metadata
+   ;; Closed, inert Kanata buffered-action inspection IR.
+   #:kanata-action
+   #:kanata-key-action #:kanata-key-action-key #:kanata-key-action-token
+   #:make-kanata-key-action
+   #:kanata-arbitrary-code-action #:kanata-arbitrary-code-action-code
+   #:make-kanata-arbitrary-code-action
+   #:kanata-layer-while-held-action
+   #:kanata-layer-while-held-action-axis
+   #:kanata-layer-while-held-action-state
+   #:kanata-layer-while-held-action-layer
+   #:kanata-layer-while-held-action-token
+   #:make-kanata-layer-while-held-action
+   #:kanata-alias-ref-action #:kanata-alias-ref-action-alias
+   #:make-kanata-alias-ref-action
+   #:kanata-modifier-hold-action
+   #:kanata-modifier-hold-action-identity
+   #:kanata-modifier-hold-action-state
+   #:kanata-modifier-hold-action-token
+   #:make-kanata-modifier-hold-action
+   #:kanata-tap-hold-release-action
+   #:kanata-tap-hold-release-action-tap-time
+   #:kanata-tap-hold-release-action-hold-time
+   #:kanata-tap-hold-release-action-tap-action
+   #:kanata-tap-hold-release-action-hold-action
+   #:make-kanata-tap-hold-release-action
+   #:kanata-owner-placement #:kanata-owner-placement-position
+   #:kanata-owner-placement-input-token #:kanata-owner-placement-origin
+   #:make-kanata-owner-placement
+   #:kanata-direct-route-reference #:kanata-direct-route-reference-position
+   #:kanata-direct-route-reference-input-token
+   #:kanata-direct-route-reference-action #:kanata-direct-route-reference-origin
+   #:make-kanata-direct-route-reference
+   #:kanata-defcfg-requirements
+   #:kanata-defcfg-requirements-process-unmapped-keys
+   #:kanata-defcfg-requirements-concurrent-tap-hold
+   #:make-kanata-defcfg-requirements
+   #:kanata-buffered-interaction-action
+   #:kanata-buffered-interaction-action-contract
+   #:kanata-buffered-interaction-action-owner
+   #:kanata-buffered-interaction-action-tap-hold
+   #:kanata-buffered-interaction-action-foreign-routes
+   #:kanata-buffered-interaction-action-defcfg
+   #:kanata-buffered-interaction-action-provenance
+   #:make-kanata-buffered-interaction-action
+   #:validate-kanata-buffered-interaction-action
+   #:kanata-action-canonical-data
+   #:kanata-buffered-interaction-action-canonical-data
+   #:kanata-action-validation-error #:kanata-action-validation-error-code
+   #:kanata-action-validation-error-message
    #:resource-pool #:make-resource-pool #:reserve-resource #:allocate-resource
    #:allocation-alist
    ;; Backend-neutral capability planning.
@@ -497,6 +546,7 @@
    #:plan-normalized-layout #:require-planned-realizations
    #:make-xkb-backend #:xkb-plan-realizations
    #:make-kanata-backend #:kanata-plan-realizations
+   #:kanata-plan-buffered-actions
    #:make-qmk-backend #:qmk-plan-keyboard #:qmk-plan-layout
    #:qmk-plan-layers #:qmk-plan-realizations
    #:pipeline-artifact-kind #:pipeline-artifact-relative-path

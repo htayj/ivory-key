@@ -12,6 +12,10 @@
    ;; (NAME . OUTPUTS), where OUTPUTS is aligned with SOURCES.  The semantic
    ;; layout never contains a Kanata layer or carrier spelling.
    (layers :initarg :layers :initform nil :reader kanata-plan-layers)
+   ;; Typed buffered handoffs are inspection-only.  Their realization rows
+   ;; remain unsupported, so their presence cannot authorize emission.
+   (buffered-actions :initarg :buffered-actions :initform nil
+                     :reader kanata-plan-buffered-actions)
    (realizations :initarg :realizations :reader kanata-plan-realizations)))
 
 (defun make-kanata-backend ()
@@ -118,6 +122,13 @@ would reintroduce the profile-wide applicability leak.
   (cond
     ((typep interaction 'ivory-key.model:normalized-interaction)
      (ivory-key.model:normalized-interaction-name interaction))
+    ((typep interaction
+            'ivory-key.model::release-trigger-interaction-compatibility-contract)
+     (let ((normalized
+             (ivory-key.model::interaction-compatibility-contract-interaction
+              interaction)))
+       (and (typep normalized 'ivory-key.model:normalized-interaction)
+            (ivory-key.model:normalized-interaction-name normalized))))
     ((typep interaction 'ivory-key.model:identifier) interaction)
     ((stringp interaction)
      (handler-case
@@ -151,6 +162,112 @@ caller supplied no matching interaction entries.
            interactions))
    (ivory-key.model::realization-interaction-compatibility-policy-interactions
     policy)))
+
+(defun %kanata-buffered-action-identifier (action)
+  "Return ACTION's contract identity only after closed AST validation."
+  (validate-kanata-buffered-interaction-action action)
+  (%kanata-interaction-identifier
+   (kanata-buffered-interaction-action-contract action)))
+
+(defun %kanata-identifier-set= (left right)
+  (and (= (length left) (length right))
+       (every (lambda (identifier)
+                (ivory-key.model:identifier-member-p identifier right))
+              left)))
+
+(defun %validate-kanata-buffered-actions (policy interactions actions)
+  "Fail closed on partial, forged, or colliding buffered action metadata."
+  (unless (and policy
+               (eq (ivory-key.model::realization-interaction-compatibility-policy-mode
+                    policy)
+                   :kanata-1-12-buffered))
+    (error 'kanata-action-validation-error
+           :code :kanata-buffered-actions-without-policy
+           :message "Typed Kanata buffered actions require the selected buffered compatibility policy."))
+  (unless (listp actions)
+    (error 'kanata-action-validation-error
+           :code :invalid-kanata-buffered-action-list
+           :message "Kanata buffered action metadata must be a proper list."))
+  (dolist (action actions)
+    (validate-kanata-buffered-interaction-action action))
+  (let ((action-identifiers (mapcar #'%kanata-buffered-action-identifier actions))
+        (interaction-identifiers (mapcar #'%kanata-interaction-identifier interactions))
+        (policy-identifiers
+          (ivory-key.model::realization-interaction-compatibility-policy-interactions
+           policy)))
+    (unless (every #'identity action-identifiers)
+      (error 'kanata-action-validation-error
+             :code :invalid-kanata-buffered-action-contract
+             :message "Buffered Kanata action has no normalized interaction identity."))
+    (unless (every #'identity interaction-identifiers)
+      (error 'kanata-action-validation-error
+             :code :invalid-kanata-buffered-request-interaction
+             :message "Buffered Kanata request contains an unrecognized interaction contract."))
+    (unless (= (length interaction-identifiers)
+               (length (remove-duplicates interaction-identifiers
+                                          :test #'ivory-key.model:identifier=)))
+      (error 'kanata-action-validation-error
+             :code :duplicate-kanata-buffered-request-interaction
+             :message "Kanata buffered request repeats an interaction identity."))
+    (unless (= (length action-identifiers)
+               (length (remove-duplicates action-identifiers
+                                          :test #'ivory-key.model:identifier=)))
+      (error 'kanata-action-validation-error
+             :code :duplicate-kanata-buffered-action
+             :message "Kanata buffered action metadata repeats an interaction instance."))
+    (unless (%kanata-identifier-set= action-identifiers policy-identifiers)
+      (error 'kanata-action-validation-error
+             :code :incomplete-kanata-buffered-action-set
+             :message "Kanata buffered action metadata must cover exactly the selected policy instances."))
+    (unless (%kanata-identifier-set= interaction-identifiers policy-identifiers)
+      (error 'kanata-action-validation-error
+             :code :incomplete-kanata-buffered-request-contracts
+             :message "Kanata buffered request must carry exactly the selected interaction contracts."))
+    (let ((owner-inputs nil)
+          (owner-positions nil)
+          (foreign-inputs nil)
+          (foreign-positions nil))
+      (dolist (action actions)
+        (let ((owner (kanata-buffered-interaction-action-owner action)))
+          (push (kanata-owner-placement-input-token owner) owner-inputs)
+          (push (ivory-key.model:identifier-name
+                 (kanata-owner-placement-position owner))
+                owner-positions)
+          (dolist (route (kanata-buffered-interaction-action-foreign-routes action))
+            (push (kanata-direct-route-reference-input-token route) foreign-inputs)
+            (push (ivory-key.model:identifier-name
+                   (kanata-direct-route-reference-position route))
+                  foreign-positions))))
+      (when (/= (length owner-inputs)
+                (length (remove-duplicates owner-inputs :test #'string=)))
+        (error 'kanata-action-validation-error
+               :code :duplicate-kanata-buffered-owner-input
+               :message "Buffered Kanata actions reuse an owner input token."))
+      (when (/= (length owner-positions)
+                (length (remove-duplicates owner-positions :test #'string=)))
+        (error 'kanata-action-validation-error
+               :code :duplicate-kanata-buffered-owner-position
+               :message "Buffered Kanata actions reuse an owner position."))
+      (when (some (lambda (input) (member input foreign-inputs :test #'string=))
+                  owner-inputs)
+        (error 'kanata-action-validation-error
+               :code :kanata-buffered-owner-foreign-input-collision
+               :message "A buffered Kanata owner input collides with a foreign route."))
+      (when (some (lambda (position)
+                    (member position foreign-positions :test #'string=))
+                  owner-positions)
+        (error 'kanata-action-validation-error
+               :code :kanata-buffered-owner-foreign-position-collision
+               :message "A buffered Kanata owner position collides with a foreign route."))))
+  ;; Canonicalize at the protocol boundary rather than relying on caller
+  ;; declaration order.  This is the exact action sequence retained by PLAN
+  ;; and consumed by inspection dumps.
+  (sort (copy-list actions) #'ivory-key.model:identifier<
+        :key #'%kanata-buffered-action-identifier))
+
+(defun %kanata-buffered-action-refusal-detail ()
+  "Stable non-emission reason even after typed AST validation."
+  "Typed Kanata 1.12 action handoff remains unsupported: the single-owner deadline path is proven, but cancellation, multi-owner/foreign arbitration, and bounded native queue closure are not.")
 
 (defun %kanata-source-rows (request mappings)
   "Return canonical (POSITION . SOURCE) rows for one generated config.
@@ -245,12 +362,21 @@ atom/action before text emission.
             results))
     (let ((interactions (lowering-request-interactions request))
           (interaction-compatibility-policy
-            (%kanata-metadata-value request :interaction-compatibility-policy)))
+            (%kanata-metadata-value request :interaction-compatibility-policy))
+          (buffered-actions
+            (%kanata-metadata-value request :kanata-buffered-actions)))
       (when interaction-compatibility-policy
         ;; Programmatic callers do not get to smuggle a plist/string through
         ;; metadata merely because no source decoder was involved.
         (ivory-key.model::validate-realization-interaction-compatibility-policy
          interaction-compatibility-policy))
+      ;; This is an inert handoff, not a positive backend capability.  Repeat
+      ;; every set/collision check for direct protocol callers before we add
+      ;; even an inspection row to the plan.
+      (when buffered-actions
+        (setf buffered-actions
+              (%validate-kanata-buffered-actions
+               interaction-compatibility-policy interactions buffered-actions)))
       ;; A policy is an obligation on each named source interaction, not
       ;; decoration for whatever entries happened to reach this backend.  Keep
       ;; static-only or partial programmatic requests non-emittable when they
@@ -269,16 +395,36 @@ atom/action before text emission.
       (dolist (interaction interactions)
         (push
          (make-realization-result
-          interaction :unsupported
+          ;; A derived contract is an object graph, not a printable feature
+          ;; name.  Preserve its normalized identity in plan inspection so
+          ;; reversed direct request lists cannot leak object addresses or
+          ;; change the dump order.
+          (let ((identifier (%kanata-interaction-identifier interaction)))
+            (if (and identifier
+                     (or (typep interaction 'ivory-key.model:normalized-interaction)
+                         (typep interaction
+                                'ivory-key.model::release-trigger-interaction-compatibility-contract)))
+                (ivory-key.model:identifier-name identifier)
+                interaction))
+          :unsupported
           :detail
-          (if (and interaction-compatibility-policy
-                   (%kanata-interaction-compatibility-target-p
-                    interaction-compatibility-policy interaction))
-              (%kanata-interaction-compatibility-refusal-detail
-               interaction-compatibility-policy)
+          (let* ((identifier (%kanata-interaction-identifier interaction))
+                 (buffered-action
+                   (and identifier buffered-actions
+                        (find identifier buffered-actions
+                              :test #'ivory-key.model:identifier=
+                              :key #'%kanata-buffered-action-identifier))))
+            (cond
+              (buffered-action
+               (%kanata-buffered-action-refusal-detail))
+              ((and interaction-compatibility-policy
+                    (%kanata-interaction-compatibility-target-p
+                     interaction-compatibility-policy interaction))
+               (%kanata-interaction-compatibility-refusal-detail
+                interaction-compatibility-policy))
               ;; NIL, an explicitly unlisted interaction, or an unrecognizable
               ;; programmatic value retains the target-generic refusal.
-              "Generic interaction lowering requires an explicit Kanata template."))
+              (t "Generic interaction lowering requires an explicit Kanata template."))))
          results))
     ;; The typed carrier/selector policy is deliberately not a raw Kanata
     ;; action template.  Until lifecycle and source-consumption behavior are
@@ -306,6 +452,7 @@ atom/action before text emission.
                      :sources (mapcar #'cdr source-rows)
                      :outputs base-outputs
                      :layers layers
+                     :buffered-actions (or buffered-actions nil)
                      :realizations (nreverse results)))))))
 
 (defmethod emit-plan ((backend kanata-backend) (plan kanata-plan) stream)

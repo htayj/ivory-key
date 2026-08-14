@@ -275,6 +275,322 @@
         :metadata
         (list :interaction-compatibility-policy "kanata-1-12-buffered"))))))
 
+(defun backend-test-kanata-action-signals (code thunk)
+  (handler-case
+      (progn
+        (funcall thunk)
+        (error "Expected Kanata action validation error ~S, but none was signaled." code))
+    (ivory-key.backend::kanata-action-validation-error (condition)
+      (is-equal code
+                (ivory-key.backend::kanata-action-validation-error-code condition)))))
+
+(defun backend-test-buffered-contract-and-policy (&optional (name "tap-hold-case-f"))
+  "Return one actual MODEL-derived evidence contract and its scoped policy."
+  (let* ((layout (pending-input-normalized-layout))
+         (policy (pending-input-policy :names (list name)))
+         (contract
+           (first (ivory-key.model:derive-interaction-compatibility-contracts
+                   policy layout))))
+    (values contract policy)))
+
+(defun backend-test-buffered-action (contract &key (foreign-position "q")
+                                              (foreign-token "q"))
+  "Build one complete inert action from a real buffered evidence contract."
+  (let* ((owner (ivory-key.model::interaction-compatibility-contract-owner contract))
+         (tap (ivory-key.model::release-trigger-interaction-compatibility-contract-tap-key
+               contract))
+         (deadline
+           (ivory-key.model::release-trigger-interaction-compatibility-contract-deadline
+            contract))
+         (signature
+           (ivory-key.model::release-trigger-interaction-compatibility-contract-held-effect-signature
+            contract))
+         (owner-placement
+           (ivory-key.backend::make-kanata-owner-placement owner
+                                                            (ivory-key.model:identifier-name owner)
+                                                            :origin
+                                                            (ivory-key.model::interaction-compatibility-contract-origin
+                                                             contract)))
+         ;; The token is a deliberately explicit test allocation.  Compiler
+         ;; inspection has no corresponding realization field and therefore
+         ;; refuses rather than manufacturing this value.
+         (hold (ivory-key.backend::make-kanata-modifier-hold-action
+                (ivory-key.model::interaction-compatibility-held-effect-signature-identity
+                 signature)
+                "lshift"
+                :state
+                (ivory-key.model::interaction-compatibility-held-effect-signature-state
+                 signature)))
+         (tap-action (ivory-key.backend::make-kanata-key-action
+                      tap (ivory-key.model:identifier-name tap)))
+         (route
+           (ivory-key.backend::make-kanata-direct-route-reference
+            foreign-position foreign-token
+            (ivory-key.backend::make-kanata-key-action foreign-position foreign-token)
+            :origin (ivory-key.model::interaction-compatibility-contract-origin contract))))
+    (ivory-key.backend::make-kanata-buffered-interaction-action
+     contract owner-placement
+     (ivory-key.backend::make-kanata-tap-hold-release-action
+      deadline deadline tap-action hold)
+     (list route)
+     (ivory-key.backend::make-kanata-defcfg-requirements
+      :process-unmapped-keys t :concurrent-tap-hold :required)
+     :provenance (ivory-key.model::interaction-compatibility-contract-origin contract))))
+
+(defun backend-test-forged-buffered-contract
+    (contract &key empty-candidates empty-role-references)
+  "Return a public-CLOS counterfeit of CONTRACT without MODEL derivation.
+
+This intentionally copies the old ledger-visible fields.  The action boundary
+must nevertheless reject it: an empty candidate graph cannot be reconstructed
+from the interaction name, and empty role references cannot be treated as the
+three normalized candidates MODEL originally proved.
+"
+  (let* ((interaction
+           (ivory-key.model::interaction-compatibility-contract-interaction contract))
+         (forged-interaction
+           (if empty-candidates
+               (pending-input-clone-interaction interaction :candidates nil)
+               interaction)))
+    (make-instance
+     'ivory-key.model::pending-foreign-interval-contract
+     :mode :kanata-1-12-buffered
+     :interaction forged-interaction
+     :owner (ivory-key.model::interaction-compatibility-contract-owner contract)
+     :origin (ivory-key.model::interaction-compatibility-contract-origin contract)
+     :role-references
+     (if empty-role-references
+         nil
+         (ivory-key.model::release-trigger-interaction-compatibility-contract-role-references
+          contract))
+     :deadline
+     (ivory-key.model::release-trigger-interaction-compatibility-contract-deadline
+      contract)
+     :capture-name
+     (ivory-key.model::release-trigger-interaction-compatibility-contract-capture-name
+      contract)
+     :held-effect-signature
+     (ivory-key.model::release-trigger-interaction-compatibility-contract-held-effect-signature
+      contract)
+     :tap-key
+     (ivory-key.model::release-trigger-interaction-compatibility-contract-tap-key
+      contract)
+     :provenance
+     (ivory-key.model::release-trigger-interaction-compatibility-contract-provenance
+      contract))))
+
+(defun backend-test-buffered-plan (policy contracts actions)
+  "Lower an inert direct protocol request without ever attempting emission."
+  (ivory-key.backend:lower-request
+   (ivory-key.backend:make-kanata-backend)
+   (backend-test-request
+    :entries (list (backend-test-entry))
+    :interactions contracts
+    :metadata (list :interaction-compatibility-policy policy
+                    :kanata-buffered-actions actions))))
+
+(defun backend-test-kanata-plan-dump (plan)
+  "Return the compiler's inspection-only Kanata plan dump for PLAN."
+  (with-output-to-string (stream)
+    (ivory-key.cli::%write-kanata-plan-inspection stream plan)))
+
+(deftest backend-kanata-buffered-action-handoff-is-typed-canonical-and-inert
+  "A real evidence contract may be inspected but cannot make a Kanata artifact."
+  (multiple-value-bind (contract policy)
+      (backend-test-buffered-contract-and-policy)
+    (let* ((action (backend-test-buffered-action contract))
+           (data (ivory-key.backend::kanata-buffered-interaction-action-canonical-data
+                  action))
+           (backend (ivory-key.backend:make-kanata-backend))
+           (plan
+             (ivory-key.backend:lower-request
+              backend
+              (backend-test-request
+               :entries (list (backend-test-entry))
+               :interactions (list contract)
+               :metadata
+               (list :interaction-compatibility-policy policy
+                     :kanata-buffered-actions (list action))))))
+      ;; Canonical data contains semantic identities and known/unknown
+      ;; provenance disposition only: no object address, source pathname, or
+      ;; raw parenthesized Kanata action text can leak through inspection.
+      (is-equal data
+                (ivory-key.backend::kanata-buffered-interaction-action-canonical-data
+                 action))
+      (is-equal "tap-hold-case-f" (getf data :interaction))
+      (is-equal :known (getf data :provenance))
+      (is (search "single-owner deadline"
+                  (ivory-key.backend:realization-detail
+                   (first (remove-if-not
+                           (lambda (result)
+                             (search "single-owner deadline"
+                                     (ivory-key.backend:realization-detail result)))
+                           (ivory-key.backend::kanata-plan-realizations plan))))))
+      (is-equal (list action)
+                (ivory-key.backend::kanata-plan-buffered-actions plan))
+      ;; The direct row remains individually exact, but the handoff adds an
+      ;; unsupported interaction result, so the shared emitter gate refuses.
+      (signals error
+        (ivory-key.backend:emit-plan-to-string backend plan)))))
+
+(deftest backend-kanata-buffered-action-handoff-refuses-forged-partial-and-colliding-ir
+  (multiple-value-bind (contract policy)
+      (backend-test-buffered-contract-and-policy)
+    (let* ((action (backend-test-buffered-action contract))
+           (tap (ivory-key.backend::make-kanata-key-action "f" "f"))
+           (hold (ivory-key.backend::make-kanata-modifier-hold-action
+                  "case" "lshift" :state "shifted")))
+      ;; Equal nonzero u16 timing and no nested holdtap are structural AST
+      ;; invariants, not assumptions made by an eventual text emitter.
+      (backend-test-kanata-action-signals
+       :mismatched-kanata-tap-hold-time
+       (lambda ()
+         (ivory-key.backend::make-kanata-tap-hold-release-action
+          200 201 tap hold)))
+      (let ((inner (ivory-key.backend::make-kanata-tap-hold-release-action
+                    200 200 tap hold)))
+        (backend-test-kanata-action-signals
+         :invalid-kanata-hold-action
+         (lambda ()
+           (ivory-key.backend::make-kanata-tap-hold-release-action
+            200 200 tap inner))))
+      (backend-test-kanata-action-signals
+       :invalid-kanata-defcfg-requirements
+       (lambda ()
+         (ivory-key.backend::make-kanata-defcfg-requirements
+          :process-unmapped-keys t :concurrent-tap-hold nil)))
+      (backend-test-kanata-action-signals
+       :kanata-buffered-owner-route-collision
+       (lambda ()
+         (let ((owner (ivory-key.backend::make-kanata-owner-placement "f" "f")))
+           (ivory-key.backend::make-kanata-buffered-interaction-action
+            contract owner
+            (ivory-key.backend::make-kanata-tap-hold-release-action
+             200 200 tap hold)
+            (list (ivory-key.backend::make-kanata-direct-route-reference
+                   "f" "f" tap))
+            (ivory-key.backend::make-kanata-defcfg-requirements
+             :process-unmapped-keys t :concurrent-tap-hold :required)))))
+      (backend-test-kanata-action-signals
+       :unvalidated-kanata-action
+       (lambda ()
+         (ivory-key.backend::make-kanata-tap-hold-release-action
+          200 200
+          (make-instance 'ivory-key.backend::kanata-key-action
+                         :key "f" :token "f") hold)))
+      ;; LOWER-REQUEST repeats complete-set validation: an AST selected for a
+      ;; direct call cannot omit its matching contract or smuggle an extra
+      ;; target into an otherwise static plan.
+      (backend-test-kanata-action-signals
+       :incomplete-kanata-buffered-request-contracts
+       (lambda ()
+         (ivory-key.backend:lower-request
+          (ivory-key.backend:make-kanata-backend)
+          (backend-test-request
+           :metadata (list :interaction-compatibility-policy policy
+                           :kanata-buffered-actions (list action))))))
+      (multiple-value-bind (other-contract ignored-policy)
+          (backend-test-buffered-contract-and-policy "tap-hold-case-j")
+        (declare (ignore ignored-policy))
+        (backend-test-kanata-action-signals
+         :incomplete-kanata-buffered-action-set
+         (lambda ()
+           (ivory-key.backend:lower-request
+            (ivory-key.backend:make-kanata-backend)
+            (backend-test-request
+             :interactions (list other-contract)
+             :metadata (list :interaction-compatibility-policy policy
+                             :kanata-buffered-actions
+                             (list (backend-test-buffered-action other-contract)))))))))))
+
+(deftest backend-kanata-buffered-action-authority-is-rederived-from-model
+  "A public contract object cannot mint buffered action authority by projection."
+  (multiple-value-bind (contract ignored-policy)
+      (backend-test-buffered-contract-and-policy)
+    (declare (ignore ignored-policy))
+    ;; Both counterfeits retain the same evidence-ledger interaction name and
+    ;; deadline.  One erases the normalized candidate graph; the other erases
+    ;; its authority-bearing role links.  Public action construction must
+    ;; rederive and reject both before a direct LOWER-REQUEST can receive them.
+    (dolist (forged
+             (list (backend-test-forged-buffered-contract
+                    contract :empty-candidates t)
+                   (backend-test-forged-buffered-contract
+                    contract :empty-role-references t)))
+      (backend-test-kanata-action-signals
+       :unvalidated-kanata-buffered-contract
+       (lambda ()
+         (backend-test-buffered-action forged))))))
+
+(deftest backend-kanata-buffered-actions-are-canonical-and-cross-position-safe
+  "Direct protocol calls retain a canonical, non-colliding inert action set."
+  (let* ((layout (pending-input-normalized-layout))
+         (policy (pending-input-policy
+                  :names '("tap-hold-case-f" "tap-hold-case-j")))
+         (contracts
+           (ivory-key.model:derive-interaction-compatibility-contracts
+            policy layout))
+         (f-contract
+           (find "tap-hold-case-f" contracts :test #'ivory-key.model:identifier=
+                 :key (lambda (contract)
+                        (ivory-key.model:normalized-interaction-name
+                         (ivory-key.model::interaction-compatibility-contract-interaction
+                          contract)))))
+         (j-contract
+           (find "tap-hold-case-j" contracts :test #'ivory-key.model:identifier=
+                 :key (lambda (contract)
+                        (ivory-key.model:normalized-interaction-name
+                         (ivory-key.model::interaction-compatibility-contract-interaction
+                          contract)))))
+         (f-action (backend-test-buffered-action f-contract))
+         (j-action (backend-test-buffered-action j-contract))
+         (canonical-plan
+           (backend-test-buffered-plan policy (list f-contract j-contract)
+                                       (list f-action j-action)))
+         (reversed-plan
+           (backend-test-buffered-plan policy (list j-contract f-contract)
+                                       (list j-action f-action))))
+    ;; The stored handoff, its canonical data, and its inspection dump do not
+    ;; depend on caller order.  These plans remain unsupported/non-emittable.
+    (is-equal '("tap-hold-case-f" "tap-hold-case-j")
+              (mapcar
+               (lambda (action)
+                 (ivory-key.model:identifier-name
+                  (ivory-key.model:normalized-interaction-name
+                   (ivory-key.model::interaction-compatibility-contract-interaction
+                    (ivory-key.backend::kanata-buffered-interaction-action-contract
+                     action)))))
+               (ivory-key.backend::kanata-plan-buffered-actions reversed-plan)))
+    (is-equal
+     (mapcar #'ivory-key.backend::kanata-buffered-interaction-action-canonical-data
+             (ivory-key.backend::kanata-plan-buffered-actions canonical-plan))
+     (mapcar #'ivory-key.backend::kanata-buffered-interaction-action-canonical-data
+             (ivory-key.backend::kanata-plan-buffered-actions reversed-plan)))
+    (is-equal (backend-test-kanata-plan-dump canonical-plan)
+              (backend-test-kanata-plan-dump reversed-plan))
+    (signals error
+      (ivory-key.backend:emit-plan-to-string
+       (ivory-key.backend:make-kanata-backend) reversed-plan))
+    ;; Duplicate interaction identities are rejected before the set equality
+    ;; check could make (f f) appear to cover one selected policy target.
+    (backend-test-kanata-action-signals
+     :duplicate-kanata-buffered-request-interaction
+     (lambda ()
+       (backend-test-buffered-plan policy (list f-contract f-contract)
+                                   (list f-action j-action))))
+    ;; Token strings are distinct ("f" versus "q"), but F's foreign route
+    ;; names J's owner *position*.  Cross-action validation must compare the
+    ;; semantic positions too, rather than relying on realization tokens.
+    (backend-test-kanata-action-signals
+     :kanata-buffered-owner-foreign-position-collision
+     (lambda ()
+       (backend-test-buffered-plan
+        policy (list f-contract j-contract)
+        (list (backend-test-buffered-action f-contract
+                                            :foreign-position "j"
+                                            :foreign-token "q")
+              j-action))))))
+
 (deftest backend-pipeline-emits-deterministic-xkb-and-kanata-strings
   (let* ((result
            (ivory-key.backend:compile-xkb-kanata-request

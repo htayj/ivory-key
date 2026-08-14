@@ -37,6 +37,7 @@
                (:file "src/backend/resources")
                (:file "src/backend/planner")
                (:file "src/backend/xkb")
+               (:file "src/backend/kanata-actions")
                (:file "src/backend/kanata")
                (:file "src/backend/qmk")
                (:file "src/pipeline/xkb-kanata")

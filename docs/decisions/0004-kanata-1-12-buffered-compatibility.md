@@ -152,15 +152,24 @@ The finite transaction has these closed states:
   acquired, the original foreign `down` and terminal `up` positions, indices,
   and times.
 
-A deadline reached in `withheld-down` is deliberately refused. The oracle does
-not establish whether Kanata flushes, holds, cancels, or reclassifies that
-prefix, so choosing one would invent compatibility semantics. Likewise, every
-policy-selected owner position is excluded from the eligible foreign domain.
-This permits the separately proven multiple-owner modifier/function lifetime
-while preventing one selected owner from accidentally becoming another
-owner's single buffered `B`. If one ordinary foreign `down` would be eligible
-for more than one armed transaction, the simulator refuses rather than using
-layout, interaction, or host iteration order.
+A deadline reached in `withheld-down` now has one bounded reference path: for
+one selected owner and one already-withheld direct named-key foreign down, the
+timeout candidate first commits/acquires its held result and the simulator then
+issues that foreign logical down at the deadline dispatch frontier.  Its later
+physical up and the owner up retain either observed order without cloning the
+physical interval.  This follows the pinned Advantage 2 raw trace, which emits
+`LShift` at `t:199ms` and the buffered `B` down one millisecond later across
+the nominal 200 ms owner deadline.  A two-owner `f`/`j` prefix with that
+foreign input likewise has one exact raw trace, but remains refused by the
+reference transaction: these observations do not select a generic queue rule,
+cancellation operation, or abstract multi-owner arbitration policy.  Likewise,
+every policy-selected owner position is excluded from the eligible foreign
+domain. This permits the
+separately proven multiple-owner modifier/function lifetime while preventing
+one selected owner from accidentally becoming another owner's single buffered
+`B`. If one ordinary foreign `down` would be eligible for more than one armed
+transaction, the simulator refuses rather than using layout, interaction, or
+host iteration order.
 
 The early-owner-release prefix also exposes a limitation in the former output
 model: one atomic `(:named-key ...)` cannot prove the required tap press,
