@@ -97,9 +97,12 @@ exhaustion is explicit and does not mutate a reusable profile inventory.
 With an XKB capability advertising the conventional eight native static levels,
 dependency-scoped static product tables of up to eight states receive an
 `exact` table grade. A twenty-state table remains twenty entries in the plan
-and is `unsupported` unless another target or separately proven emulation is
-provided. The planner does not claim a Kanata or QMK realization merely from
-that requirement, and `require-planned-realizations` refuses unproved plans.
+and is partitioned canonically as `8+8+4`, with every context assigned to a
+bank and native level. The plan records distinct bank-selector and carrier
+obligations. It remains `unsupported` until another target or separately
+proven emulation implements those transitions; advertised group capacity alone
+is not proof. A table requiring more advertised banks is also retained in full
+and refused. `require-planned-realizations` refuses these unproved plans.
 
 Planner inspection is included in both explicit-file and project `explain`
 paths. It reports canonical table sizes and selector, modifier, and resource

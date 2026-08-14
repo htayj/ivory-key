@@ -127,3 +127,36 @@
                            (find-package '#:ivory-key.model))))
     (is (null (find-symbol (string-upcase uninterned-backend)
                            (find-package '#:ivory-key.model))))))
+
+(deftest realization-profile-owns-a-compatible-output-vocabulary
+  (let* ((vocabulary
+           (ivory-key.model::make-output-vocabulary
+            '("backend-b" "backend-a")
+            (list (vocabulary-test-entry "named-key" "return" "backend-a"
+                                         "key-return"))))
+         (profile
+           (ivory-key.model:make-realization-profile
+            "synthetic-profile" :pipeline '("backend-a" "backend-b")
+            :vocabulary vocabulary)))
+    (is (eq vocabulary
+            (ivory-key.model:realization-profile-vocabulary profile)))
+    ;; Pipeline order remains realization policy; vocabulary order is a
+    ;; deterministic map representation and is not substituted for it.
+    (is-equal '("backend-a" "backend-b")
+              (ivory-key.model:realization-profile-pipeline profile)))
+  (vocabulary-signals-code
+   :duplicate-realization-backend
+   (lambda ()
+     (ivory-key.model:make-realization-profile
+      "duplicate-pipeline" :pipeline '("backend-a" "BACKEND-A"))))
+  (vocabulary-signals-code
+   :unknown-realization-vocabulary-backend
+   (lambda ()
+     (ivory-key.model:make-realization-profile
+      "incompatible-vocabulary" :pipeline '("backend-a")
+      :vocabulary (ivory-key.model::make-output-vocabulary '("backend-b") nil))))
+  (vocabulary-signals-code
+   :invalid-realization-vocabulary
+   (lambda ()
+     (ivory-key.model:make-realization-profile
+      "not-a-vocabulary" :pipeline '("backend-a") :vocabulary "backend-a"))))

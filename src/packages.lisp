@@ -291,7 +291,15 @@
    #:compile-normalized-ordinary-binding
    #:compile-normalized-ordinary-bindings
    #:compile-normalized-layout-simulation
-   #:simulate-normalized-layout-events #:simulate-model-layout-events))
+   #:simulate-normalized-layout-events #:simulate-model-layout-events
+   ;; Restricted declarative event-stream input and deterministic dumps.
+   #:simulation-event-source-error #:simulation-event-source-error-code
+   #:simulation-event-source-error-message #:simulation-event-source-error-span
+   #:simulation-event-stream #:simulation-event-stream-events
+   #:simulation-event-stream-axes #:simulation-event-stream-latches
+   #:simulation-event-stream-until #:decode-simulation-event-stream-forms
+   #:decode-simulation-event-stream-file
+   #:simulate-normalized-layout-event-stream #:simulation-result-dump-string))
 
 (defpackage #:ivory-key.project
   (:use #:cl #:ivory-key.source #:ivory-key.syntax
@@ -303,7 +311,8 @@
    #:project-definition-value #:project-definition-span
    #:project-load-result #:project-load-result-definitions
    #:project-load-result-layouts #:project-load-result-topologies
-   #:project-load-result-devices #:project-load-result-realizations
+   #:project-load-result-devices #:project-load-result-output-vocabularies
+   #:project-load-result-realizations
    #:project-load-result-compositions #:load-project
    #:project-realization-composition
    #:project-realization-composition-name
@@ -311,7 +320,8 @@
    #:project-realization-composition-device
    #:project-realization-composition-realization
    #:project-definition-by-name #:project-layout #:project-topology
-   #:project-device #:project-realization #:project-composition))
+   #:project-device #:project-output-vocabulary
+   #:project-realization #:project-composition))
 
 (defpackage #:ivory-key.backend
   (:use #:cl #:ivory-key.conditions #:ivory-key.model)
@@ -340,6 +350,25 @@
    #:static-table-requirement-physical-input
    #:static-table-requirement-axes #:static-table-requirement-entries
    #:static-table-requirement-state-count #:static-table-requirement-static-p
+   #:static-table-bank #:make-static-table-bank
+   #:static-table-bank-ordinal #:static-table-bank-capacity
+   #:static-table-bank-entries
+   #:static-table-bank-assignment #:make-static-table-bank-assignment
+   #:static-table-bank-assignment-context
+   #:static-table-bank-assignment-bank-index
+   #:static-table-bank-assignment-level-index
+   #:multi-bank-partition-requirement
+   #:make-multi-bank-partition-requirement
+   #:multi-bank-partition-requirement-position
+   #:multi-bank-partition-requirement-level-capacity
+   #:multi-bank-partition-requirement-bank-capacity
+   #:multi-bank-partition-requirement-bank-count
+   #:multi-bank-partition-requirement-banks
+   #:multi-bank-partition-requirement-assignments
+   #:bank-selector-requirement #:make-bank-selector-requirement
+   #:bank-selector-requirement-position
+   #:bank-selector-requirement-bank-count
+   #:bank-selector-requirement-carrier-value-count
    #:planned-binding #:make-planned-binding
    #:selector-requirement #:make-selector-requirement
    #:selector-requirement-axis #:selector-requirement-resolution
@@ -359,6 +388,8 @@
    #:lowering-plan-selector-requirements
    #:lowering-plan-modifier-requirements
    #:lowering-plan-resource-requirements #:lowering-plan-allocations
+   #:lowering-plan-multi-bank-partition-requirements
+   #:lowering-plan-bank-selector-requirements
    #:lowering-plan-realizations #:lowering-plan-diagnostics
    #:plan-normalized-layout #:require-planned-realizations
    #:make-xkb-backend #:xkb-plan-realizations

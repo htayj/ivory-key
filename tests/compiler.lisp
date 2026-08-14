@@ -204,6 +204,10 @@
   (with-compiler-test-directory (directory)
     (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
            (topology (compiler-test-write directory "topology.ivory" +compiler-test-topology+))
+           (events (compiler-test-write directory "events.ivory"
+                                        "(ivory-key 1)
+(simulation (event 0 down q) (event 10 up q))
+"))
            (standard-output (make-string-output-stream))
            (error-output (make-string-output-stream)))
       (let ((*standard-output* standard-output)
@@ -214,10 +218,14 @@
         (is-equal 0 (ivory-key.cli:main
                      (list "levels" "--layout" (namestring layout)
                            "--topology" (namestring topology))))
-        (is-equal 2 (ivory-key.cli:main (list "simulate" "--layout"
-                                             (namestring layout) "--events" "unused.ivory"))))
-      (is (search "normalized-layout direct" (get-output-stream-string standard-output)))
-      (is (search "simulation-adapter-unavailable" (get-output-stream-string error-output))))))
+        (is-equal 0 (ivory-key.cli:main (list "simulate" "--layout"
+                                             (namestring layout) "--topology"
+                                             (namestring topology) "--events"
+                                             (namestring events)))))
+      (let ((captured-standard-output (get-output-stream-string standard-output)))
+        (is (search "normalized-layout direct" captured-standard-output))
+        (is (search "simulation-result" captured-standard-output)))
+      (is (zerop (length (get-output-stream-string error-output)))))))
 
 (deftest compiler-explain-reports-planner-obligations-without-relaxing-emission
   (with-compiler-test-directory (directory)

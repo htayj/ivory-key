@@ -40,6 +40,13 @@ truncated, replaced with `NoSymbol`, or silently assigned to Kanata or QMK.
 requirements only; it does not itself emit Kanata, XKB, firmware, or a carrier
 scheme.
 
+For a static table larger than one native level bank, the planner also records
+a deterministic contiguous multi-bank partition, context-to-bank/level
+assignments, and bank-selector/carrier resource obligations. Twenty states at
+eight levels become `8+8+4`; forty states require five banks and exceed the
+advertised four-group capacity. Both remain unsupported because capacity is
+not a proof of runtime bank selection.
+
 ## Fidelity grades and refusal
 
 Each requested feature has one of these grades:

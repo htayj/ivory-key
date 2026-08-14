@@ -51,6 +51,21 @@
   (find feature (ivory-key.backend::lowering-plan-realizations plan)
         :key #'ivory-key.backend:realization-feature :test #'equal))
 
+(defun planner-partition-for (plan position)
+  (find position
+        (ivory-key.backend::lowering-plan-multi-bank-partition-requirements plan)
+        :test #'ivory-key.model:identifier=
+        :key #'ivory-key.backend::multi-bank-partition-requirement-position))
+
+(defun planner-resource-for (plan kind position)
+  (find-if (lambda (resource)
+             (and (eq kind (ivory-key.backend::planner-resource-requirement-kind
+                            resource))
+                  (ivory-key.model:identifier=
+                   position
+                   (ivory-key.backend::planner-resource-requirement-owner resource))))
+           (ivory-key.backend::lowering-plan-resource-requirements plan)))
+
 (deftest planner-preserves-eight-level-first-axis-fastest-table
   (let* ((case (ivory-key.model:make-context-axis "case" '("plain" "shifted")))
          (script (ivory-key.model:make-context-axis "script" '("roman" "greek")))
@@ -77,6 +92,13 @@
              (ivory-key.backend::static-table-requirement-entries binding)))
     (is-equal :exact
               (ivory-key.backend:realization-grade (planner-result-for plan "q")))
+    ;; One native-level bank preserves the pre-existing plan shape: no bank
+    ;; selection or carrier requirement is introduced for <=8 entries.
+    (is (null (ivory-key.backend::lowering-plan-multi-bank-partition-requirements
+               plan)))
+    (is (null (ivory-key.backend::lowering-plan-bank-selector-requirements plan)))
+    (is (null (planner-resource-for plan :bank-selector "q")))
+    (is (null (planner-resource-for plan :bank-carrier "q")))
     (is-equal '(("case" . 2) ("plane" . 2) ("script" . 2))
               (mapcar (lambda (requirement)
                         (cons (ivory-key.model:identifier-name
@@ -95,10 +117,101 @@
                      (ivory-key.model:layout-topology layout) '(("P01" . "q"))))
          (plan (planner-test-plan layout placement))
          (binding (first (ivory-key.backend::lowering-plan-bindings plan)))
+         (partition (planner-partition-for plan "q"))
+         (bank-selector
+           (first (ivory-key.backend::lowering-plan-bank-selector-requirements plan)))
          (result (planner-result-for plan "q")))
     (is-equal 20 (ivory-key.backend::static-table-requirement-state-count binding))
+    (is partition)
+    (is-equal 8 (ivory-key.backend::multi-bank-partition-requirement-level-capacity
+                 partition))
+    (is-equal 4 (ivory-key.backend::multi-bank-partition-requirement-bank-capacity
+                 partition))
+    (is-equal 3 (ivory-key.backend::multi-bank-partition-requirement-bank-count
+                 partition))
+    (is-equal '(1 2 3)
+              (mapcar #'ivory-key.backend::static-table-bank-ordinal
+                      (ivory-key.backend::multi-bank-partition-requirement-banks
+                       partition)))
+    (is-equal '(8 8 4)
+              (mapcar (lambda (bank)
+                        (length (ivory-key.backend::static-table-bank-entries bank)))
+                      (ivory-key.backend::multi-bank-partition-requirement-banks
+                       partition)))
+    ;; Assignment order stays canonical.  The table order itself is still the
+    ;; model's first-axis-varies-fastest order, merely cut into 8-entry banks.
+    (is-equal
+     (mapcar (lambda (entry)
+               (ivory-key.model:context-tuple-key
+                (ivory-key.model:normalized-entry-tuple entry)))
+             (ivory-key.backend::static-table-requirement-entries binding))
+     (mapcar (lambda (assignment)
+               (ivory-key.model:context-tuple-key
+                (ivory-key.backend::static-table-bank-assignment-context assignment)))
+             (ivory-key.backend::multi-bank-partition-requirement-assignments
+              partition)))
+    (is-equal
+     (loop for ordinal from 0 below 20
+           collect (list (1+ (floor ordinal 8)) (1+ (mod ordinal 8))))
+     (mapcar (lambda (assignment)
+               (list (ivory-key.backend::static-table-bank-assignment-bank-index
+                      assignment)
+                     (ivory-key.backend::static-table-bank-assignment-level-index
+                      assignment)))
+             (ivory-key.backend::multi-bank-partition-requirement-assignments
+              partition)))
+    (is-equal "q"
+              (ivory-key.model:identifier-name
+               (ivory-key.backend::bank-selector-requirement-position bank-selector)))
+    (is-equal 3
+              (ivory-key.backend::bank-selector-requirement-bank-count bank-selector))
+    (is-equal 3
+              (ivory-key.backend::bank-selector-requirement-carrier-value-count
+               bank-selector))
+    (let ((selector-resource (planner-resource-for plan :bank-selector "q"))
+          (carrier-resource (planner-resource-for plan :bank-carrier "q")))
+      (is selector-resource)
+      (is carrier-resource)
+      (is-equal 1
+                (ivory-key.backend::planner-resource-requirement-cardinality
+                 selector-resource))
+      (is-equal 3
+                (ivory-key.backend::planner-resource-requirement-cardinality
+                 carrier-resource)))
     (is-equal :unsupported (ivory-key.backend:realization-grade result))
+    (is (search "8+8+4" (ivory-key.backend:realization-detail result)))
+    (is (search "bank selector/carrier realization"
+                (ivory-key.backend:realization-detail result)))
     (is (search "requires a separately proven emulation"
+                (ivory-key.backend:realization-detail result)))
+    (signals ivory-key.backend::planner-refusal
+      (ivory-key.backend::require-planned-realizations plan))))
+
+(deftest planner-retains-states-beyond-advertised-bank-capacity
+  (let* ((first (ivory-key.model:make-context-axis
+                 "first" '("one" "two" "three" "four" "five")))
+         (second (ivory-key.model:make-context-axis
+                  "second" '("a" "b" "c" "d" "e" "f" "g" "h")))
+         (layout (planner-test-layout "forty" (list first second)))
+         (placement (planner-test-placement
+                     (ivory-key.model:layout-topology layout) '(("P01" . "q"))))
+         (plan (planner-test-plan layout placement))
+         (partition (planner-partition-for plan "q"))
+         (result (planner-result-for plan "q")))
+    ;; Four advertised banks do not turn five required banks into an exact
+    ;; result.  Every state remains represented rather than being clipped.
+    (is-equal 40
+              (length (ivory-key.backend::multi-bank-partition-requirement-assignments
+                       partition)))
+    (is-equal '(8 8 8 8 8)
+              (mapcar (lambda (bank)
+                        (length (ivory-key.backend::static-table-bank-entries bank)))
+                      (ivory-key.backend::multi-bank-partition-requirement-banks
+                       partition)))
+    (is-equal 5 (ivory-key.backend::multi-bank-partition-requirement-bank-count
+                 partition))
+    (is-equal :unsupported (ivory-key.backend:realization-grade result))
+    (is (search "exceeding advertised bank capacity 4"
                 (ivory-key.backend:realization-detail result)))
     (signals ivory-key.backend::planner-refusal
       (ivory-key.backend::require-planned-realizations plan))))

@@ -277,14 +277,26 @@ and physical mappings ambiguous.
     (cond (failed 1) (unavailable 2) (t 0))))
 
 (defun simulate-command (arguments)
-  (declare (ignore arguments))
-  ;; The public simulator accepts already compiled simulator interactions, but
-  ;; the model-to-simulator adapter is not public and intentionally does not
-  ;; dispatch ordinary bindings.  Calling internal adapter symbols would make
-  ;; this CLI promise a model simulation it cannot faithfully provide.
-  (format *error-output*
-          "simulate [simulation-adapter-unavailable]: the public adapter cannot simulate a complete layout yet.~%")
-  2)
+  (let* ((options (command-options arguments '("--layout" "--topology" "--events")))
+         (layout-path (required-option options "--layout"))
+         (topology-path (optional-option options "--topology"))
+         (events-path (required-option options "--events"))
+         ;; Load and normalize the declared layout before reading any event
+         ;; fixture.  The fixture decoder is a separately bounded, closed
+         ;; source vocabulary; it has no path to CL:READ, evaluation, backend
+         ;; lowering, deployment, or a project import traversal.
+         (unit (load-layout-for-compilation layout-path :topology-path topology-path))
+         (events (ivory-key.simulate::decode-simulation-event-stream-file events-path))
+         (result
+           (ivory-key.simulate::simulate-normalized-layout-event-stream
+            (compiler-unit-normalized unit) events)))
+    ;; Both the result and trace are rendered by the adapter rather than host
+    ;; object printers, so scripts get a deterministic, backend-neutral report.
+    ;; Any event-source or model-adapter refusal escapes to MAIN and therefore
+    ;; receives its established nonzero failure status.
+    (write-string (ivory-key.simulate::simulation-result-dump-string result)
+                  *standard-output*)
+    0))
 
 (defun print-usage (&optional (stream *standard-output*))
   (format stream "Usage: ivory-key COMMAND [ARGUMENTS...]~%~%")
@@ -295,7 +307,7 @@ and physical mappings ambiguous.
   (format stream "  dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE]~%")
   (format stream "          or --stage typed|normalized --project FILE --composition NAME~%")
   (format stream "  levels --layout FILE [--topology FILE] | --project FILE --composition NAME~%")
-  (format stream "  simulate --layout FILE --events FILE  (reports adapter availability)~%")
+  (format stream "  simulate --layout FILE [--topology FILE] --events FILE~%")
   (format stream "  explain --layout FILE --device FILE --realization FILE [--topology FILE]~%")
   (format stream "          or --project FILE --composition NAME~%")
   (format stream "  compile --layout FILE --device FILE --realization FILE --output DIR [--topology FILE]~%")

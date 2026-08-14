@@ -61,6 +61,90 @@ No fixed-width selector or modifier representation is introduced here.
                  :state-count (length entries)
                  :static-p static-p))
 
+(defclass static-table-bank ()
+  ((ordinal :initarg :ordinal :reader static-table-bank-ordinal)
+   ;; CAPACITY is the advertised number of native levels per bank, even when
+   ;; the final bank has fewer entries.  It is not an emitted XKB type.
+   (capacity :initarg :capacity :reader static-table-bank-capacity)
+   ;; Entries retain their normalized order; the planner never sorts contexts
+   ;; into a target-specific modifier or group order.
+   (entries :initarg :entries :reader static-table-bank-entries)))
+
+(defun make-static-table-bank (ordinal capacity entries)
+  "Describe one contiguous native-level bank of normalized entries."
+  (check-type ordinal (integer 1 *))
+  (check-type capacity (integer 1 *))
+  (make-instance 'static-table-bank :ordinal ordinal :capacity capacity
+                 :entries (copy-list entries)))
+
+(defclass static-table-bank-assignment ()
+  ((context :initarg :context :reader static-table-bank-assignment-context)
+   ;; Both indexes are one-based semantic ordinals.  They intentionally avoid
+   ;; XKB group/type spellings and remain meaningful to another backend.
+   (bank-index :initarg :bank-index
+               :reader static-table-bank-assignment-bank-index)
+   (level-index :initarg :level-index
+                :reader static-table-bank-assignment-level-index)))
+
+(defun make-static-table-bank-assignment (context bank-index level-index)
+  "Map one canonical normalized context to a bank and native-level ordinal."
+  (check-type bank-index (integer 1 *))
+  (check-type level-index (integer 1 *))
+  (make-instance 'static-table-bank-assignment
+                 :context context :bank-index bank-index :level-index level-index))
+
+(defclass multi-bank-partition-requirement ()
+  ((position :initarg :position
+             :reader multi-bank-partition-requirement-position)
+   (level-capacity :initarg :level-capacity
+                   :reader multi-bank-partition-requirement-level-capacity)
+   ;; NIL means that a selected capability advertises no finite native bank
+   ;; count.  The partition remains useful evidence, but cannot be a proof of
+   ;; a realizable bank selection.
+   (bank-capacity :initarg :bank-capacity
+                  :reader multi-bank-partition-requirement-bank-capacity)
+   (bank-count :initarg :bank-count
+               :reader multi-bank-partition-requirement-bank-count)
+   (banks :initarg :banks :reader multi-bank-partition-requirement-banks)
+   (assignments :initarg :assignments
+                :reader multi-bank-partition-requirement-assignments)))
+
+(defun make-multi-bank-partition-requirement (position level-capacity bank-capacity
+                                               banks assignments)
+  "Describe a complete, contiguous partition of a static table into banks.
+
+BANKS and ASSIGNMENTS are immutable by convention.  Their order follows the
+normalized table exactly, so the first declared product axis still varies
+fastest after partitioning.
+"
+  (check-type level-capacity (integer 1 *))
+  (when bank-capacity
+    (check-type bank-capacity (integer 1 *)))
+  (make-instance 'multi-bank-partition-requirement
+                 :position (ensure-identifier position)
+                 :level-capacity level-capacity :bank-capacity bank-capacity
+                 :bank-count (length banks) :banks (copy-list banks)
+                 :assignments (copy-list assignments)))
+
+(defclass bank-selector-requirement ()
+  ((position :initarg :position :reader bank-selector-requirement-position)
+   ;; BANK-COUNT is the number of distinct selected banks, while
+   ;; CARRIER-VALUE-COUNT is the number of distinguishable abstract values a
+   ;; future target must provide.  Neither is a concrete modifier, keycode, or
+   ;; carrier spelling.
+   (bank-count :initarg :bank-count :reader bank-selector-requirement-bank-count)
+   (carrier-value-count :initarg :carrier-value-count
+                        :reader bank-selector-requirement-carrier-value-count)))
+
+(defun make-bank-selector-requirement (position bank-count &key carrier-value-count)
+  "Require abstract selection among BANK-COUNT banks for one logical position."
+  (check-type bank-count (integer 2 *))
+  (let ((carrier-value-count (or carrier-value-count bank-count)))
+    (check-type carrier-value-count (integer 2 *))
+    (make-instance 'bank-selector-requirement
+                   :position (ensure-identifier position)
+                   :bank-count bank-count :carrier-value-count carrier-value-count)))
+
 (defclass selector-requirement ()
   ((axis :initarg :axis :reader selector-requirement-axis)
    (resolution :initarg :resolution :reader selector-requirement-resolution)
@@ -121,6 +205,12 @@ No fixed-width selector or modifier representation is introduced here.
    (bindings :initarg :bindings :reader lowering-plan-bindings)
    (selector-requirements :initarg :selector-requirements
                           :reader lowering-plan-selector-requirements)
+   (multi-bank-partition-requirements
+    :initarg :multi-bank-partition-requirements :initform nil
+    :reader lowering-plan-multi-bank-partition-requirements)
+   (bank-selector-requirements
+    :initarg :bank-selector-requirements :initform nil
+    :reader lowering-plan-bank-selector-requirements)
    (modifier-requirements :initarg :modifier-requirements
                           :reader lowering-plan-modifier-requirements)
    (resource-requirements :initarg :resource-requirements
@@ -131,11 +221,16 @@ No fixed-width selector or modifier representation is introduced here.
 
 (defun make-lowering-plan (layout placement bindings selector-requirements
                            modifier-requirements resource-requirements
-                           allocations realizations diagnostics)
+                           allocations realizations diagnostics
+                           &key multi-bank-partition-requirements
+                             bank-selector-requirements)
   "Construct an immutable-by-convention, backend-neutral lowering plan."
   (make-instance 'lowering-plan
                  :layout layout :placement placement :bindings (copy-list bindings)
                  :selector-requirements (copy-list selector-requirements)
+                 :multi-bank-partition-requirements
+                 (copy-list multi-bank-partition-requirements)
+                 :bank-selector-requirements (copy-list bank-selector-requirements)
                  :modifier-requirements (copy-list modifier-requirements)
                  :resource-requirements (copy-list resource-requirements)
                  :allocations (copy-list allocations)
@@ -260,6 +355,16 @@ physical device's input inventory.  A lowering plan needs the logical lookup.
           (sort (copy-list (modifier-set-members (normalized-layout-modifiers layout)))
                 #'identifier<)))
 
+(defun %planner-bank-selector-requirements (partitions)
+  "Return one unproved abstract bank-selection obligation per partition."
+  (sort
+   (mapcar (lambda (partition)
+             (make-bank-selector-requirement
+              (multi-bank-partition-requirement-position partition)
+              (multi-bank-partition-requirement-bank-count partition)))
+           partitions)
+   #'identifier< :key #'bank-selector-requirement-position))
+
 (defun %planner-output-resource-requirements (behavior)
   "Describe resources implied by a complete abstract output recursively."
   (cond
@@ -297,7 +402,7 @@ physical device's input inventory.  A lowering plan needs the logical lookup.
           (push requirement result))))
     (sort result #'%planner-resource-requirement<)))
 
-(defun %planner-resource-requirements (bindings selectors modifiers)
+(defun %planner-resource-requirements (bindings selectors bank-selectors modifiers)
   (let ((requirements
           (append
            (loop for selector in selectors collect
@@ -307,6 +412,22 @@ physical device's input inventory.  A lowering plan needs the logical lookup.
                               (identifier-name (selector-requirement-axis selector))
                               (mapcar #'identifier-name
                                       (selector-requirement-states selector)))))
+           (loop for selector in bank-selectors append
+             (let ((position (bank-selector-requirement-position selector))
+                   (bank-count (bank-selector-requirement-bank-count selector))
+                   (carrier-count
+                     (bank-selector-requirement-carrier-value-count selector)))
+               (list
+                (make-planner-resource-requirement
+                 :bank-selector position
+                 :detail (format nil
+                                 "Abstract selection among ~D native-level banks; no selector lowering is implied."
+                                 bank-count))
+                (make-planner-resource-requirement
+                 :bank-carrier position :cardinality carrier-count
+                 :detail (format nil
+                                 "~D distinguishable abstract carrier values are required to select ~D banks."
+                                 carrier-count bank-count)))))
            (loop for modifier in modifiers collect
              (make-planner-resource-requirement
               :semantic-modifier (modifier-requirement-modifier modifier)
@@ -335,7 +456,68 @@ keysym table capacity.
                   (capability-supports-p advertised :output :keysym))
           maximize limit))
 
-(defun %planner-binding-realization (binding xkb-level-limit)
+(defun %planner-native-static-bank-limit (backends level-limit)
+  "Return the largest native bank count advertised with LEVEL-LIMIT.
+
+Level and bank limits must come from the same capability object: combining a
+large level count from one backend with a bank count from another would invent
+a capacity no target actually advertised.  A missing bank limit is retained as
+NIL rather than guessed from another backend's layer model.
+"
+  (when level-limit
+    (loop for backend in backends
+          for advertised = (capabilities backend)
+          for limit = (capability-native-level-limit advertised)
+          for banks = (capability-native-group-limit advertised)
+          when (and (integerp limit) (= limit level-limit)
+                    (integerp banks) (plusp banks)
+                    (capability-supports-p advertised :output :keysym))
+            maximize banks)))
+
+(defun %planner-partition-static-table (binding level-capacity bank-capacity)
+  "Partition BINDING's normalized entries into contiguous native-level banks."
+  (let ((banks nil)
+        (assignments nil)
+        (entries (static-table-requirement-entries binding)))
+    (loop for tail on entries by (lambda (rest) (nthcdr level-capacity rest))
+          for bank-index from 1
+          for bank-entries = (loop for entry in tail
+                                   repeat level-capacity
+                                   collect entry) do
+            (loop for entry in bank-entries
+                  for level-index from 1 do
+                    (push (make-static-table-bank-assignment
+                           (normalized-entry-tuple entry) bank-index level-index)
+                          assignments))
+            (push (make-static-table-bank bank-index level-capacity bank-entries)
+                  banks))
+    (make-multi-bank-partition-requirement
+     (static-table-requirement-position binding) level-capacity bank-capacity
+     (nreverse banks) (nreverse assignments))))
+
+(defun %planner-multi-bank-partition-requirements (bindings level-capacity
+                                                    bank-capacity)
+  "Build deterministic requirements only for static tables over one bank."
+  (when level-capacity
+    (loop for binding in bindings
+          when (and (static-table-requirement-static-p binding)
+                    (> (static-table-requirement-state-count binding)
+                       level-capacity))
+            collect (%planner-partition-static-table binding level-capacity
+                                                     bank-capacity))))
+
+(defun %planner-partition-for-binding (partitions binding)
+  (find (static-table-requirement-position binding) partitions
+        :test #'identifier=
+        :key #'multi-bank-partition-requirement-position))
+
+(defun %planner-bank-entry-counts-string (partition)
+  (format nil "~{~D~^+~}"
+          (mapcar (lambda (bank)
+                    (length (static-table-bank-entries bank)))
+                  (multi-bank-partition-requirement-banks partition))))
+
+(defun %planner-binding-realization (binding xkb-level-limit partition)
   (let ((feature (identifier-name (static-table-requirement-position binding))))
     (cond
       ((not (static-table-requirement-static-p binding))
@@ -353,14 +535,35 @@ keysym table capacity.
                         (static-table-requirement-state-count binding)
                         xkb-level-limit)))
       (t
-       ;; This is intentionally unsupported, rather than pretending a
-       ;; future Kanata/QMK scheme is an emulation that we have not proved.
+       ;; A partition proves only how normalized states fit into advertised
+       ;; table banks.  It deliberately does not claim the selector or carrier
+       ;; transition a target would need to choose one bank at runtime.
        (make-realization-result
         feature :unsupported
-        :detail (format nil
-                        "Static product table has ~D states; selected XKB capacity is ~D. It requires a separately proven emulation or another target."
-                        (static-table-requirement-state-count binding)
-                        xkb-level-limit))))))
+        :detail
+        (if partition
+            (let ((bank-count (multi-bank-partition-requirement-bank-count partition))
+                  (bank-capacity
+                    (multi-bank-partition-requirement-bank-capacity partition)))
+              (format nil
+                      "Static product table has ~D states and is partitioned into ~D banks (~A) at selected native level capacity ~D. ~A It requires a separately proven emulation or another target: bank selector/carrier realization is not proved by bank capacity."
+                      (static-table-requirement-state-count binding)
+                      bank-count
+                      (%planner-bank-entry-counts-string partition)
+                      xkb-level-limit
+                      (cond ((null bank-capacity)
+                             "No finite native bank capacity is advertised.")
+                            ((< bank-capacity bank-count)
+                             (format nil
+                                     "The partition requires ~D banks, exceeding advertised bank capacity ~D."
+                                     bank-count bank-capacity))
+                            (t (format nil
+                                       "Advertised bank capacity is ~D, but capacity does not prove bank selection."
+                                       bank-capacity)))))
+            (format nil
+                    "Static product table has ~D states; selected XKB capacity is ~D. It requires a separately proven emulation or another target."
+                    (static-table-requirement-state-count binding)
+                    xkb-level-limit)))))))
 
 ;;; Deterministic resource allocation ---------------------------------------
 
@@ -459,9 +662,15 @@ silently assigned to Kanata/QMK.
            :detail "Capability planning requires a MODEL:NORMALIZED-LAYOUT."))
   (%planner-check-compatible-placement layout placement)
   (let* ((bindings (%planner-binding-requirements layout placement))
+         (xkb-level-limit (%planner-native-static-level-limit backends))
+         (xkb-bank-limit (%planner-native-static-bank-limit backends xkb-level-limit))
+         (partitions (%planner-multi-bank-partition-requirements
+                      bindings xkb-level-limit xkb-bank-limit))
          (selectors (%planner-selector-requirements bindings))
+         (bank-selectors (%planner-bank-selector-requirements partitions))
          (modifiers (%planner-modifier-requirements layout))
-         (resources (%planner-resource-requirements bindings selectors modifiers))
+         (resources (%planner-resource-requirements bindings selectors bank-selectors
+                                                    modifiers))
          (pools (%planner-copy-resource-pools resource-pools resources)))
     (%planner-reserve-physical-inputs pools bindings)
     (multiple-value-bind (allocations resource-results diagnostics)
@@ -469,7 +678,8 @@ silently assigned to Kanata/QMK.
       (let ((binding-results
               (mapcar (lambda (binding)
                         (%planner-binding-realization
-                         binding (%planner-native-static-level-limit backends)))
+                         binding xkb-level-limit
+                         (%planner-partition-for-binding partitions binding)))
                       bindings))
             (interaction-results
               (mapcar (lambda (interaction)
@@ -481,7 +691,9 @@ silently assigned to Kanata/QMK.
         (make-lowering-plan layout placement bindings selectors modifiers resources
                             allocations
                             (append binding-results resource-results interaction-results)
-                            diagnostics)))))
+                            diagnostics
+                            :multi-bank-partition-requirements partitions
+                            :bank-selector-requirements bank-selectors)))))
 
 (defun require-planned-realizations (plan &key allow-lossy)
   "Refuse a plan containing any unproved or unapproved realization grade."

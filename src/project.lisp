@@ -34,11 +34,13 @@
 
 (defstruct (project-load-result
             (:constructor %make-project-load-result
-                (definitions layouts topologies devices realizations compositions)))
+                (definitions layouts topologies devices output-vocabularies
+                 realizations compositions)))
   definitions
   layouts
   topologies
   devices
+  output-vocabularies
   realizations
   compositions)
 
@@ -329,6 +331,7 @@ reliably distinguishable on every supported host.
     (cond ((string= (or name "") "define-layout") :layout)
           ((string= (or name "") "define-topology") :topology)
           ((string= (or name "") "define-device") :device)
+          ((string= (or name "") "define-output-vocabulary") :output-vocabulary)
           ((string= (or name "") "define-realization") :realization)
           ((string= (or name "") "realize") :composition)
           (t nil))))
@@ -595,7 +598,135 @@ reliably distinguishable on every supported host.
                        (sort backend-mappings #'string< :key #'car)
                        :reserved-carriers (sort (remove-duplicates reserved-carriers) #'<))))))
 
-(defun %decode-realization (definition)
+(defun %decode-output-vocabulary-entry (context vocabulary-name backends clause)
+  "Decode one closed MAP-OUTPUT declaration into opaque model entries.
+
+Only the declared vocabulary backends may appear as keyword options.  The
+opaque spelling is deliberately a source string, never a reader form or host
+symbol.
+"
+  (let* ((children (%form-children context clause 3 nil "MAP-OUTPUT declaration"))
+         (kind (%identifier-node-name context (second children) "MAP-OUTPUT kind"))
+         (identity (%identifier-node-name context (third children)
+                                           "MAP-OUTPUT identity"))
+         (options (cdddr children))
+         (seen (make-hash-table :test #'equal))
+         (entries nil))
+    (dolist (option options)
+      (let ((backend (%option-name option)))
+        (unless backend
+          (%fail context :invalid-output-vocabulary-option
+                 "Vocabulary ~A MAP-OUTPUT options must have a backend keyword."
+                 vocabulary-name))
+        (unless (member backend backends :test #'string=)
+          (%fail context :unknown-vocabulary-backend
+                 "Vocabulary ~A MAP-OUTPUT refers to undeclared backend ~A."
+                 vocabulary-name backend))
+        (when (gethash backend seen)
+          (%fail context :duplicate-vocabulary-backend-spelling
+                 "Vocabulary ~A repeats a spelling for backend ~A."
+                 vocabulary-name backend))
+        (setf (gethash backend seen) t)
+        (let ((spelling
+                (%string-node-value
+                 context
+                 (%option-single-value context option
+                                       (format nil "MAP-OUTPUT :~A" backend)
+                                       (lambda (node)
+                                         (and (typep node 'syntax-atom)
+                                              (eq (syntax-atom-kind node) :string))))
+                 (format nil "Vocabulary ~A spelling for ~A"
+                         vocabulary-name backend))))
+          (push (handler-case
+                    (make-output-vocabulary-entry kind identity backend spelling)
+                  (semantic-error (condition)
+                    (%fail context (semantic-error-code condition)
+                           "Could not decode output vocabulary ~A: ~A"
+                           vocabulary-name (semantic-error-message condition))))
+                entries))))
+    (unless entries
+      (%fail context :missing-vocabulary-entry-spelling
+             "Vocabulary ~A MAP-OUTPUT ~A ~A needs at least one backend spelling."
+             vocabulary-name kind identity))
+    (nreverse entries)))
+
+(defun %decode-output-vocabulary (definition)
+  "Decode one named, realization-owned output-vocabulary declaration.
+
+The closed surface grammar is:
+
+  (define-output-vocabulary NAME
+    (backends BACKEND...)
+    (map-output KIND IDENTITY (:BACKEND \"opaque spelling\") ...))
+
+Vocabulary values are separate project declarations because a realization can
+refer to one independently of source/import ordering.  They are not layout
+clauses and never participate in behavior decoding.
+"
+  (let* ((context (%make-project-context (project-definition-path definition)
+                                         (source-span-import-stack
+                                          (project-definition-span definition))))
+         (form (project-definition-form definition))
+         (children (%form-children context form 3 nil
+                                   "DEFINE-OUTPUT-VOCABULARY declaration"))
+         (name (project-definition-name definition))
+         (clauses (cddr children))
+         (backend-forms (remove-if-not (lambda (clause)
+                                         (%named-form-p clause "backends"))
+                                       clauses)))
+    (dolist (clause clauses)
+      (unless (member (%form-name clause) '("backends" "map-output") :test #'string=)
+        (%fail context :unknown-output-vocabulary-clause
+               "Output vocabulary ~A has unsupported clause ~S."
+               name (%form-name clause))))
+    (unless backend-forms
+      (%fail context :missing-vocabulary-backends
+             "Output vocabulary ~A requires BACKENDS." name))
+    (when (rest backend-forms)
+      (%fail context :duplicate-vocabulary-clause
+             "Output vocabulary ~A repeats BACKENDS." name))
+    (let* ((backends-form (first backend-forms))
+           (backend-nodes (cdr (%form-children context backends-form 2 nil
+                                               "BACKENDS declaration")))
+           (backends (mapcar (lambda (node)
+                               (%identifier-node-name context node
+                                                      "Vocabulary backend"))
+                             backend-nodes))
+           (seen-identities (make-hash-table :test #'equal))
+           (entries nil))
+      ;; The form arity above makes BACKENDS non-empty.  Decode every mapping
+      ;; before constructing the registry so model-level duplicate and
+      ;; ambiguity detection sees the full declarative set.
+      (dolist (clause clauses)
+        (when (%named-form-p clause "map-output")
+          (let* ((mapping-children
+                   (%form-children context clause 3 nil "MAP-OUTPUT declaration"))
+                 (kind (%identifier-node-name context (second mapping-children)
+                                              "MAP-OUTPUT kind"))
+                 (identity (%identifier-node-name context (third mapping-children)
+                                                  "MAP-OUTPUT identity"))
+                 (identity-key (list kind identity)))
+            ;; A MAP-OUTPUT row is the single declarative owner of one typed
+            ;; abstract identity.  Splitting one identity across source rows
+            ;; would add surface-order questions without enabling a proven
+            ;; lowering, so require all of its known spellings in one row.
+            (when (gethash identity-key seen-identities)
+              (%fail context :duplicate-vocabulary-identity
+                     "Output vocabulary ~A repeats MAP-OUTPUT ~A ~A."
+                     name kind identity))
+            (setf (gethash identity-key seen-identities) t)
+            (setf entries
+                  (nconc entries
+                         (%decode-output-vocabulary-entry
+                          context name backends clause))))))
+      (handler-case
+          (make-output-vocabulary backends entries)
+        (semantic-error (condition)
+          (%fail context (semantic-error-code condition)
+                 "Could not decode output vocabulary ~A: ~A"
+                 name (semantic-error-message condition)))))))
+
+(defun %decode-realization (definition output-vocabularies)
   (let* ((context (%make-project-context (project-definition-path definition)
                                          (source-span-import-stack
                                           (project-definition-span definition))))
@@ -605,13 +736,18 @@ reliably distinguishable on every supported host.
          (clauses (cddr children)))
     (dolist (clause clauses)
       (unless (member (%form-name clause)
-                      '("pipeline" "allow-grades" "forbid-shell-actions" "validation")
+                      '("pipeline" "uses-output-vocabulary" "allow-grades"
+                        "forbid-shell-actions" "validation")
                       :test #'string=)
         (%fail context :unknown-realization-clause
                "Realization ~A has unsupported clause ~S." name (%form-name clause))))
     (let* ((pipeline-matches (remove-if-not (lambda (clause)
                                               (%named-form-p clause "pipeline"))
                                             clauses))
+           (vocabulary-matches (remove-if-not (lambda (clause)
+                                                (%named-form-p clause
+                                                               "uses-output-vocabulary"))
+                                              clauses))
            (grade-matches (remove-if-not (lambda (clause)
                                            (%named-form-p clause "allow-grades"))
                                          clauses))
@@ -619,6 +755,7 @@ reliably distinguishable on every supported host.
                                            (%named-form-p clause "forbid-shell-actions"))
                                          clauses))
            (pipeline-form (first pipeline-matches))
+           (vocabulary-form (first vocabulary-matches))
            (grades-form (first grade-matches))
            (shell-form (first shell-matches))
            (validation-forms (remove-if-not (lambda (clause)
@@ -627,7 +764,8 @@ reliably distinguishable on every supported host.
       (unless pipeline-form
         (%fail context :missing-realization-pipeline
                "Realization ~A requires PIPELINE." name))
-      (when (or (rest pipeline-matches) (rest grade-matches) (rest shell-matches))
+      (when (or (rest pipeline-matches) (rest vocabulary-matches)
+                (rest grade-matches) (rest shell-matches))
         ;; The exact identity tests above deliberately reject duplicate closed
         ;; policy forms without converting their source names into symbols.
         (%fail context :duplicate-realization-clause
@@ -635,6 +773,13 @@ reliably distinguishable on every supported host.
       (let ((pipeline
               (mapcar (lambda (node) (%identifier-node-name context node "Pipeline backend"))
                       (cdr (syntax-list-children pipeline-form))))
+            (vocabulary-name
+              (and vocabulary-form
+                   (%identifier-node-name
+                    context
+                    (second (%form-children context vocabulary-form 2 2
+                                            "USES-OUTPUT-VOCABULARY declaration"))
+                    "USES-OUTPUT-VOCABULARY name")))
             (grades (and grades-form
                          (mapcar (lambda (node) (%identifier-node-name context node "Allowed grade"))
                                  (cdr (syntax-list-children grades-form)))))
@@ -652,10 +797,21 @@ reliably distinguishable on every supported host.
           (unless (member grade '("exact" "emulated" "lossy" "unsupported") :test #'string=)
             (%fail context :unknown-realization-grade
                    "Realization ~A allows unknown grade ~A." name grade)))
-        (make-realization-profile
-         name :pipeline pipeline :permitted-losses grades
-         :metadata (list :forbid-shell-actions forbid-shell
-                         :validation (mapcar #'%node->safe-value validation-forms)))))))
+        (let ((vocabulary (and vocabulary-name
+                               (%definition-value output-vocabularies vocabulary-name))))
+          (when (and vocabulary-name (null vocabulary))
+            (%fail context :unknown-output-vocabulary
+                   "Realization ~A refers to unknown output vocabulary ~A."
+                   name vocabulary-name))
+          (handler-case
+              (make-realization-profile
+               name :pipeline pipeline :vocabulary vocabulary :permitted-losses grades
+               :metadata (list :forbid-shell-actions forbid-shell
+                               :validation (mapcar #'%node->safe-value validation-forms)))
+            (semantic-error (condition)
+              (%fail context (semantic-error-code condition)
+                     "Could not decode realization ~A: ~A"
+                     name (semantic-error-message condition)))))))))
 
 (defun %composition-option (context clauses name)
   (let ((matches (remove-if-not (lambda (clause)
@@ -704,7 +860,8 @@ reliably distinguishable on every supported host.
 
 (defun %kind-rank (kind)
   (ecase kind
-    (:topology 0) (:layout 1) (:device 2) (:realization 3) (:composition 4)))
+    (:topology 0) (:layout 1) (:device 2) (:output-vocabulary 3)
+    (:realization 4) (:composition 5)))
 
 (defun %sorted-definitions (definitions)
   (sort (copy-list definitions)
@@ -800,29 +957,40 @@ order is therefore not a semantic input."
           (dolist (definition (%kind-definitions definitions :device))
             (setf (project-definition-value definition) (%decode-device definition topologies)))
           (let ((devices (%registry-from-definitions (%kind-definitions definitions :device))))
-            (dolist (definition (%kind-definitions definitions :realization))
-              (setf (project-definition-value definition) (%decode-realization definition)))
-            (let ((realizations
-                    (%registry-from-definitions
-                     (%kind-definitions definitions :realization))))
-              (dolist (definition (%kind-definitions definitions :composition))
+            (let ((output-vocabulary-definitions
+                    (%kind-definitions definitions :output-vocabulary)))
+              (dolist (definition output-vocabulary-definitions)
                 (setf (project-definition-value definition)
-                      (%decode-composition definition layouts devices realizations)))
-              (%make-project-load-result
-               definitions
-               (%result-registry-alist definitions :layout)
-               (%result-registry-alist definitions :topology)
-               (%result-registry-alist definitions :device)
-               (%result-registry-alist definitions :realization)
-               (%result-registry-alist definitions :composition)))))))))))
+                      (%decode-output-vocabulary definition)))
+              (let ((output-vocabularies
+                      (%registry-from-definitions output-vocabulary-definitions)))
+                (dolist (definition (%kind-definitions definitions :realization))
+                  (setf (project-definition-value definition)
+                        (%decode-realization definition output-vocabularies)))
+                (let ((realizations
+                        (%registry-from-definitions
+                         (%kind-definitions definitions :realization))))
+                  (dolist (definition (%kind-definitions definitions :composition))
+                    (setf (project-definition-value definition)
+                          (%decode-composition definition layouts devices realizations)))
+                  (%make-project-load-result
+                   definitions
+                   (%result-registry-alist definitions :layout)
+                   (%result-registry-alist definitions :topology)
+                   (%result-registry-alist definitions :device)
+                   (%result-registry-alist definitions :output-vocabulary)
+                   (%result-registry-alist definitions :realization)
+                   (%result-registry-alist definitions :composition)))))))))))))
 
 (defun project-definition-by-name (result kind name &key (errorp nil))
   "Look up one canonical KIND/NAME declaration in RESULT."
   (unless (typep result 'project-load-result)
     (error 'type-error :datum result :expected-type 'project-load-result))
-  (unless (member kind '(:layout :topology :device :realization :composition))
+  (unless (member kind '(:layout :topology :device :output-vocabulary
+                         :realization :composition))
     (error 'type-error :datum kind
-           :expected-type '(member :layout :topology :device :realization :composition)))
+           :expected-type '(member :layout :topology :device :output-vocabulary
+                                   :realization :composition)))
   (let ((definition
           (find-if (lambda (candidate)
                      (and (eq kind (project-definition-kind candidate))
@@ -846,6 +1014,9 @@ order is therefore not a semantic input."
 
 (defun project-device (result name &key (errorp nil))
   (%project-value result :device name errorp))
+
+(defun project-output-vocabulary (result name &key (errorp nil))
+  (%project-value result :output-vocabulary name errorp))
 
 (defun project-realization (result name &key (errorp nil))
   (%project-value result :realization name errorp))

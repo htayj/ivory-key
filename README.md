@@ -40,10 +40,10 @@ transcription, plus separately identified selector/timed-interaction evidence.
 It is an auditable transcription, not a claim that Ivory Key has generated,
 installed, or activated an equivalent keyboard configuration. The twenty-level
 conformance fixture remains expressible in the abstract model but is not
-silently reduced to eight states. The CLI `simulate` command remains
-unavailable; the programmatic whole-layout adapter accepts its exact supported
-slice and refuses overlays, binding/interaction position overlap, and model
-patterns or actions the event machine cannot represent.
+silently reduced to eight states. The CLI `simulate` command accepts a
+restricted declarative event stream for the whole-layout adapter's exact
+supported slice and refuses overlays, binding/interaction position overlap,
+and model patterns or actions the event machine cannot represent.
 
 ## Quick start
 
@@ -66,6 +66,7 @@ ivory-key dump-ir --stage parsed|typed|normalized --layout FILE [--topology FILE
 ivory-key dump-ir --stage typed|normalized --project PROJECT --composition NAME
 ivory-key levels --layout FILE [--topology FILE]
 ivory-key levels --project PROJECT --composition NAME
+ivory-key simulate --layout FILE [--topology FILE] --events FILE
 ivory-key explain --layout FILE --topology FILE --device FILE --realization FILE
 ivory-key explain --project PROJECT --composition NAME
 ivory-key compile --layout FILE --topology FILE --device FILE --realization FILE --output DIR
