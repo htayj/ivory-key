@@ -1554,7 +1554,13 @@ complete carrier table from an invented Manna behavior.
              :vocabulary
              (ivory-key.cli::compiler-realization-vocabulary realization)
              :selector-policy
-             (ivory-key.cli::compiler-realization-selector-policy realization))
+             (ivory-key.cli::compiler-realization-selector-policy realization)
+             :interaction-compatibility-policy
+             (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+              realization)
+             :kanata-buffered-allocation-policy
+             (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
+              realization))
           (let ((coverage
                   (getf (ivory-key.backend::lowering-request-metadata request)
                         :input-coverage))
@@ -1589,11 +1595,14 @@ complete carrier table from an invented Manna behavior.
                             :test #'string=
                             :key #'ivory-key.backend:key-entry-position)))
             (is issues)
-            ;; Neither variant can turn physical evidence into an artifact:
-            ;; the still-unselected profile semantics retain the deterministic
-            ;; existing refusal.
+            (is-equal 16
+                      (length
+                       (getf (ivory-key.backend::lowering-request-metadata request)
+                             :kanata-buffered-actions)))
+            ;; Neither variant can turn typed profile evidence into an artifact:
+            ;; the independent native-domain/equivalence gates retain refusal.
             (is-equal
-             :unsupported-kanata-selector-action-plan
+             :unproved-kanata-buffered-pending-lifecycle
              (compiler-stage-code-from
               (lambda ()
                 (ivory-key.cli::make-lowering-request-from-normalized-layout
@@ -1602,6 +1611,12 @@ complete carrier table from an invented Manna behavior.
                  (ivory-key.cli::compiler-realization-vocabulary realization)
                  :selector-policy
                  (ivory-key.cli::compiler-realization-selector-policy
+                  realization)
+                 :interaction-compatibility-policy
+                 (ivory-key.cli::compiler-realization-interaction-compatibility-policy
+                  realization)
+                 :kanata-buffered-allocation-policy
+                 (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
                   realization)))))))))))
 
 (deftest compiler-project-explain-refuses-unsafe-output-vocabulary-spelling
@@ -1865,6 +1880,25 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
         ;; Decoding records an allocation contract only; it does not call a
         ;; backend emitter or create a build directory.
         (is-equal "buffered" (ivory-key.cli::compiler-realization-name realization)))
+      (let* ((carrier-path
+               (compiler-test-write
+                directory "buffered-carrier.ivory"
+                (source
+                 "(kanata-buffered-allocations (route q q) (action q-tap (alias q-carrier) (tap q) (hold axis-carrier script greek 85) (routes q)))")))
+             (realization (ivory-key.cli::decode-realization-source carrier-path))
+             (allocation
+               (ivory-key.cli::compiler-realization-kanata-buffered-allocation-policy
+                realization))
+             (hold
+               (ivory-key.model::realization-kanata-buffered-action-hold
+                (first
+                 (ivory-key.model::realization-kanata-buffered-allocation-policy-actions
+                  allocation)))))
+        (is-equal :axis-carrier
+                  (ivory-key.model::realization-kanata-buffered-hold-kind hold))
+        (is-equal 85
+                  (ivory-key.model::realization-kanata-buffered-hold-code hold))
+        (is (null (ivory-key.model::realization-kanata-buffered-hold-token hold))))
       (let ((without-policy
               (compiler-test-write
                directory "without-policy.ivory"
@@ -1964,7 +1998,7 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                '(:unproved-kanata-buffered-pending-lifecycle
                  :unimplemented-kanata-1-12-buffered-interaction-policy
                  :unsupported-timed-interaction)
-               :kanata-1-12-buffered "single-owner deadline")
+               :kanata-1-12-buffered "bounded deadline")
         (check "modern-no-delay" '("missing-instance")
                '(:unknown-realization-interaction-compatibility-interaction
                  :unsupported-timed-interaction

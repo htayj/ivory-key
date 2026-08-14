@@ -4,8 +4,13 @@
 ;; compiled or deployed.
 ;; This is the closed generated-XKB selector sub-contract.  The declarations
 ;; below transcribe the hash-pinned Group1 type choice for every static
-;; table and the common Group2 TWO_LEVEL table.  They do not select a
-;; Kanata action/lifetime, frozen input-delivery, or migration policy.
+;; table and the common Group2 TWO_LEVEL table. The buffered clauses below
+;; select the versioned reference lifetime and closed allocations, but not an
+;; exact native input-domain, frozen client equivalence, or deployable artifact.
+;; Accepted, revisitable compatibility choice for the frozen primary
+;; Kanata 1.12 source.  The closed allocation table records only observed
+;; atoms/codes; the compiler still refuses artifact publication until the
+;; full native input-domain differential is complete.
 
 (ivory-key 1)
 (define-realization
@@ -15,6 +20,130 @@
   (allow-grades exact emulated)
   (forbid-shell-actions yes)
   (validation (kanata-check required) (xkbcli-compile-keymap required))
+  (interaction-compatibility
+    kanata-1-12-buffered
+    (instances tap-hold-alt-backspace tap-hold-alt-space tap-hold-case-f tap-hold-case-j tap-hold-control-d tap-hold-control-k tap-hold-function-end tap-hold-function-pgdn tap-hold-hyper-apostrophe tap-hold-hyper-escape tap-hold-meta-l tap-hold-meta-s tap-hold-plane-enter tap-hold-script-delete tap-hold-super-a tap-hold-super-semicolon)
+  )
+  (kanata-buffered-allocations
+    (route down down)
+    (route home home)
+    (route left left)
+    (route page-up pgup)
+    (route right right)
+    (route up up)
+    (action
+      tap-hold-alt-backspace
+      (alias hro)
+      (tap bspc)
+      (hold modifier alt ralt)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-alt-space
+      (alias hsp)
+      (tap spc)
+      (hold modifier alt ralt)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-case-f
+      (alias sf)
+      (tap f)
+      (hold axis-modifier case shifted lshift)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-case-j
+      (alias sj)
+      (tap j)
+      (hold axis-modifier case shifted lshift)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-control-d
+      (alias cd)
+      (tap d)
+      (hold modifier control lctl)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-control-k
+      (alias ck)
+      (tap k)
+      (hold modifier control lctl)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-function-end
+      (alias hscl)
+      (tap end)
+      (hold axis-layer function active fun fun)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-function-pgdn
+      (alias hscr)
+      (tap pgdn)
+      (hold axis-layer function active fun fun)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-hyper-apostrophe
+      (alias qoam)
+      (tap "'")
+      (hold modifier hyper rmet)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-hyper-escape
+      (alias eoam)
+      (tap esc)
+      (hold modifier hyper rmet)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-meta-l
+      (alias ml)
+      (tap l)
+      (hold modifier meta lalt)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-meta-s
+      (alias ms)
+      (tap s)
+      (hold modifier meta lalt)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-plane-enter
+      (alias rtop)
+      (tap ent)
+      (hold axis-carrier plane top 84)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-script-delete
+      (alias gdel)
+      (tap del)
+      (hold axis-carrier script greek 85)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-super-a
+      (alias sa)
+      (tap a)
+      (hold modifier super lmet)
+      (routes down home left page-up right up)
+    )
+    (action
+      tap-hold-super-semicolon
+      (alias ssemi)
+      (tap ";")
+      (hold modifier super lmet)
+      (routes down home left page-up right up)
+    )
+  )
   (selector-policy
     (static-type number-equals four-level two-level)
     (static-type number-1 four-level two-level)

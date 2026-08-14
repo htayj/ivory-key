@@ -25,14 +25,15 @@ The completed evidence tranche records 52 static XKB tables, fourteen direct
 normal-layer bindings (four tap identities, six shared navigation keys, and
 four Advantage 360 local F-key routes), the five semantic-modifier names, both primary layered
 physical placements, four direct immediate selector lifecycles, sixteen
-structurally transcribed but unselected tap-hold interactions, and the 29
+structurally transcribed tap-hold interactions with a selected buffered
+compatibility/allocation profile, and the 29
 output positions of the common primary function table.
 The latter is represented as the abstract `function` patch axis in
 `layouts/manna-cadet.ivory`; it contains command identities or Unicode scalar
 outputs, never XKB keysyms, Kanata aliases, or carrier numbers.  The function
-axis has no source activation behavior yet.  This accurately records what the
-active table does *after* the source layer is active, without claiming that
-Ivory Key has selected or reproduced the two tap-hold activators.
+axis is activated by the two selected source tap-hold instances, but their
+backend realization remains fail-closed until the native-domain and
+whole-pipeline differential gates are complete.
 
 That evidence does **not** meet Phase 7's migration exit criterion.  The
 selected profile now has a complete typed-output vocabulary and deterministic
@@ -118,9 +119,9 @@ simulator, compiler, backend, XKB, client, or live-device claim.
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
 |---|---|---|---|
 | §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; no source inventory selects behavior | implementable review tooling remains |
-| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed/unselected tap-holds, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
+| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed tap-holds with an explicit buffered policy/allocation ledger, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle | add generated-artifact and whole-layout event-trace comparison after native-domain and lowerer closure | blocked by lowering/equivalence proof |
 | §13.3 complete physical placement | the complete 72-position union, A2 coverage of 67 physical plus five typed-unreachable positions, A360 coverage of 71 physical plus typed-unreachable `<LSGT>`, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
-| §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths. Proposed ADR 0003 also has a source-decoded/reference-simulated no-delay 14+2 fixture: every literal tap/deadline row, immutable foreign capture, early-owner-up tap fallback, all five modifier families, case, script/plane capture/release, both release orders for every paired hold family, and a foreign interaction armed independently before its later own tap | project the still-unselected policy onto an active reviewed Manna composition, then prove complete timed, overlay, selector-visibility, and generated-backend traces; a shared foreign-UP cross-interaction ordering remains deliberately unselected | blocked by profile selection and lowering choices |
+| §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the selected Kanata-1.12 contract and oracle prove bounded release, deadline, repeated interval, modifier/function lifetime, and selector-carrier paths | extend the reference/backend domain to every emitted route class, then prove complete timed, overlay, selector-visibility, and generated-backend traces | blocked by native-domain/lowering proof |
 | §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
 
@@ -134,7 +135,7 @@ can become active migration behavior:
 
 | Source area | Current fail-closed disposition | Owner decision required for activation |
 |---|---|---|
-| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and 200/200 timings (250/250 only for `a`) are evidence; all 16 are structurally transcribed in the checked-in Manna layout but refused because no realization or backend selects them. Proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md) has an executable abstract/reference fixture for the complete 14+2 inventory | select a complete commitment, interruption, equal-time, foreign-event, cancellation, and multi-owner policy. The Kanata-1.12 oracle buffers/reorders pending foreign events, while ADR 0003 forbids delay/replay; selecting either route is an explicit compatibility choice |
+| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and timings are transcribed; the Manna realization selects the versioned Kanata-1.12 buffered contract for all 16 and records closed allocations | finish native-domain and whole-pipeline differential proof before permitting emission; proposed ADR 0003 remains an unselected alternative |
 | five semantic modifiers | target-neutral identities and historical sources are transcribed; their tap-hold activation is refused | select the timed lifecycle and application-visible realization, including any side distinction beyond P-14's source-neutral default |
 | function overlay | all 29 active-table results are transcribed; End/PgDn activation is refused | select function hold commitment, first/last-owner overlay lifetime, patch interaction, and an exact lowerer |
 | direct Greek and Top selectors | immediate abstract held lifecycles are transcribed; the selected generated-XKB carrier map has a separately probed libxkbcommon state sub-contract | select Kanata carrier/lifetime lowering and any historical/client/live-equivalence claim; the generated sub-contract is not frozen-source equivalence |
@@ -190,7 +191,7 @@ drop or reinterpret it.
 | Physical source surface | Frozen normal-layer result | Classification |
 |---|---|---|
 | `lshift`, `rshift`, arrows, `home`, and `pgup` | passed through by both primary layered files; XKB supplies the corresponding direct named keys | unresolved common controls: their physical source is known, but no target-neutral layout behavior/lifetime has been selected |
-| `esc`, apostrophe, Backspace, Space, Enter, Delete, End, and PgDn | each is part of a primary tap-hold or function selector except for its tap result | all 16 interaction shapes are transcribed but unselected; `escape`, `delete`, and `pgdn` have direct named-key ordinary bindings, while frozen `<END>` is the semantic `end` command; RETURN remains the sole Enter position |
+| `esc`, apostrophe, Backspace, Space, Enter, Delete, End, and PgDn | each is part of a selected buffered tap-hold or function selector except for its tap result | all 16 interaction shapes and realization allocations are selected; `escape`, `delete`, and `pgdn` have direct named-key ordinary bindings, while frozen `<END>` is the semantic `end` command; RETURN remains the sole Enter position; backend emission remains refused pending native-domain and whole-pipeline proof |
 | Advantage 2 `lalt` | source spells the normal result `lrld` | unresolved: no alias defines that spelling in the frozen file, so no semantic identity is inferred |
 | Advantage 360 `K18`, `K20`, `K19`, `K21` | source-only local keys emit `F18`, `F20`, `F19`, `F21` respectively | device-specific direct outputs; absent from the shared layout because the A2 primary source has no corresponding positions |
 | A2 `menu` / 360 `caps` | direct inactive result differs by device; function result is common `alt-mode` | transcribed only as the shared active `mode-key` patch binding; inactive common behavior remains intentionally unspecified |
@@ -448,16 +449,17 @@ guessed.
 
 - `layouts/manna-cadet.ivory` has 52 static eight-context bindings, fourteen direct
   ordinary bindings, one function patch with 29 entries, four immediate held
-  interactions, and 16 structurally transcribed but unselected tap-hold
-  interactions. It selects no compatibility policy, allocation, or emission.
+  interactions, and 16 structurally transcribed tap-hold interactions. The
+  realization selects their buffered compatibility policy and typed allocation
+  ledger, while the compiler still refuses emission.
 - The shared topology is the complete 72-position device union. Advantage 2
   has 67 physical placements plus typed-unreachable `<LSGT>` and four local
   hotkeys; Advantage 360 has 71 physical placements plus typed-unreachable
   `<LSGT>`. The `mode-key` maps to `MENU`/`menu` on A2 and `CAPS`/`caps` on
   360. RETURN remains the sole physical Enter identity.
-- `manna-cadet-advantage360-linux` is a second project composition.  It selects
-  the frozen 360 placement only; it does not select or implement the game
-  layer.
+- `manna-cadet-advantage360-linux` is a second project composition. It selects
+  the frozen 360 placement and shared buffered profile; it does not select or
+  implement the game layer.
 - The migration regression test verifies the five primary hashes, two
   regression-only chorded hashes, and deterministic static truth table. Its
   generated `diff` report additionally enumerates all 52 static tables/416
@@ -467,14 +469,14 @@ guessed.
   differences: 0`; that terminal count means every frozen-versus-fixture
   difference is classified, not that a refusal is solved. It separately
   data-checks all 16 selected `tap-hold-release` aliases, their normal-layer
-  selection, direct Shift holders, and relevant `defcfg` policy without making
-  them active Manna semantics.
+  selection, direct Shift holders, relevant `defcfg`, and the checked-in typed
+  compatibility/allocation selection.
 
 Run `sbcl --script tools/manna-truth-table.lisp diff ROOT` against the
 hash-verified frozen checkout for the complete review artifact.  The report's
 only non-exact classes are deliberate: typed-unreachable `<LSGT>`, the device-specific
-inactive mode-key result, 16 selected tap-hold paths whose lifecycle is still
-unselected, two inactive historical Shift aliases, the eight Advantage-360
+inactive mode-key result, 16 selected tap-hold paths whose native lowering is
+still refused, two inactive historical Shift aliases, the eight Advantage-360
 game aliases, and the selector-to-Kanata/lifetime boundary.  The generated
 XKB state sub-contract is exact; the combined compiler still refuses the
 absent Kanata selector action plan even for the four direct interactions.

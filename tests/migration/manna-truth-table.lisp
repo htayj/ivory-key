@@ -431,7 +431,7 @@ verified before these checked-in counts and raw rows are considered evidence."
     (when (or (search "latch-latch" layout)
               (search "(:participants i o)" layout)
               (/= 20 (count-substrings layout "(interaction")))
-      (error "Manna fixture must have four direct and sixteen unselected source interactions."))
+      (error "Manna fixture must have four direct and sixteen buffered-policy source interactions."))
     (dolist (name '("tap-hold-case-f" "tap-hold-case-j"
                     "tap-hold-control-d" "tap-hold-control-k"
                     "tap-hold-meta-s" "tap-hold-meta-l"
@@ -511,9 +511,16 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (not (search "(map-output named-key end" vocabulary))
                  (search "manna-cadet-advantage360-linux" realizations))
       (error "Manna device-variant placement or Advantage 360 composition is missing."))
-    (when (or (search "(interaction-compatibility" realizations)
-              (search "(kanata-buffered-allocations" realizations))
-      (error "Manna source transcription must not select timing policy or allocation."))
+    (unless (and
+             (search "(interaction-compatibility" realizations)
+             (search "kanata-1-12-buffered" realizations)
+             (search "(kanata-buffered-allocations" realizations)
+             (= 16 (count-substrings realizations
+                                     (format nil "    (action~%      tap-hold-")))
+             (= 6 (count-substrings realizations "    (route "))
+             (search "(hold axis-carrier script greek 85)" realizations)
+             (search "(hold axis-carrier plane top 84)" realizations))
+      (error "Manna realization lost its exact selected buffered policy/allocation ledger."))
     (unless (= 29 (count-substrings vocabulary "(:kanata \"(arbitrary-code "))
       (error "Manna vocabulary no longer has exactly 29 carrier-backed outputs."))
     (dolist (row +frozen-function-carriers+)
@@ -610,9 +617,9 @@ verified before these checked-in counts and raw rows are considered evidence."
                  ;; The primary function table and the regression-only chord
                  ;; inventory each render all 29 exact @sc carrier aliases.
                  (= 58 (count-prefixed-lines first-diff "| `@sc-"))
-                 (= 16 (count-substrings first-diff "tap-hold-policy-refused"))
+                 (= 16 (count-substrings first-diff "tap-hold-lowering-refused"))
                  (= 8 (count-substrings first-diff "device-variant-refused"))
-                 (search "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, no selected policy | all classified below | 0 |" first-diff)
+                 (search "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, selected buffered policy | all classified below | 0 |" first-diff)
                  (search "| Ordered native routes | 68 A2 + 72 A360 `defsrc` rows across `normal` / `fun` | C1--C7 and F1--F2 closed ledger | C7, 360 `game`, and process-unmapped inputs refused | 0 |" first-diff)
                  (search "Native-route ledger SHA-256: `24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a` (140 ordered rows; unclassified 0)." first-diff)
                  (search "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |" first-diff)
@@ -629,7 +636,7 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (= 8 (count-prefixed-lines first-diff "| 360 only | `@"))
                  (search "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` |" first-diff)
                  (search "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` |" first-diff)
-                 (search "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `typed-policy-unselected` |" first-diff)
+                 (search "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `typed-policy-selected` |" first-diff)
                  (search "| `case-left-shift` | `lshift` → `lshift` |" first-diff)
                  (search "| `greek` | `lctl` → `@gr` |" first-diff)
                  (search "| `top` | `rctl` → `@top` |" first-diff)

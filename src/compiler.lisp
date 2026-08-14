@@ -726,7 +726,8 @@ both paths construct the one public MODEL policy value.
          (kind (cdr (assoc kind-name
                            '(("modifier" . :modifier)
                              ("axis-modifier" . :axis-modifier)
-                             ("axis-layer" . :axis-layer))
+                             ("axis-layer" . :axis-layer)
+                             ("axis-carrier" . :axis-carrier))
                            :test #'string=))))
     (unless kind
       (%stage-error :decode :unknown-realization-kanata-buffered-hold-kind
@@ -753,7 +754,14 @@ both paths construct the one public MODEL policy value.
           kind (%compiler-syntax-identifier (third children) "Buffered layer axis")
           (%compiler-syntax-text (sixth children) "Buffered axis-layer token")
           :state (%compiler-syntax-identifier (fourth children) "Buffered layer state")
-          :layer (%compiler-syntax-identifier (fifth children) "Buffered layer identity")))))))
+          :layer (%compiler-syntax-identifier (fifth children) "Buffered layer identity")))
+        (:axis-carrier
+         (arity 5)
+         (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+          kind (%compiler-syntax-identifier (third children) "Buffered carrier axis")
+          nil
+          :state (%compiler-syntax-identifier (fourth children) "Buffered carrier state")
+          :code (%compiler-syntax-integer (fifth children) "Buffered carrier code")))))))
 
 (defun %decode-realization-kanata-buffered-allocations-source (node)
   "Decode the closed inert buffered allocation grammar for explicit-file mode."
@@ -1402,7 +1410,7 @@ member of POLICY.  This helper intentionally names no generic interaction.
              "Kanata 1.12 buffers/replays pending foreign events, so its generic action is not exact for this selected modern no-delay interaction."))
     (:kanata-1-12-buffered
      (values :unimplemented-kanata-1-12-buffered-interaction-policy
-             "This selected Kanata 1.12 buffer/replay interaction has an inert typed action handoff, but native cancellation, multi-owner arbitration, and input-domain closure remain unproved."))
+             "This selected Kanata 1.12 buffer/replay interaction has an inert typed action handoff, but native cancellation and emitted input-domain closure remain unproved."))
     ;; The typed model validator makes this defensive branch unreachable for
     ;; ordinary source/model values.  Preserve a stable refusal if a caller
     ;; mutates an identity-bearing object after validation.
@@ -1595,6 +1603,14 @@ ordinary compiler lifecycle refusal and backend emission gate are independent.
                                  (ivory-key.model::realization-kanata-buffered-hold-layer
                                   hold-allocation)
                                  (ivory-key.model::realization-kanata-buffered-hold-token
+                                  hold-allocation)))
+                               (:axis-carrier
+                                (ivory-key.backend::make-kanata-axis-carrier-hold-action
+                                 (ivory-key.model::realization-kanata-buffered-hold-identity
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-state
+                                  hold-allocation)
+                                 (ivory-key.model::realization-kanata-buffered-hold-code
                                   hold-allocation)))))
                            (tap-key
                              (ivory-key.model::release-trigger-interaction-compatibility-contract-tap-key
@@ -1751,7 +1767,7 @@ compile gate.
       (push (%make-compiler-fidelity-issue
              :kanata-buffered-runtime
              :unproved-kanata-buffered-pending-lifecycle
-             "Kanata 1.12 single-owner deadline custody is proven, but cancellation, multi-owner/foreign arbitration, and bounded native queue closure remain unproved; the typed buffered action handoff is inert.")
+             "Kanata 1.12 bounded deadline and multi-owner edge order is proven, but cancellation and emitted native input-domain closure remain unproved; the typed buffered action handoff is inert.")
             issues))
     (when (and buffered-contracts (null buffered-actions))
       ;; MODEL has proved the finite interaction shape, but profile-owned
@@ -2212,7 +2228,7 @@ modifiers, named symbols, commands, or interactions.
   (format stream "Interaction compatibility selection~%")
   (if policy
       (progn
-        (format stream "  ~A (selected; no Kanata action IR is implied)~%"
+        (format stream "  ~A (selected; typed action IR remains inspection-only)~%"
                 (string-downcase
                  (symbol-name
                   (ivory-key.model::realization-interaction-compatibility-policy-mode

@@ -121,9 +121,8 @@
                                 (ivory-key.project:project-definition-name item)))
                         (ivory-key.project:project-load-result-definitions result))))))
 
-(deftest project-manna-source-transcribes-primary-tap-holds-without-selecting-policy
-  "The checked-in project remains inspectable while its timing behavior is
-unselected.  This covers the real graph rather than a decoder-only fixture."
+(deftest project-manna-source-transcribes-primary-tap-holds-with-selected-policy
+  "The checked-in graph selects the reviewed buffered profile without emitting."
   (let* ((project (ivory-key.project:load-project
                    (truename "manna-cadet-project.ivory")
                    :source-roots (list (truename "./"))))
@@ -134,6 +133,37 @@ unselected.  This covers the real graph rather than a decoder-only fixture."
              "hotkey-18" "hotkey-20" "hotkey-19" "hotkey-21")))
     (is-equal 66 (length (ivory-key.model:layout-bindings layout)))
     (is-equal 20 (length (ivory-key.model:layout-interactions layout)))
+    (let* ((profile
+             (ivory-key.project:project-realization
+              project "manna-cadet-linux-xkb-kanata" :errorp t))
+           (policy
+             (ivory-key.model:realization-profile-interaction-compatibility-policy
+              profile))
+           (allocation
+             (ivory-key.model:realization-profile-kanata-buffered-allocation-policy
+              profile)))
+      (is-equal :kanata-1-12-buffered
+                (ivory-key.model:realization-interaction-compatibility-policy-mode
+                 policy))
+      (is-equal 16
+                (length
+                 (ivory-key.model:realization-interaction-compatibility-policy-interactions
+                  policy)))
+      (is-equal 16
+                (length
+                 (ivory-key.model:realization-kanata-buffered-allocation-policy-actions
+                  allocation)))
+      (is-equal '(84 85)
+                (sort
+                 (remove nil
+                         (mapcar
+                          (lambda (action)
+                            (ivory-key.model:realization-kanata-buffered-hold-code
+                             (ivory-key.model:realization-kanata-buffered-action-hold
+                              action)))
+                          (ivory-key.model:realization-kanata-buffered-allocation-policy-actions
+                           allocation)))
+                 #'<)))
     (is-equal 72 (length (ivory-key.model:topology-positions topology)))
     ;; Literal direct routes are transcribed; only C7 remains a typed physical
     ;; input without an invented ordinary layout behavior.

@@ -904,7 +904,8 @@ default compatibility route.
          (kind (cdr (assoc kind-name
                            '(("modifier" . :modifier)
                              ("axis-modifier" . :axis-modifier)
-                             ("axis-layer" . :axis-layer))
+                             ("axis-layer" . :axis-layer)
+                             ("axis-carrier" . :axis-carrier))
                            :test #'string=))))
     (unless kind
       (%fail context :unknown-realization-kanata-buffered-hold-kind
@@ -933,7 +934,16 @@ default compatibility route.
         kind (%identifier-node-name context (third children) "Buffered layer axis")
         (%text-node-value context (sixth children) "Buffered axis-layer token")
         :state (%identifier-node-name context (fourth children) "Buffered layer state")
-        :layer (%identifier-node-name context (fifth children) "Buffered layer identity"))))))
+        :layer (%identifier-node-name context (fifth children) "Buffered layer identity")))
+      (:axis-carrier
+       (unless (= (length children) 5)
+         (%fail context :invalid-realization-kanata-buffered-hold
+                "AXIS-CARRIER HOLD needs axis, state, and carrier code."))
+       (ivory-key.model::make-realization-kanata-buffered-hold-allocation
+        kind (%identifier-node-name context (third children) "Buffered carrier axis")
+        nil
+        :state (%identifier-node-name context (fourth children) "Buffered carrier state")
+        :code (%integer-node-value context (fifth children) "Buffered carrier code"))))))
 
 (defun %decode-realization-kanata-buffered-allocations (context form)
   "Decode typed inert action allocations from parser nodes only.

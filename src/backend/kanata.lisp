@@ -100,8 +100,8 @@ and arbitrary parenthesized source still fail closed.
 
 The two accepted values are V1 Manna/Kanata compatibility choices, not a
 generic Kanata interaction capability.  In particular, neither may be
-translated into a raw tap-hold form until a typed ownership/buffer/replay IR
-exists and can be matched to its source evidence.
+translated into an emitted tap-hold form until the typed action IR is matched
+to a closed native input domain and whole-pipeline evidence.
 "
   (ivory-key.model::validate-realization-interaction-compatibility-policy
    policy)
@@ -109,7 +109,7 @@ exists and can be matched to its source evidence.
     (:modern-no-delay
      "Kanata 1.12 buffers/replays pending foreign events, so generic Kanata actions are not exact for the selected modern no-delay policy.")
     (:kanata-1-12-buffered
-     "The selected Kanata 1.12 buffered policy lacks a closed ownership, cancellation, and ordered-replay action IR.")
+     "The selected Kanata 1.12 buffered policy has typed inspection-only actions, but cancellation and native input-domain closure remain unproved.")
     ;; The model validator makes this defensive branch unreachable for
     ;; source-decoded values.  Preserve a refusal for an object changed after
     ;; validation instead of guessing a backend action.
@@ -295,7 +295,7 @@ caller supplied no matching interaction entries.
 
 (defun %kanata-buffered-action-refusal-detail ()
   "Stable non-emission reason even after typed AST validation."
-  "Typed Kanata 1.12 action handoff remains unsupported: the single-owner deadline path is proven, but cancellation, multi-owner/foreign arbitration, and bounded native queue closure are not.")
+  "Typed Kanata 1.12 action handoff remains unsupported: bounded deadline and multi-owner edge-order paths are proven, but cancellation and emitted native input-domain closure are not.")
 
 (defun %kanata-source-rows (request mappings)
   "Return canonical (POSITION . SOURCE) rows for one generated config.

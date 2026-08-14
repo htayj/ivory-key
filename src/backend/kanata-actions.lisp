@@ -5,8 +5,8 @@
 
 ;;; This file is intentionally an action *description*, rather than an
 ;;; emitter extension.  The known Kanata 1.12 probe proves the bounded
-;;; single-owner deadline-custody path, but not cancellation, multi-owner
-;;; arbitration, or closure of the emitted configuration's wider input domain.
+;;; deadline-custody and selected multi-owner edge-order paths, but not
+;;; cancellation or closure of the emitted configuration's wider input domain.
 ;;; Therefore a valid value below is useful for deterministic inspection and
 ;;; future review, but does not constitute a permitted backend realization.
 
@@ -110,6 +110,13 @@
   ((code :initarg :code :reader kanata-arbitrary-code-action-code))
   (:documentation "One typed Linux input-event carrier code."))
 
+(defclass kanata-axis-carrier-hold-action (kanata-action)
+  ((axis :initarg :axis :reader kanata-axis-carrier-hold-action-axis)
+   (state :initarg :state :reader kanata-axis-carrier-hold-action-state)
+   (code :initarg :code :reader kanata-axis-carrier-hold-action-code))
+  (:documentation
+   "One explicit semantic axis/state hold allocated to an evidenced carrier code."))
+
 (defclass kanata-layer-while-held-action (kanata-action)
   ((axis :initarg :axis :reader kanata-layer-while-held-action-axis)
    (state :initarg :state :reader kanata-layer-while-held-action-state)
@@ -191,6 +198,19 @@
     (setf (%kanata-action-validated-p action) t)
     action))
 
+(defun make-kanata-axis-carrier-hold-action (axis state code)
+  (unless (member code '(84 85))
+    (%kanata-action-error :unsupported-kanata-axis-carrier
+                          "Axis carrier code ~S is outside the evidenced 84/85 allocation."
+                          code))
+  (let ((action
+          (make-instance 'kanata-axis-carrier-hold-action
+                         :axis (%kanata-action-identifier axis "Carrier hold axis")
+                         :state (%kanata-action-identifier state "Carrier hold state")
+                         :code (%kanata-action-u16 code "Carrier hold code"))))
+    (setf (%kanata-action-validated-p action) t)
+    action))
+
 (defun make-kanata-layer-while-held-action (axis state layer token)
   (let ((action (make-instance 'kanata-layer-while-held-action
                                :axis (%kanata-action-identifier axis "Held layer axis")
@@ -228,6 +248,14 @@
      (%kanata-action-token (kanata-key-action-token action) "Key action token"))
     (kanata-arbitrary-code-action
      (%kanata-action-u16 (kanata-arbitrary-code-action-code action) "Arbitrary code"))
+    (kanata-axis-carrier-hold-action
+     (%kanata-action-identifier (kanata-axis-carrier-hold-action-axis action)
+                                "Carrier hold axis")
+     (%kanata-action-identifier (kanata-axis-carrier-hold-action-state action)
+                                "Carrier hold state")
+     (unless (member (kanata-axis-carrier-hold-action-code action) '(84 85))
+       (%kanata-action-error :unsupported-kanata-axis-carrier
+                             "Axis carrier code is outside the evidenced 84/85 allocation.")))
     (kanata-layer-while-held-action
      (%kanata-action-identifier (kanata-layer-while-held-action-axis action)
                                 "Held layer axis")
@@ -264,6 +292,7 @@
                              "Tap-hold release action requires a direct named-key tap."))
      (unless (typep (kanata-tap-hold-release-action-hold-action action)
                     '(or kanata-modifier-hold-action
+                         kanata-axis-carrier-hold-action
                          kanata-layer-while-held-action))
        (%kanata-action-error :invalid-kanata-hold-action
                              "Tap-hold release action requires one modifier or layer hold."))))
@@ -379,6 +408,12 @@
             (%same-kanata-held-signature-p
              (kanata-modifier-hold-action-identity hold)
              (kanata-modifier-hold-action-state hold) signature))
+       t)
+      ((and (eq kind :axis-state)
+            (typep hold 'kanata-axis-carrier-hold-action)
+            (%same-kanata-held-signature-p
+             (kanata-axis-carrier-hold-action-axis hold)
+             (kanata-axis-carrier-hold-action-state hold) signature))
        t)
       ((and (eq kind :axis-state)
             (typep hold 'kanata-layer-while-held-action)
@@ -633,6 +668,13 @@ which a later exact emitter would need to prove again.
            :token (kanata-key-action-token action)))
     (kanata-arbitrary-code-action
      (list :arbitrary-code (kanata-arbitrary-code-action-code action)))
+    (kanata-axis-carrier-hold-action
+     (list :axis-carrier-hold
+           :axis (ivory-key.model:identifier-name
+                  (kanata-axis-carrier-hold-action-axis action))
+           :state (ivory-key.model:identifier-name
+                   (kanata-axis-carrier-hold-action-state action))
+           :code (kanata-axis-carrier-hold-action-code action)))
     (kanata-layer-while-held-action
      (list :layer-while-held
            :axis (ivory-key.model:identifier-name
@@ -932,6 +974,8 @@ result is non-emitting until the independent native-domain proof gate clears.
     (kanata-key-action (kanata-key-action-token action))
     (kanata-arbitrary-code-action
      (format nil "(arbitrary-code ~D)" (kanata-arbitrary-code-action-code action)))
+    (kanata-axis-carrier-hold-action
+     (format nil "(arbitrary-code ~D)" (kanata-axis-carrier-hold-action-code action)))
     (kanata-modifier-hold-action (kanata-modifier-hold-action-token action))
     (kanata-layer-while-held-action
      (format nil "(layer-while-held ~A)"

@@ -187,7 +187,7 @@
                       :key #'ivory-key.backend:realization-feature))))
     (dolist (case
              '((:modern-no-delay . "modern no-delay")
-               (:kanata-1-12-buffered . "buffered policy lacks")))
+               (:kanata-1-12-buffered . "inspection-only actions")))
       (let* ((policy
                (ivory-key.model::make-realization-interaction-compatibility-policy
                 (car case) '("manna-tap-hold")))
@@ -439,11 +439,11 @@ three normalized candidates MODEL originally proved.
                  action))
       (is-equal "tap-hold-case-f" (getf data :interaction))
       (is-equal :known (getf data :provenance))
-      (is (search "single-owner deadline"
+      (is (search "bounded deadline"
                   (ivory-key.backend:realization-detail
                    (first (remove-if-not
                            (lambda (result)
-                             (search "single-owner deadline"
+                             (search "bounded deadline"
                                      (ivory-key.backend:realization-detail result)))
                            (ivory-key.backend::kanata-plan-realizations plan))))))
       (is-equal (list action)
@@ -474,6 +474,18 @@ three normalized candidates MODEL originally proved.
          (lambda ()
            (ivory-key.backend::make-kanata-tap-hold-release-action
             200 200 tap inner))))
+      (let ((carrier
+              (ivory-key.backend::make-kanata-axis-carrier-hold-action
+               "script" "greek" 85)))
+        (is-equal '(:axis-carrier-hold :axis "script" :state "greek" :code 85)
+                  (ivory-key.backend::kanata-action-canonical-data carrier))
+        (is-equal "(arbitrary-code 85)"
+                  (ivory-key.backend::kanata-action-emission-string carrier)))
+      (backend-test-kanata-action-signals
+       :unsupported-kanata-axis-carrier
+       (lambda ()
+         (ivory-key.backend::make-kanata-axis-carrier-hold-action
+          "script" "greek" 86)))
       (backend-test-kanata-action-signals
        :invalid-kanata-defcfg-requirements
        (lambda ()

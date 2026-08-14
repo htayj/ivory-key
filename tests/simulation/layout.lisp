@@ -20,9 +20,8 @@
 
 (defun layout-simulation-manna-direct-holder-layout ()
   "Project only the four immediate source-held interactions for their exact
-reference traces.  This is a test projection, not a realization-policy choice:
-the sixteen transcribed timing interactions remain unselected and therefore
-outside these direct-owner tests."
+reference traces.  This test projection is independent of the selected
+buffered policy for the sixteen transcribed timing interactions."
   (let* ((layout (ivory-key.model:decode-layout-forms
                   (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
          (normalized (ivory-key.model:normalize-layout layout))

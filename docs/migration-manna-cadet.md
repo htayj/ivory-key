@@ -23,8 +23,10 @@ and proving live keyboard behavior are different evidence levels.
   vocabulary and deterministic partial proposal now resolve its 29 evidenced
   XKB/Kanata carriers. It also has four exact direct immediate held
   interactions: `lshift` and `rshift` each hold case, `lctl` holds Greek, and
-  `rctl` holds Top. Tap-hold activation, backend-lowering policy, modifier
-  policy, and all other timed interactions remain absent rather than guessed.
+  `rctl` holds Top. The selected Linux realization chooses the versioned
+  Kanata-1.12 buffered policy for all sixteen source tap-holds and records
+  closed modifier/layer/carrier allocations. Backend emission remains refused
+  until native-domain and whole-pipeline equivalence are proven.
 - `layouts/twenty-level.ivory` demonstrates that the source model is not
   conceptually limited to eight product states. The planner retains all twenty
   states and explicitly refuses the conventional eight-level XKB realization

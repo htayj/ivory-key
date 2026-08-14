@@ -1611,7 +1611,7 @@ claim zero unchecked differences.
             (static-nosymbol-count root))
     (format stream "| Function outputs | 29 A2 + 29 360 placements | 29 shared outputs | 2 activators | 0 |~%")
     (format stream "| Direct selectors | 4 A2 + 4 360 observations | 4 abstract held interactions | backend lowering refused | 0 |~%")
-    (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, no selected policy | all classified below | 0 |~%")
+    (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, selected buffered policy | all classified below | 0 |~%")
     (format stream "| Ordered native routes | 68 A2 + 72 A360 `defsrc` rows across `normal` / `fun` | C1--C7 and F1--F2 closed ledger | C7, 360 `game`, and process-unmapped inputs refused | 0 |~%")
     (format stream "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |~%~%")
     (format stream "| Primary aliases | ~D A2 + ~D 360 declarations | ~D + ~D classified | no implicit alias meaning | 0 |~%~%"
@@ -1680,14 +1680,14 @@ claim zero unchecked differences.
     (format stream "|---|---|---|---|~%")
     (format stream "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` | Static table is exact, but neither primary `defsrc` has a direct token; both device records refuse a placement. |~%")
     (format stream "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` | Frozen source is `menu` / `caps`; only the common active `alt-mode` output is transcribed. |~%")
-    (format stream "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `typed-policy-unselected` | The hash-pinned Kanata-1.12 oracle records delayed foreign-event ordering, and the model/compiler carry a bounded contract plus inert typed action handoff. Native queue closure, selected realization-owned allocations, whole-pipeline proof, and a selected `.ivory` profile remain absent. |~%")
+    (format stream "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `typed-policy-selected` | The realization explicitly selects all 16 instances and records typed modifier, layer, carrier, tap, alias, and bounded direct-route allocations. Native-domain closure and whole-pipeline proof remain mandatory emission gates. |~%")
     (dolist (row +unresolved-primary-tap-holds+)
       (destructuring-bind (alias position family) row
-        (format stream "| `@~A` at `~A` (~A) | A2 and 360 | `tap-hold-policy-refused` | Timeout, interruption, commitment, owner release, and lowerer semantics are not selected. |~%"
+        (format stream "| `@~A` at `~A` (~A) | A2 and 360 | `tap-hold-lowering-refused` | Buffered commitment and owner lifetime are selected; exact native-domain and whole-pipeline lowering remain unproved. |~%"
                 alias position family)))
     (dolist (row +unresolved-selector-tap-holds+)
       (destructuring-bind (alias position axis) row
-        (format stream "| `@~A` at `~A` (~A) | A2 and 360 | `tap-hold-policy-refused` | This alternate selector path is not the direct physical selector interaction. |~%"
+        (format stream "| `@~A` at `~A` (~A) | A2 and 360 | `tap-hold-lowering-refused` | The selected typed axis-carrier allocation records the frozen 84/85 hold; native-domain and whole-pipeline proof remain mandatory. |~%"
                 alias position axis)))
     (format stream "| `@osft`, `@csft` | A2 and 360 | `inactive-alias-excluded` | Declared aliases are not selected by either primary normal layer. |~%")
     (dolist (alias +advantage360-game-aliases+)

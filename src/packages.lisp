@@ -318,6 +318,7 @@
    #:realization-kanata-buffered-hold-state
    #:realization-kanata-buffered-hold-layer
    #:realization-kanata-buffered-hold-token
+   #:realization-kanata-buffered-hold-code
    #:realization-kanata-buffered-foreign-route
    #:make-realization-kanata-buffered-foreign-route
    #:realization-kanata-buffered-foreign-route-position
@@ -471,6 +472,11 @@
    #:make-kanata-key-action
    #:kanata-arbitrary-code-action #:kanata-arbitrary-code-action-code
    #:make-kanata-arbitrary-code-action
+   #:kanata-axis-carrier-hold-action
+   #:kanata-axis-carrier-hold-action-axis
+   #:kanata-axis-carrier-hold-action-state
+   #:kanata-axis-carrier-hold-action-code
+   #:make-kanata-axis-carrier-hold-action
    #:kanata-layer-while-held-action
    #:kanata-layer-while-held-action-axis
    #:kanata-layer-while-held-action-state

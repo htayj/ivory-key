@@ -126,7 +126,7 @@ prove a carrier/pass-through stage without inventing a backend token here.
 ;; inert typed action handoff, including an explicit *alias name*, but never
 ;; arbitrary parenthesized actions, queue rules, or an emitted configuration.
 (defparameter +realization-kanata-buffered-hold-kinds+
-  '(:modifier :axis-modifier :axis-layer))
+  '(:modifier :axis-modifier :axis-layer :axis-carrier))
 
 (defclass realization-kanata-buffered-hold-allocation ()
   ((kind :initarg :kind :reader realization-kanata-buffered-hold-kind)
@@ -136,7 +136,10 @@ prove a carrier/pass-through stage without inventing a backend token here.
           :reader realization-kanata-buffered-hold-state)
    (layer :initarg :layer :initform nil
           :reader realization-kanata-buffered-hold-layer)
-   (token :initarg :token :reader realization-kanata-buffered-hold-token))
+   (token :initarg :token :initform nil
+          :reader realization-kanata-buffered-hold-token)
+   (code :initarg :code :initform nil
+         :reader realization-kanata-buffered-hold-code))
   (:documentation
    "One explicit modifier or axis-held Kanata atom/layer allocation."))
 
@@ -236,32 +239,48 @@ delimiter, or action fragment.
     (sort identifiers #'identifier<)))
 
 (defun make-realization-kanata-buffered-hold-allocation
-    (kind identity token &key state layer)
+    (kind identity token &key state layer code)
   "Create one closed semantic-held-effect to Kanata allocation.
 
-The three forms are :MODIFIER (identity/token), :AXIS-MODIFIER
-(axis/state/token), and :AXIS-LAYER (axis/state/layer/token).  Tokens remain
-opaque atoms in the realization policy; this constructor admits no raw action
+The four forms are :MODIFIER (identity/token), :AXIS-MODIFIER
+(axis/state/token), :AXIS-LAYER (axis/state/layer/token), and :AXIS-CARRIER
+(axis/state/code).  Tokens remain opaque atoms and carrier codes remain bounded
+integers in the realization policy; this constructor admits no raw action
 syntax.
 "
   (%realization-closed-value kind +realization-kanata-buffered-hold-kinds+
                              :unsupported-realization-kanata-buffered-hold-kind
                              "Kanata buffered hold kind")
   (let ((identifier (ensure-identifier identity))
-        (canonical-token (%realization-kanata-buffered-token token
-                                                               "Kanata buffered hold token"))
+        (canonical-token (and token
+                              (%realization-kanata-buffered-token
+                               token "Kanata buffered hold token")))
         (canonical-state (and state (ensure-identifier state)))
-        (canonical-layer (and layer (ensure-identifier layer))))
+        (canonical-layer (and layer (ensure-identifier layer)))
+        (canonical-code (and code
+                             (progn
+                               (unless (member code '(84 85))
+                                 (%realization-error
+                                  :unsupported-realization-kanata-buffered-carrier
+                                  "Buffered carrier code ~S is outside the evidenced 84/85 allocation."
+                                  code))
+                               code))))
     (unless (ecase kind
-              (:modifier (and (null canonical-state) (null canonical-layer)))
-              (:axis-modifier (and canonical-state (null canonical-layer)))
-              (:axis-layer (and canonical-state canonical-layer)))
+              (:modifier (and canonical-token (null canonical-state)
+                              (null canonical-layer) (null canonical-code)))
+              (:axis-modifier (and canonical-token canonical-state
+                                   (null canonical-layer) (null canonical-code)))
+              (:axis-layer (and canonical-token canonical-state canonical-layer
+                                (null canonical-code)))
+              (:axis-carrier (and (null canonical-token) canonical-state
+                                  (null canonical-layer) canonical-code)))
       (%realization-error :invalid-realization-kanata-buffered-hold
-                          "Kanata buffered hold kind ~S has incompatible state/layer fields."
+                          "Kanata buffered hold kind ~S has incompatible token/state/layer/code fields."
                           kind))
     (make-instance 'realization-kanata-buffered-hold-allocation
                    :kind kind :identity identifier :state canonical-state
-                   :layer canonical-layer :token canonical-token)))
+                   :layer canonical-layer :token canonical-token
+                   :code canonical-code)))
 
 (defun make-realization-kanata-buffered-foreign-route (position token)
   "Allocate one physical direct-named-key foreign route without a raw action."
@@ -288,7 +307,8 @@ interaction identity into a backend alias spelling on its own.
            (realization-kanata-buffered-hold-identity hold)
            (realization-kanata-buffered-hold-token hold)
            :state (realization-kanata-buffered-hold-state hold)
-           :layer (realization-kanata-buffered-hold-layer hold))))
+           :layer (realization-kanata-buffered-hold-layer hold)
+           :code (realization-kanata-buffered-hold-code hold))))
     (make-instance 'realization-kanata-buffered-action-allocation
                    :interaction (ensure-identifier interaction)
                    :alias-token (%realization-kanata-buffered-alias-token
@@ -312,7 +332,8 @@ interaction identity into a backend alias spelling on its own.
            (realization-kanata-buffered-hold-identity hold)
            (realization-kanata-buffered-hold-token hold)
            :state (realization-kanata-buffered-hold-state hold)
-           :layer (realization-kanata-buffered-hold-layer hold))))
+           :layer (realization-kanata-buffered-hold-layer hold)
+           :code (realization-kanata-buffered-hold-code hold))))
     (unless (and (eq (realization-kanata-buffered-hold-kind hold)
                      (realization-kanata-buffered-hold-kind canonical))
                  (identifier= (realization-kanata-buffered-hold-identity hold)
@@ -321,8 +342,10 @@ interaction identity into a backend alias spelling on its own.
                         (realization-kanata-buffered-hold-state canonical))
                  (equal (realization-kanata-buffered-hold-layer hold)
                         (realization-kanata-buffered-hold-layer canonical))
-                 (string= (realization-kanata-buffered-hold-token hold)
-                          (realization-kanata-buffered-hold-token canonical)))
+                 (equal (realization-kanata-buffered-hold-token hold)
+                        (realization-kanata-buffered-hold-token canonical))
+                 (eql (realization-kanata-buffered-hold-code hold)
+                      (realization-kanata-buffered-hold-code canonical)))
       (%realization-error :noncanonical-realization-kanata-buffered-hold
                           "Buffered hold allocation fields must be canonical.")))
   hold)

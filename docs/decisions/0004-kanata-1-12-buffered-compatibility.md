@@ -1,6 +1,6 @@
-# 0004: Proposed Kanata 1.12 buffered compatibility contract
+# 0004: Kanata 1.12 buffered compatibility contract
 
-- Status: Proposed
+- Status: Accepted, but revisitable
 - Date: 2026-08-14
 
 ## Context and status
@@ -12,7 +12,7 @@ pending `tap-hold-release` owner delays a foreign press and later releases it
 in an observable order.  The frozen Manna Cadet source commit does not itself
 pin Kanata 1.12, so this is **not** a source-era equivalence claim.
 
-This records one future, non-default policy identity:
+This records one selected, non-default policy identity:
 
 ```lisp
 (interaction-compatibility kanata-1-12-buffered
@@ -21,19 +21,22 @@ This records one future, non-default policy identity:
 
 The spelling is a closed project/realization-policy reference; it is not an
 interaction clause, backend action, or embedded Kanata form.  It is absent
-from every current realization.  An absent compatibility policy remains
-unselected, and this decision does not add a default.  The required nonempty
+from generic realizations and selected explicitly by the Manna Linux
+realization. An absent compatibility policy remains unselected, and this
+decision does not add a default. The required nonempty
 `instances` set prevents this Manna-specific policy from silently governing an
 unrelated interaction in the same composition.  Unlisted interactions retain
 their ordinary generic refusal.
 
-No `.ivory` profile is checked in for this policy yet. The model now derives a
-typed, backend-neutral contract only from the exact normalized three-candidate
-shape, and the reference simulator can execute its bounded finite dispatch
-transaction when a caller explicitly supplies the policy. This is reference
-semantics, not a source construct or a positive backend realization. Creating
-a Manna realization declaration now would still falsely imply that Kanata
-lowering and full migration equivalence are proven.
+The checked-in Manna Linux realization selects the policy for the exact sixteen
+source instances and records typed alias, tap, modifier/layer, carrier, and
+bounded direct-route allocations. The model derives a typed, backend-neutral
+contract only from the exact normalized three-candidate shape, and the
+reference simulator executes its finite dispatch barrier when that realization
+is selected. Selection records the intended compatibility semantics; it does
+not upgrade backend fidelity. The compiler and Kanata backend continue to
+refuse artifact publication until the native input-domain and end-to-end
+differential gates below are complete.
 
 ## Provenance and frozen alias inventory
 
@@ -201,19 +204,20 @@ continue to fail closed rather than silently acquiring this policy.
 
 ## Consequences and acceptance gates
 
-If selected later, a realization must name
+The selected realization names
 `kanata-1-12-buffered` and its concrete interaction instances explicitly.  It must be a
 separate policy route from `manna-release-trigger-v1`; no compatibility mode
 may inherit from or silently replace the other.  The selected realization
 remains unlowerable until each pipeline stage proves the same pending-input
 and output-order contract.
 
-This decision remains Proposed. The typed policy, positive sixteen-instance
+This decision is accepted but remains revisitable. The typed policy, positive sixteen-instance
 evidence ledger, strict structural gate, and per-plan barrier reference
 transaction implement a reviewed subset of the model/reference work below.
 They do not by themselves satisfy the whole-layout, cancellation, backend, or
-selected-profile gates. It becomes Accepted only when all of the following are
-true:
+migration-equivalence gates. Acceptance records the compatibility choice; the
+following remain mandatory gates before an exact backend grade or migration
+completion:
 
 - the typed policy clause is decoded and resolved without creating a default;
 - the model gains a closed pending-input/replay representation and rejects all
