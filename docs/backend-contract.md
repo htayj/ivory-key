@@ -244,6 +244,12 @@ carriers, and the 360 local-key declarations. It is syntax/configuration
 acceptance only: the normal emitter still refuses, and this check does not
 prove timing, queue behavior, XKB delivery, or live-device equivalence.
 
+Its opt-in `--runtime-oracle` mode additionally substitutes each generated
+proposal into the hash-pinned Kanata 1.12 state-machine suite. Both A2 and
+Advantage360 proposals pass the eight checked scheduler cases. That is a
+versioned runtime proof for those cases, not complete native-domain or
+downstream XKB equivalence.
+
 These allocations authorize inspection only. The compiler may construct the
 typed action values, but it retains
 `unproved-kanata-buffered-pending-lifecycle`; Kanata grades the actions

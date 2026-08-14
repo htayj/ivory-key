@@ -224,3 +224,17 @@ The active Manna realization selects the buffered route for all sixteen source
 instances, but the compiler still refuses all of them before artifact
 publication. Selection records the intended semantics; it is not an exact
 backend grade.
+
+The separate generated-proposal probe can run the same hash-pinned state-machine
+suite against Ivory Key's deterministic A2 and Advantage360 proposal texts:
+
+```sh
+sbcl --script tests/external/manna-kanata-generated.lisp \
+  --runtime-oracle PATH-TO-kanata-1.12.0.tar.gz PATH-TO-FROZEN-MANNA-ROOT
+```
+
+Both generated proposals pass the eight checked runtime cases as well as the
+installed parser. This proves that the typed alias/layer proposal preserves
+the selected tested scheduler behavior on both device source orders. It does
+not by itself prove every ledger class, downstream XKB/client behavior, or
+authorize normal emission.

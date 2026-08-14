@@ -26,7 +26,8 @@
         (error "Manna proposal unexpectedly has no compiler refusal gates."))
       request)))
 
-(defun validate-external-manna-kanata-proposal (composition expected-sources)
+(defun validate-external-manna-kanata-proposal
+    (composition expected-sources &key runtime-archive manna-root)
   (let* ((backend (ivory-key.backend:make-kanata-backend))
          (request (external-manna-kanata-request composition))
          (plan (ivory-key.backend:lower-request backend request))
@@ -54,10 +55,46 @@
                  (ivory-key.backend:validate-artifact backend pathname)
                (unless success
                  (error "Kanata rejected ~A via ~S:~%~A"
-                        composition arguments output))))
+                        composition arguments output)))
+             (when runtime-archive
+               (unless manna-root
+                 (error "Generated runtime validation requires the frozen Manna root."))
+               (let ((oracle (merge-pathnames
+                              "tests/external/kanata-1.12-manna-oracle.sh"
+                              (truename "./"))))
+                 (multiple-value-bind (oracle-output ignored-output status)
+                     (uiop:run-program
+                      (list (namestring oracle) runtime-archive manna-root
+                            (namestring pathname))
+                      :output :string :error-output :output
+                      :ignore-error-status t)
+                   (declare (ignore ignored-output))
+                   (unless (and (eql status 0)
+                                (search "KANATA-1.12-MANNA-ORACLE: PASSED"
+                                        oracle-output))
+                     (error "Generated Kanata runtime oracle failed for ~A:~%~A"
+                            composition oracle-output))
+                   (format t "Generated Kanata 1.12 runtime oracle passed for ~A.~%"
+                           composition)))))
         (when (probe-file pathname)
           (delete-file pathname))))))
 
-(validate-external-manna-kanata-proposal "manna-cadet-linux" 68)
-(validate-external-manna-kanata-proposal "manna-cadet-advantage360-linux" 72)
+(let ((arguments (uiop:command-line-arguments)))
+  (cond
+    ((null arguments)
+     (validate-external-manna-kanata-proposal "manna-cadet-linux" 68)
+     (validate-external-manna-kanata-proposal
+      "manna-cadet-advantage360-linux" 72))
+    ((and (= (length arguments) 3)
+          (string= (first arguments) "--runtime-oracle"))
+     (validate-external-manna-kanata-proposal
+      "manna-cadet-linux" 68
+      :runtime-archive (second arguments)
+      :manna-root (third arguments))
+     (validate-external-manna-kanata-proposal
+      "manna-cadet-advantage360-linux" 72
+      :runtime-archive (second arguments)
+      :manna-root (third arguments)))
+    (t
+     (error "usage: manna-kanata-generated.lisp [--runtime-oracle ARCHIVE MANNA-ROOT]"))))
 (format t "Manna generated Kanata proposals passed installed validation.~%")
