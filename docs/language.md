@@ -71,7 +71,7 @@ form. It supports the implemented subset below:
   (define-interaction-template template-name (position-parameter ...)
     interaction-or-template-call)
   (interaction name ...)
-  (instantiate-interaction template-name
+  (instantiate-interaction instance-name template-name
     (:position-parameter logical-position) ...))
 ```
 
@@ -91,9 +91,17 @@ all twenty dependency-scoped entries.
 
 Interaction templates use identifier-only named arguments, may forward a
 position parameter through an acyclic template call, and expand before layout
-validation. Forward declaration references are deterministic. Missing,
+validation. Every top-level `instantiate-interaction` materialization supplies
+an explicit `instance-name` before its template name; this is the stable source
+identity for diagnostics, traces, arbitration, and source maps, not a new
+interaction semantic. Inside a template body, the compact
+`(instantiate-interaction template-name ...)` form is an unnamed delegation
+that inherits the eventual outer instance identity. Forward declaration
+references are deterministic. Missing,
 duplicate, or unknown arguments, arity errors, cycles, unresolved parameters,
-and expansions that collide on one interaction name are explicit errors.
+and expansions that collide on one interaction name are explicit errors. See
+[Decision 0001](decisions/0001-explicit-interaction-instance-names.md) for the
+accepted, revisitable rationale and migration boundary.
 
 An `overlay` is a closed sparse-patch declaration. `:axis`, `:state`, and
 `:precedence` occur exactly once; the axis must exist, use `patch` resolution,

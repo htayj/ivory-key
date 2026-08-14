@@ -238,10 +238,54 @@ reads nor evaluates source text.
                     :arbitration (interaction-arbitration interaction)
                     :metadata (interaction-metadata interaction)))
 
+(defclass source-interaction-template-instance ()
+  ((name :initarg :name :reader source-interaction-template-instance-name)
+   (reference :initarg :reference :reader source-interaction-template-instance-reference)))
+
+(defun %make-source-interaction-template-instance (name reference)
+  "Keep a source-level instance name beside the existing model reference.
+
+The model's INTERACTION-TEMPLATE-REFERENCE deliberately describes only
+parameter substitution.  A layout-source instantiation additionally owns the
+one concrete interaction name that reaches validation and lowering.  This
+private wrapper is eliminated by RESOLVE-INTERACTION-FORM; it never becomes
+part of the resolved layout model.
+"
+  (make-instance 'source-interaction-template-instance
+                 :name (ensure-identifier name) :reference reference))
+
+(defun %rename-resolved-interaction (interaction name)
+  "Return INTERACTION with the explicit source instance NAME.
+
+Delegating template bodies remain nameless; their outer layout clause supplies
+the sole materialized interaction identity after every parameter has resolved.
+"
+  (make-interaction name
+                    (interaction-participants interaction)
+                    (interaction-candidates interaction)
+                    :observe (interaction-observe interaction)
+                    :anchor (interaction-anchor interaction)
+                    :arbitration (interaction-arbitration interaction)
+                    :metadata (interaction-metadata interaction)))
+
 (defun resolve-interaction-form (form layout &key environment stack)
   "Expand an interaction template reference into a concrete finite interaction."
   (typecase form
     (interaction (resolve-interaction form layout :environment environment))
+    (source-interaction-template-instance
+     (let ((interaction
+             (resolve-interaction-form
+              (source-interaction-template-instance-reference form) layout
+              :environment environment :stack stack)))
+       ;; The private wrapper is only built by the closed source decoder, but
+       ;; retain a fail-closed guard if a programmatic caller constructs one.
+       (unless (typep interaction 'interaction)
+         (%resolution-error :invalid-interaction-template-instance
+                            "Interaction instance ~A did not resolve to an interaction."
+                            (identifier-name
+                             (source-interaction-template-instance-name form))))
+       (%rename-resolved-interaction
+        interaction (source-interaction-template-instance-name form))))
     (interaction-template-reference
      (let* ((name (interaction-reference-name form))
             (key (identifier-key name))
@@ -280,13 +324,12 @@ reads nor evaluates source text.
           (mapcar (lambda (interaction)
                     (resolve-interaction-form interaction layout))
                   (layout-interactions layout))))
-    ;; Template references carry no second, implicit instance name.  Letting
-    ;; two expansions retain one body name would make downstream arbitration
-    ;; and reporting refer to an ambiguous interaction, so fail before a
-    ;; later phase can choose one by incidental source order.
+    ;; Programmatic callers may still use the model's bare reference class.
+    ;; The source surface requires SOURCE-INTERACTION-TEMPLATE-INSTANCE, but
+    ;; preserve this final guard for every model construction path.
     (unless (unique-identifiers-p (mapcar #'interaction-name interactions))
-      (%resolution-error :ambiguous-interaction-template-expansion
-                         "Interaction template expansion produced duplicate interaction names."))
+      (%resolution-error :duplicate-interaction
+                         "Interaction expansion produced duplicate interaction names."))
     interactions))
 
 (defun resolve-layout (layout)
@@ -1034,22 +1077,20 @@ source spelling.
   (find (%require-identifier name "Interaction template name") headers
         :test #'identifier= :key #'first))
 
-(defun %decode-interaction-template-reference (form headers &key parameters)
-  "Decode one named-argument template call into the existing model reference.
+(defun %decode-interaction-template-reference (template-name argument-forms headers
+                                                &key parameters)
+  "Decode one named-argument delegation into the existing model reference.
 
 The model reference stores arguments in declaration order.  The source surface
 uses explicit argument names so a typo, duplicate, or omitted parameter cannot
 change meaning through incidental position.
 "
-  (%require-form-arity form 2 nil :malformed-interaction-template-reference
-                       "INSTANTIATE-INTERACTION declaration")
-  (let* ((name (%require-identifier (second form) "Interaction template name"))
+  (let* ((name (%require-identifier template-name "Interaction template name"))
          (header (%find-interaction-template-header name headers)))
     (unless header
       (%resolution-error :unknown-interaction-template
                          "Unknown interaction template ~A." (identifier-name name)))
     (let* ((target-parameters (second header))
-           (argument-forms (cddr form))
            (argument-names nil))
       (dolist (argument-form argument-forms)
         (%require-form-arity argument-form 2 2
@@ -1086,13 +1127,53 @@ change meaning through incidental position.
              (second argument-form) parameters "Interaction template argument")))
         target-parameters)))))
 
+(defun %decode-nested-interaction-template-reference (form headers parameters)
+  "Decode a non-materializing delegation in an interaction-template body.
+
+Nested calls intentionally retain the compact form
+  (INSTANTIATE-INTERACTION TEMPLATE (:PARAM VALUE) ...)
+because their outer layout clause supplies the only concrete interaction name.
+That spelling is not accepted at a layout's top level.
+"
+  (%require-form-arity form 2 nil :malformed-interaction-template-reference
+                       "nested INSTANTIATE-INTERACTION declaration")
+  ;; In a template body, three identifier heads would be the public
+  ;; (INSTANCE TEMPLATE ...) spelling.  It must not silently reinterpret the
+  ;; proposed instance as a delegation target; nested calls inherit the outer
+  ;; materialized identity instead.
+  (when (stringp (third form))
+    (%resolution-error :nested-interaction-template-instance-name
+                       "Nested INSTANTIATE-INTERACTION is delegation: omit the instance name."))
+  (%decode-interaction-template-reference (second form) (cddr form) headers
+                                          :parameters parameters))
+
+(defun %decode-interaction-template-instance (form headers)
+  "Decode one materializing top-level interaction-template instantiation.
+
+The public source surface requires an explicit INSTANCE before TEMPLATE:
+  (INSTANTIATE-INTERACTION INSTANCE TEMPLATE (:PARAM VALUE) ...)
+An old top-level unnamed call is rejected rather than silently treating a
+template-body interaction name as the instance identity.
+"
+  (%require-form-arity form 3 nil :missing-interaction-template-instance-name
+                       "INSTANTIATE-INTERACTION declaration with instance name")
+  ;; A list where the template name belongs is the unambiguous old top-level
+  ;; spelling: (INSTANTIATE-INTERACTION TEMPLATE (:PARAM VALUE) ...).
+  (when (consp (third form))
+    (%resolution-error :missing-interaction-template-instance-name
+                       "Top-level INSTANTIATE-INTERACTION needs INSTANCE then TEMPLATE."))
+  (let ((instance-name (%require-identifier (second form) "Interaction instance name"))
+        (reference (%decode-interaction-template-reference
+                    (third form) (cdddr form) headers)))
+    (%make-source-interaction-template-instance instance-name reference)))
+
 (defun %decode-interaction-template-body (body product-axes behavior-template-names
                                            headers parameters)
   (cond ((%named-form-p body "interaction")
          (%decode-interaction body product-axes behavior-template-names
                               :parameters parameters))
         ((%named-form-p body "instantiate-interaction")
-         (%decode-interaction-template-reference body headers :parameters parameters))
+         (%decode-nested-interaction-template-reference body headers parameters))
         (t (%resolution-error :invalid-interaction-template-body
                               "Interaction template body must be INTERACTION or INSTANTIATE-INTERACTION, got ~S."
                               (%form-name body)))))
@@ -1230,6 +1311,13 @@ change meaning through incidental position.
                                                           (typep argument 'identifier))
                                                         (interaction-reference-arguments
                                                          interaction))))
+                                       ((typep interaction 'source-interaction-template-instance)
+                                        (copy-list
+                                         (remove-if-not
+                                          (lambda (argument) (typep argument 'identifier))
+                                          (interaction-reference-arguments
+                                           (source-interaction-template-instance-reference
+                                            interaction)))))
                                        (t nil)))
                                interactions))
                :test #'identifier=)))
@@ -1288,8 +1376,6 @@ topology/import loading is deliberately outside this decoder."
                                        :code :duplicate-binding)
           (%require-unique-identifiers (mapcar #'overlay-patch-name overlays) "overlay"
                                        :code :duplicate-overlay)
-          (%require-unique-identifiers (mapcar #'interaction-name direct-interactions) "interaction"
-                                       :code :duplicate-interaction)
           (when uses-topology
             (%require-form-arity uses-topology 2 2 :malformed-layout "USES-TOPOLOGY option")
             (%require-identifier (second uses-topology) "Topology name"))
@@ -1298,13 +1384,22 @@ topology/import loading is deliberately outside this decoder."
                                          :code :duplicate-semantic-modifier))
           (multiple-value-bind (interaction-templates interaction-template-headers)
               (%decode-interaction-templates interaction-template-forms product-axes template-names)
-            (let ((interactions
-                    (append direct-interactions
-                            (mapcar
-                             (lambda (form)
-                               (%decode-interaction-template-reference
-                                form interaction-template-headers))
-                             (%forms-named clauses "instantiate-interaction")))))
+            (let ((template-instances
+                    (mapcar
+                     (lambda (form)
+                       (%decode-interaction-template-instance
+                        form interaction-template-headers))
+                     (%forms-named clauses "instantiate-interaction"))))
+              ;; Source interaction declarations and materializing template
+              ;; instances share one concrete interaction-name namespace.
+              ;; Check it once, before resolution, so every source collision
+              ;; reports the same stable diagnostic.
+              (%require-unique-identifiers
+               (append (mapcar #'interaction-name direct-interactions)
+                       (mapcar #'source-interaction-template-instance-name
+                               template-instances))
+               "interaction" :code :duplicate-interaction)
+              (let ((interactions (append direct-interactions template-instances)))
               ;; Source template calls are a surface shorthand: callers of this
               ;; decoder receive a layout that is already safe to validate.
               (resolve-layout
@@ -1314,4 +1409,4 @@ topology/import loading is deliberately outside this decoder."
                             axes (if modifiers-form (rest modifiers-form) nil)
                             :bindings bindings :overlays overlays :interactions interactions
                             :behavior-templates templates
-                            :interaction-templates interaction-templates)))))))))
+                            :interaction-templates interaction-templates))))))))))

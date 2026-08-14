@@ -29,7 +29,9 @@
       (:match (sequence (down position) (up position)))
       (:commit (up position))
       (:do (unicode \"x\"))))
-  (instantiate-interaction tap-wrapper (:position a)))")
+  ;; Only this top-level call materializes an interaction identity.  The
+  ;; wrapper's nested call delegates without a second instance name.
+  (instantiate-interaction source-tap tap-wrapper (:position a)))")
 
 (deftest interaction-template-decoder-expands-forward-named-arguments
   (let* ((layout (interaction-template-decoder-layout
@@ -49,7 +51,7 @@
                          (ivory-key.model:interaction-template-name template)))
                       templates))
     (is (typep interaction 'ivory-key.model:interaction))
-    (is-equal "tap-core-result"
+    (is-equal "source-tap"
               (ivory-key.model:identifier-name
                (ivory-key.model:interaction-name interaction)))
     (is-equal '("a")
@@ -70,7 +72,7 @@
        (list
         (cons :unknown-interaction-template
               "(ivory-key 1) (define-layout bad
-                 (instantiate-interaction absent))")
+                 (instantiate-interaction absent-instance absent))")
         (cons :unknown-interaction-template-argument
               "(ivory-key 1) (define-layout bad
                  (define-interaction-template tap (position)
@@ -78,7 +80,7 @@
                      (:participants position)
                      (:match (down position)) (:commit (down position))
                      (:do (unicode \"x\"))))
-                 (instantiate-interaction tap (:other a)))")
+                 (instantiate-interaction tap-instance tap (:other a)))")
         (cons :duplicate-interaction-template-argument
               "(ivory-key 1) (define-layout bad
                  (define-interaction-template tap (position)
@@ -86,7 +88,7 @@
                      (:participants position)
                      (:match (down position)) (:commit (down position))
                      (:do (unicode \"x\"))))
-                 (instantiate-interaction tap (:position a) (:position b)))")
+                 (instantiate-interaction tap-instance tap (:position a) (:position b)))")
         (cons :template-arity
               "(ivory-key 1) (define-layout bad
                  (define-interaction-template tap (position)
@@ -94,7 +96,7 @@
                      (:participants position)
                      (:match (down position)) (:commit (down position))
                      (:do (unicode \"x\"))))
-                 (instantiate-interaction tap))")
+                 (instantiate-interaction tap-instance tap))")
         (cons :duplicate-interaction-template-parameter
               "(ivory-key 1) (define-layout bad
                  (define-interaction-template tap (position position)
@@ -112,12 +114,22 @@
                      (:commit (down b)) (:do (unicode \"x\")))))")
         (cons :invalid-interaction-template-body
               "(ivory-key 1) (define-layout bad
-                 (define-interaction-template tap () (unknown-body x)))")))
+                 (define-interaction-template tap () (unknown-body x)))")
+        (cons :nested-interaction-template-instance-name
+              "(ivory-key 1) (define-layout bad
+                 (define-interaction-template wrapper (position)
+                   (instantiate-interaction forbidden-instance target
+                     (:position position)))
+                 (define-interaction-template target (position)
+                   (interaction target-body
+                     (:participants position)
+                     (:match (down position)) (:commit (down position))
+                     (:do (unicode \"x\"))))))")))
     (interaction-template-decoder-signals-code
      (car fixture)
      (lambda () (interaction-template-decoder-layout (cdr fixture))))))
 
-(deftest interaction-template-decoder-rejects-cycles-and-ambiguous-expansions
+(deftest interaction-template-decoder-rejects-cycles-and-invalid-instances
   ;; The cycle is rejected even though no top-level instantiation reaches it.
   (interaction-template-decoder-signals-code
    :recursive-interaction-template
@@ -128,14 +140,62 @@
            (instantiate-interaction second))
          (define-interaction-template second ()
            (instantiate-interaction first)))")))
-  ;; References have no implicit second instance name.  Expanding this template
-  ;; twice would produce two interaction declarations named TAP-RESULT, so the
-  ;; resolver refuses instead of selecting one based on source order.
+  ;; A public instantiation names its concrete result, so one template can
+  ;; safely expand more than once with different resolved participants.
+  (let ((layout
+          (interaction-template-decoder-layout
+           "(ivory-key 1) (define-layout two-instances
+              (define-interaction-template tap (position)
+                (interaction template-body-name
+                  (:participants position) (:anchor position)
+                  (:match (sequence (down position) (up position)))
+                  (:commit (up position)) (:do (unicode \"x\"))))
+              (instantiate-interaction first-tap tap (:position a))
+              (instantiate-interaction second-tap tap (:position b)))")))
+    (let* ((normalized (ivory-key.model:normalize-layout layout))
+           ;; This layout intentionally has no ordinary bindings: interaction
+           ;; positions must not acquire an unspecified ordinary fallback.
+           (result
+             (ivory-key.simulate:simulate-normalized-layout-events
+              normalized
+              (list (ivory-key.simulate:make-timed-event 0 :down "a")
+                    (ivory-key.simulate:make-timed-event 1 :up "a")
+                    (ivory-key.simulate:make-timed-event 2 :down "b")
+                    (ivory-key.simulate:make-timed-event 3 :up "b")))))
+      (is-equal '("first-tap" "second-tap")
+                (mapcar (lambda (interaction)
+                          (ivory-key.model:identifier-name
+                           (ivory-key.model:interaction-name interaction)))
+                        (ivory-key.model:layout-interactions layout)))
+      (is-equal '(("a") ("b"))
+                (mapcar (lambda (interaction)
+                          (mapcar #'ivory-key.model:identifier-name
+                                  (ivory-key.model:interaction-participants interaction)))
+                        (ivory-key.model:layout-interactions layout)))
+      (is-equal '("first-tap" "second-tap")
+                (mapcar (lambda (interaction)
+                          (ivory-key.model:identifier-name
+                           (ivory-key.model:normalized-interaction-name interaction)))
+                        (ivory-key.model:normalized-layout-interactions normalized)))
+      (is-equal '((:text "x") (:text "x"))
+                (ivory-key.simulate:simulation-result-outputs result))
+      (is-equal '("first-tap" "second-tap")
+                (mapcar
+                 (lambda (entry)
+                   (ivory-key.simulate::sim-interaction-name
+                    (ivory-key.simulate:simulation-trace-entry-interaction entry)))
+                 (remove-if-not
+                  (lambda (entry)
+                    (eq :commit (ivory-key.simulate::simulation-trace-entry-kind entry)))
+                  (ivory-key.simulate:simulation-result-trace result))))
+      (ivory-key.model:validate-layout layout)))
+  ;; All source interaction declarations and instances share one name space.
+  ;; Duplicate public instance names are rejected before expansion.
   (interaction-template-decoder-signals-code
-   :ambiguous-interaction-template-expansion
+   :duplicate-interaction
    (lambda ()
      (interaction-template-decoder-layout
-      "(ivory-key 1) (define-layout ambiguous
+      "(ivory-key 1) (define-layout duplicate-instance
          (binding a (unicode \"a\"))
          (binding b (unicode \"b\"))
          (define-interaction-template tap (position)
@@ -143,13 +203,43 @@
              (:participants position) (:anchor position)
              (:match (sequence (down position) (up position)))
              (:commit (up position)) (:do (unicode \"x\"))))
-         (instantiate-interaction tap (:position a))
-         (instantiate-interaction tap (:position b)))"))))
+         (instantiate-interaction tap-instance tap (:position a))
+         (instantiate-interaction tap-instance tap (:position b)))")))
+  ;; A direct interaction cannot claim an explicit template-instance name
+  ;; either; it receives the same source-level duplicate diagnostic.
+  (interaction-template-decoder-signals-code
+   :duplicate-interaction
+   (lambda ()
+     (interaction-template-decoder-layout
+      "(ivory-key 1) (define-layout direct-instance-collision
+         (interaction shared
+           (:participants a) (:match (down a)) (:commit (down a))
+           (:do (unicode \"d\")))
+         (define-interaction-template tap ()
+           (interaction template-body
+             (:participants a) (:match (down a)) (:commit (down a))
+             (:do (unicode \"t\"))))
+         (instantiate-interaction shared tap))")))
+  ;; The old top-level spelling remains valid only as a nested delegation.  At
+  ;; layout scope it has no concrete identity and gets a stable diagnostic.
+  (interaction-template-decoder-signals-code
+   :missing-interaction-template-instance-name
+   (lambda ()
+     (interaction-template-decoder-layout
+      "(ivory-key 1) (define-layout legacy-instance
+         (define-interaction-template tap (position)
+           (interaction tap-result
+             (:participants position) (:anchor position)
+             (:match (down position)) (:commit (down position))
+             (:do (unicode \"x\"))))
+         (instantiate-interaction tap (:position a)))"))))
 
 (deftest interaction-template-decoder-never-interns-source-identifiers
   (let ((name "interaction-template-source-must-not-intern")
+        (instance-name "interaction-template-instance-must-not-intern")
         (package (find-package :ivory-key.model)))
     (is (null (find-symbol (string-upcase name) package)))
+    (is (null (find-symbol (string-upcase instance-name) package)))
     (interaction-template-decoder-layout
      "(ivory-key 1) (define-layout no-intern
         (binding q (unicode \"q\"))
@@ -158,6 +248,7 @@
             (:participants position) (:anchor position)
             (:match (down position)) (:commit (down position))
             (:do (unicode \"x\"))))
-        (instantiate-interaction interaction-template-source-must-not-intern
-          (:position q)))")
-    (is (null (find-symbol (string-upcase name) package)))))
+        (instantiate-interaction interaction-template-instance-must-not-intern
+          interaction-template-source-must-not-intern (:position q)))")
+    (is (null (find-symbol (string-upcase name) package)))
+    (is (null (find-symbol (string-upcase instance-name) package)))))

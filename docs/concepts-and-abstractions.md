@@ -573,6 +573,21 @@ same interaction IR. They add no private resolution rules. A user can employ
 the concise form for a conventional behavior and the full interaction syntax
 when timing, ordering, absence, or effect lifecycles matter.
 
+Each top-level template materialization has an explicit source-level instance
+name:
+
+```lisp
+(instantiate-interaction instance-name template-name (:parameter value) ...)
+```
+
+That name is an identity for diagnostics, traces, arbitration, and source
+maps; it does not change the interaction's temporal semantics. Ivory Key does
+not synthesize it from the template or its arguments. The choice is recorded
+as accepted but revisitable in [Decision 0001](decisions/0001-explicit-interaction-instance-names.md).
+
+A template may delegate to another template without creating a second named
+interaction; that nested call inherits the outer materialization's identity.
+
 The physical device still determines which switches produce the logical
 participant positions. A realization still decides whether Kanata, QMK, XKB,
 or a combination implements the normalized timed interaction. Backend forms
