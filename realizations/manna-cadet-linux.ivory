@@ -1,0 +1,7 @@
+(ivory-key 1)
+(realize
+  manna-cadet-linux
+  (:layout manna-cadet)
+  (:device kinesis-advantage2)
+  (:profile linux-xkb-kanata)
+)

@@ -1,0 +1,13 @@
+;; Logical positions used by the initial semantic fixture. Device files own
+;; the physical switch or evdev placement.
+
+(ivory-key 1)
+(define-topology
+  kinesis-advantage
+  (position q (:row 1) (:column 1) (:hand left) (:finger pinky))
+  (position t (:row 1) (:column 5) (:hand left) (:finger index))
+  (position i (:row 1) (:column 8) (:hand right) (:finger middle))
+  (position o (:row 1) (:column 9) (:hand right) (:finger ring))
+  (position greek (:row 6) (:column 1) (:hand left) (:finger thumb))
+  (position latch-latch (:row 6) (:column 2) (:hand left) (:finger thumb))
+)

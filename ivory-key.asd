@@ -1,0 +1,64 @@
+;;;; Ivory Key -- a declarative keyboard-layout compiler.
+;;;; SPDX-License-Identifier: GPL-3.0-or-later
+
+(asdf:defsystem "ivory-key"
+  :description "The portable Ivory Key compiler core"
+  :author "Ivory Key contributors"
+  :license "GPL-3.0-or-later"
+  :version "0.1.0"
+  :depends-on ("uiop")
+  :serial t
+  :components ((:file "src/packages")
+               (:file "src/source")
+               (:file "src/conditions")
+               (:file "src/syntax/lexer")
+               (:file "src/syntax/parser")
+               (:file "src/syntax/formatter")
+               (:file "src/model/identifiers")
+               (:file "src/model/context")
+               (:file "src/model/topology")
+               (:file "src/model/behavior")
+               (:file "src/model/interaction")
+               (:file "src/model/layout")
+               (:file "src/model/realization")
+               (:file "src/resolve")
+               (:file "src/validate")
+               (:file "src/normalize")
+               (:file "src/simulate/events")
+               (:file "src/simulate/patterns")
+               (:file "src/simulate/machine")
+               (:file "src/simulate/compile")
+               (:file "src/backend/protocol")
+               (:file "src/backend/resources")
+               (:file "src/backend/xkb")
+               (:file "src/backend/kanata")
+               (:file "src/pipeline/xkb-kanata")
+               (:file "src/report")
+               (:file "src/migration/inventory")
+               (:file "src/compiler")
+               (:file "src/cli")))
+
+(asdf:defsystem "ivory-key/cli"
+  :description "Ivory Key command-line entry point (bootstrap placeholder)"
+  :depends-on ("ivory-key"))
+
+(asdf:defsystem "ivory-key/tests"
+  :description "Hermetic tests for Ivory Key"
+  :depends-on ("ivory-key")
+  :serial t
+  :components ((:file "tests/packages")
+               (:file "tests/runner")
+               (:file "tests/syntax/lexer")
+               (:file "tests/syntax/parser")
+               (:file "tests/syntax/formatter")
+               (:file "tests/model/semantic-core")
+               (:file "tests/model/decoder")
+               (:file "tests/simulation/machine")
+               (:file "tests/simulation/compile")
+               (:file "tests/backend/backend")
+               (:file "tests/compiler")
+               (:file "tests/security/backend-validation")
+               (:file "tests/integration/helpers"))
+  :perform (asdf:test-op (operation component)
+             (declare (ignore operation component))
+             (uiop:symbol-call :ivory-key.tests :run-tests)))

@@ -1,0 +1,8 @@
+(ivory-key 1)
+(define-realization
+  linux-xkb-kanata
+  (pipeline kanata xkb)
+  (allow-grades exact emulated)
+  (forbid-shell-actions yes)
+  (validation (kanata-check required) (xkbcli-compile-keymap required))
+)

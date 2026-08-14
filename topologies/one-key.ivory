@@ -1,0 +1,5 @@
+(ivory-key 1)
+(define-topology
+  one-key
+  (position key (:row 0) (:column 0) (:hand neutral) (:finger none))
+)

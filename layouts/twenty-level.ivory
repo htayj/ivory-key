@@ -1,0 +1,19 @@
+;; A conformance fixture proving that the abstract model has no eight-level
+;; ceiling. The first product axis varies fastest.
+
+(ivory-key 1)
+(define-layout
+  twenty-level
+  (uses-topology one-key)
+  (axis case (:states plain shifted alternate titlecase) (:resolution product))
+  (axis plane (:states base greek math navigation symbols) (:resolution product))
+  (level-order case plane)
+  (binding
+    key
+    (at (plain base) (unicode "a"))
+    (at (shifted base) (unicode "A"))
+    (at (alternate base) (unicode "á"))
+    (at (titlecase base) (unicode "ǅ"))
+    (fallback none)
+  )
+)

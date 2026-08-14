@@ -1,0 +1,10 @@
+(ivory-key 1)
+(define-device
+  kinesis-advantage360
+  (uses-topology kinesis-advantage)
+  (place q (:xkb AD01) (:kanata q))
+  (place t (:xkb AD05) (:kanata t))
+  (place i (:xkb AD08) (:kanata i))
+  (place o (:xkb AD09) (:kanata o))
+  (reserve-carriers 84 85 183 184 185 186 187 188 189 190)
+)

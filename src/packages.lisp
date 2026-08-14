@@ -1,0 +1,327 @@
+;;;; SPDX-License-Identifier: GPL-3.0-or-later
+
+(defpackage #:ivory-key.source
+  (:use #:cl)
+  (:export
+   #:source-file
+   #:make-source-file
+   #:source-file-name
+   #:source-file-text
+   #:source-span
+   #:make-source-span
+   #:source-span-source
+   #:source-span-start-byte
+   #:source-span-end-byte
+   #:source-span-start-line
+   #:source-span-start-column
+   #:source-span-end-line
+   #:source-span-end-column
+   #:source-span-import-stack
+   #:source-span-merge
+   #:source-span-location-string
+   #:source-span=))
+
+(defpackage #:ivory-key.conditions
+  (:use #:cl)
+  (:import-from #:ivory-key.source
+                #:source-span-location-string
+                #:source-span-start-byte)
+  (:export
+   #:ivory-key-diagnostic
+   #:make-diagnostic
+   #:diagnostic-code
+   #:diagnostic-severity
+   #:diagnostic-message
+   #:diagnostic-span
+   #:diagnostic-related-spans
+   #:diagnostic-hint
+   #:diagnostics-in-source-order
+   #:ivory-key-syntax-error
+   #:syntax-error-diagnostics))
+
+(defpackage #:ivory-key.syntax
+  (:use #:cl)
+  (:import-from #:ivory-key.source
+                #:source-file
+                #:make-source-file
+                #:source-file-name
+                #:source-file-text
+                #:source-span
+                #:make-source-span
+                #:source-span-merge)
+  (:import-from #:ivory-key.conditions
+                #:make-diagnostic
+                #:diagnostic-code
+                #:diagnostic-span
+                #:diagnostics-in-source-order
+                #:ivory-key-syntax-error)
+  (:export
+   ;; Limits and lexer results.
+   #:syntax-limits
+   #:make-syntax-limits
+   #:syntax-limits-max-bytes
+   #:syntax-limits-max-token-bytes
+   #:syntax-limits-max-depth
+   #:*default-syntax-limits*
+   #:syntax-token
+   #:syntax-token-kind
+   #:syntax-token-text
+   #:syntax-token-value
+   #:syntax-token-span
+   #:syntax-comment
+   #:syntax-comment-style
+   #:syntax-comment-text
+   #:syntax-comment-span
+   #:syntax-lex-result
+   #:syntax-lex-result-tokens
+   #:syntax-lex-result-diagnostics
+   #:syntax-lex-result-comments
+   #:lex-source
+   ;; Concrete syntax tree.
+   #:syntax-node
+   #:syntax-node-span
+   #:syntax-atom
+   #:syntax-atom-kind
+   #:syntax-atom-text
+   #:syntax-atom-value
+   #:syntax-list
+   #:syntax-list-children
+   #:syntax-node-equal-p
+   #:syntax-form->datum
+   #:syntax-atom-p
+   #:syntax-list-p
+   #:syntax-parse-result
+   #:syntax-parse-result-source
+   #:syntax-parse-result-forms
+   #:syntax-parse-result-diagnostics
+   #:syntax-parse-result-comments
+   #:syntax-parse-result-language-version
+   #:syntax-parse-result-complete-p
+   #:syntax-parse-result-p
+   #:parse-source
+   #:parse-string
+   #:parse-file
+   #:parse-source-or-signal
+   ;; Canonical serializer.
+   #:format-syntax
+   #:format-parse-result
+   #:format-source))
+
+;;; These package stubs intentionally export nothing.  Their public protocols
+;;; belong to the phases that implement them; having stable package names now
+;;; lets the systems compose without guessing those protocols.
+(defpackage #:ivory-key.model
+  (:use #:cl #:ivory-key.source #:ivory-key.conditions #:ivory-key.syntax)
+  (:export
+   ;; Identifiers and diagnostics.
+   #:identifier #:identifier-p #:make-identifier #:ensure-identifier
+   #:identifier-name #:canonical-identifier-name #:identifier= #:identifier<
+   #:identifier-key #:copy-identifier-list #:unique-identifiers-p
+   #:canonical-identifier-set #:identifier-member-p #:lookup-identifier
+   #:semantic-error #:semantic-error-message #:semantic-error-code
+   #:semantic-error-object #:semantic-resolution-error
+   #:semantic-validation-error #:semantic-normalization-error
+   ;; Context, modifiers, topology, and placement.
+   #:context-axis #:make-context-axis #:axis-name #:axis-states
+   #:axis-default-state #:axis-resolution #:axis-precedence
+   #:axis-valid-tuples #:axis-state-p #:find-axis
+   #:context-tuple #:context-tuple-pairs #:make-context-tuple
+   #:context-tuple-state #:context-tuple= #:context-tuple-key
+   #:product-axes #:axes-cartesian-tuples #:allowed-product-tuples
+   #:semantic-modifier-set #:make-semantic-modifier-set #:modifier-set-members
+   #:modifier-set-contains-p #:modifier-set= #:modifier-set-union
+   #:logical-position #:make-logical-position #:position-name #:position-label
+   #:position-coordinates #:position-hand #:position-finger #:position-metadata
+   #:topology #:make-topology #:topology-name #:topology-positions
+   #:topology-metadata #:find-position
+   #:device-placement #:make-device-placement #:placement-name
+   #:placement-topology #:placement-mappings #:placement-metadata
+   ;; Behaviors and bindings.
+   #:behavior #:behavior-axis-dependencies #:behavior-children
+   #:text-output #:make-text-output #:output-text
+   #:named-key-output #:make-named-key-output #:named-key-name
+   #:named-symbol-output #:make-named-symbol-output #:named-symbol-name
+   #:command-output #:make-command-output #:command-name
+   #:no-output-behavior #:+no-output+ #:make-no-output-behavior
+   #:modifier-operation-behavior #:make-modifier-operation
+   #:modifier-operation #:modifier-operation-modifier
+   #:axis-operation-behavior #:make-axis-operation #:axis-operation
+   #:axis-operation-axis #:axis-operation-state
+   #:ordered-behavior #:make-sequence-behavior #:ordered-behaviors
+   #:simultaneous-behavior #:make-simultaneous-behavior
+   #:simultaneous-behaviors #:axis-choice-behavior
+   #:make-axis-choice-behavior #:choice-axis #:choice-behaviors
+   #:behavior-entry #:make-behavior-entry #:make-none-entry
+   #:make-transparent-entry #:make-inherit-entry #:behavior-entry-tuple
+   #:behavior-entry-disposition #:behavior-entry-behavior
+   #:behavior-entry-inherit-tuple #:behavior-table #:make-behavior-table
+   #:behavior-table-axes #:behavior-table-entries
+   #:behavior-table-allowed-tuples #:find-behavior-entry
+   #:behavior-template #:make-behavior-template #:behavior-template-name
+   #:behavior-template-parameters #:behavior-template-body
+   #:behavior-template-parameter #:make-behavior-template-parameter
+   #:behavior-parameter-name #:behavior-template-reference
+   #:make-behavior-template-reference #:behavior-reference-name
+   #:behavior-reference-arguments
+   #:binding #:make-binding #:binding-position #:binding-behavior
+   #:binding-metadata #:patch-binding #:make-patch-binding
+   #:make-transparent-patch-binding #:patch-binding-position
+   #:patch-binding-disposition #:patch-binding-behavior
+   #:overlay-patch #:make-overlay-patch #:overlay-patch-name
+   #:overlay-patch-axis #:overlay-patch-state #:overlay-patch-precedence
+   #:overlay-patch-bindings #:complete-behavior-p #:behavior-irreversible-p
+   ;; Timed interaction model.
+   #:position-selector #:make-position-selector #:position-selector-kind
+   #:position-selector-positions #:any-position-selector
+   #:other-than-selector #:temporal-pattern #:make-temporal-pattern
+   #:temporal-pattern-kind #:temporal-pattern-arguments
+   #:temporal-pattern-options #:temporal-pattern-option
+   #:pattern-down #:pattern-up #:pattern-sequence #:pattern-all
+   #:pattern-either #:pattern-conjunction #:pattern-duration
+   #:pattern-deadline #:pattern-within #:pattern-overlap #:pattern-without
+   #:pattern-repeat #:pattern-capture #:pattern-context-is
+   #:temporal-pattern-children #:temporal-pattern-axis-dependencies
+   #:temporal-pattern-position-selectors #:temporal-pattern-finite-p
+   #:interaction-effects #:make-interaction-effects #:effect-entry-behaviors
+   #:effect-commit-behaviors #:effect-while-behaviors
+   #:effect-exit-behaviors #:effect-cancel-behaviors
+   #:interaction-effects-behaviors #:interaction-candidate
+   #:make-interaction-candidate #:candidate-name #:candidate-match
+   #:candidate-commit #:candidate-behavior #:candidate-effects
+   #:candidate-context-axes #:candidate-context-policy
+   #:candidate-axis-dependencies #:interaction #:make-interaction
+   #:interaction-name #:interaction-participants #:interaction-observe
+   #:interaction-anchor #:interaction-candidates #:interaction-arbitration
+   #:priority-arbitration #:longest-match-arbitration
+   #:interaction-template #:make-interaction-template
+   #:interaction-template-name #:interaction-template-parameters
+   #:interaction-template-body #:interaction-template-reference
+   #:make-interaction-template-reference #:interaction-reference-name
+   #:interaction-reference-arguments #:interaction-template-parameter
+   #:make-interaction-template-parameter #:interaction-parameter-name
+   ;; Layout, resolution, validation, and normalization.
+   #:layout #:make-layout #:layout-name #:layout-topology #:layout-axes
+   #:layout-modifiers #:layout-bindings #:layout-overlays
+   #:layout-interactions #:layout-behavior-templates
+   #:layout-interaction-templates #:layout-axis #:layout-binding
+   #:layout-product-axes #:binding-axis-dependencies
+   #:semantic-context #:make-semantic-context #:semantic-context-values
+   #:semantic-context-latches #:semantic-context-locked-axes
+   #:semantic-context-state #:context-latch #:make-context-latch
+   #:context-latch-axis #:context-latch-state #:context-with-latch
+   #:consume-context-latches #:resolve-behavior
+   #:resolve-interaction-candidate #:resolve-interaction
+   #:resolve-interaction-form #:resolve-layout
+   #:decode-layout-forms #:semantic-diagnostic #:make-semantic-diagnostic
+   #:semantic-diagnostic-code #:semantic-diagnostic-message
+   #:semantic-diagnostic-object #:validate-layout
+   #:normalized-layout #:normalized-layout-name #:normalized-layout-topology
+   #:normalized-layout-axes #:normalized-layout-modifiers
+   #:normalized-layout-bindings #:normalized-layout-patches
+   #:normalized-layout-interactions #:normalized-binding
+   #:normalized-binding-position #:normalized-binding-axes
+   #:normalized-binding-entries #:normalized-binding-entry
+   #:make-normalized-binding-entry #:normalized-entry-tuple
+   #:normalized-entry-behavior #:normalized-patch #:normalized-patch-name
+   #:normalized-patch-axis #:normalized-patch-state
+   #:normalized-patch-precedence #:normalized-patch-bindings
+   #:normalized-interaction #:normalized-interaction-name
+   #:normalized-interaction-participants #:normalized-interaction-observe
+   #:normalized-interaction-anchor #:normalized-interaction-candidates
+   #:normalized-interaction-arbitration #:normalized-interaction-candidate
+   #:normalized-candidate-name #:normalized-candidate-match
+   #:normalized-candidate-commit #:normalized-candidate-entries
+   #:normalized-candidate-effects #:normalized-candidate-context-axes
+   #:normalized-candidate-context-policy #:normalize-layout
+   #:normalized-binding-entry-for-context
+   #:normalized-layout-binding-for-context #:normalized-layout-key
+   ;; Backend-independent realization intent.
+   #:realization-profile #:make-realization-profile
+   #:realization-profile-name #:realization-profile-pipeline
+   #:realization-profile-placement #:realization-profile-vocabulary
+   #:realization-profile-permitted-losses #:realization-profile-metadata))
+
+(defpackage #:ivory-key.simulate
+  (:use #:cl #:ivory-key.conditions #:ivory-key.model)
+  (:export
+   #:timestamp
+   #:timed-event #:make-timed-event #:timed-event-time #:timed-event-kind
+   #:timed-event-position #:timed-event-data
+   #:simulation-trace-entry #:make-simulation-trace-entry
+   #:simulation-trace-entry-time #:simulation-trace-entry-kind
+   #:simulation-trace-entry-event #:simulation-trace-entry-interaction
+   #:simulation-trace-entry-case #:simulation-trace-entry-candidate
+   #:simulation-trace-entry-details
+   #:event-pattern #:down-pattern #:up-pattern #:sequence-pattern #:all-pattern
+   #:either-pattern #:and-pattern #:duration-pattern #:deadline-pattern
+   #:within-pattern #:overlap-pattern #:without-pattern #:repeat-pattern
+   #:pattern-status
+   #:sim-action #:make-sim-action #:emit-action #:latch-action #:set-axis-action
+   #:clear-latch-action #:sim-effect #:make-sim-effect #:sim-case #:make-sim-case
+   #:sim-interaction #:make-sim-interaction
+   #:simulator #:make-simulator #:simulator-feed-event #:simulator-advance-to
+   #:simulator-result #:simulator-events #:simulator-trace #:simulator-outputs
+   #:simulator-latches-alist #:simulator-axes-alist #:simulator-active-effect-names
+   #:simulator-latch-axis #:simulator-latched-value #:simulator-set-axis
+   #:simulation-result #:make-simulation-result #:simulation-result-trace
+   #:simulation-result-outputs #:simulation-result-latches #:simulation-result-axes
+   #:simulation-result-active-effects #:simulation-result-candidates
+   #:simulate-events #:simulation-error #:malformed-event-stream
+   #:simulation-ambiguity
+   ;; Declarative-model adapter.
+   #:model-simulation-compilation-error
+   #:model-simulation-compilation-error-feature
+   #:model-identifier->simulation-value #:compile-model-position-selector
+   #:compile-model-temporal-pattern #:compile-model-behavior
+   #:compile-model-interaction-candidate #:compile-model-interaction
+   #:compile-model-interactions #:compile-normalized-interaction-candidate
+   #:compile-normalized-interaction #:compile-normalized-interactions
+   #:model-layout-simulator-axes #:compile-model-layout-interactions))
+
+(defpackage #:ivory-key.backend
+  (:use #:cl #:ivory-key.conditions #:ivory-key.model)
+  (:export
+   #:backend #:backend-name #:backend-capabilities #:capabilities
+   #:lower-request #:emit-plan #:emit-plan-to-string #:validate-artifact
+   #:capability-native-level-limit #:capability-native-group-limit
+   #:capability-modifier-slots #:capability-interaction-features
+   #:capability-output-features #:capability-validation-program
+   #:capability-supports-p
+   #:realization-result #:make-realization-result #:realization-feature
+   #:realization-grade #:realization-detail #:realization-source
+   #:require-permitted-realizations
+   #:key-entry #:key-entry-position #:key-entry-physical-code
+   #:key-entry-outputs #:key-entry-code-for #:key-entry-outputs-for
+   #:lowering-request #:lowering-request-name #:lowering-request-entries
+   #:lowering-request-modifiers #:lowering-request-interactions
+   #:lowering-request-metadata
+   #:resource-pool #:make-resource-pool #:reserve-resource #:allocate-resource
+   #:allocation-alist
+   #:make-xkb-backend #:xkb-plan-realizations
+   #:make-kanata-backend #:kanata-plan-realizations
+   #:pipeline-artifact-kind #:pipeline-artifact-relative-path
+   #:pipeline-artifact-content #:pipeline-result-request
+   #:pipeline-result-artifacts #:pipeline-result-realizations
+   #:pipeline-result-allocations #:compile-xkb-kanata-request
+   #:write-pipeline-result #:validate-pipeline-result))
+
+(defpackage #:ivory-key.report
+  (:use #:cl)
+  (:export #:write-realization-report #:realization-report-string))
+
+(defpackage #:ivory-key.cli
+  (:use #:cl #:ivory-key.conditions #:ivory-key.source #:ivory-key.syntax)
+  (:export
+   #:main
+   #:compiler-stage-error #:compiler-stage-error-stage
+   #:compiler-stage-error-code #:compiler-stage-error-message
+   #:load-layout-for-compilation
+   #:make-lowering-request-from-normalized-layout
+   #:compile-layout-source #:dump-normalized-layout
+   #:level-report-string #:simulate-layout-events
+   #:validate-build-directory))
+
+(defpackage #:ivory-key.migration
+  (:use #:cl #:ivory-key.source)
+  (:export #:inventory-manna-cadet #:write-inventory-report
+           #:manna-cadet-inventory))

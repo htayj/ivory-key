@@ -1,0 +1,15 @@
+# Common Lisp implementation artifacts
+*.fasl
+*.fas
+*.fasc
+*.lib
+*.o
+
+# Generated compiler output is reproducible and should not be committed.
+build/
+dist/
+
+# Editor and operating-system debris
+*~
+.#*
+.DS_Store
