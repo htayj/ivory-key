@@ -89,6 +89,7 @@
   (place home (:xkb "HOME") (:kanata "home"))
   (place page-up (:xkb "PGUP") (:kanata "pgup"))
   (place control-plane-alt (:xkb "LALT") (:kanata "lalt"))
+  (place direct-hyper (:xkb "RWIN") (:kanata "rmet"))
   (unreachable hotkey-18)
   (unreachable hotkey-20)
   (unreachable hotkey-19)

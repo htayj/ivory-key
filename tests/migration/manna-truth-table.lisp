@@ -447,9 +447,9 @@ verified before these checked-in counts and raw rows are considered evidence."
                 '("UE00" "arbitrary-code" "@sc-" "(keysym"))
       (error "Manna abstract layout contains a backend carrier or spelling escape hatch."))
     (unless (and (search "(position escape" topology)
-                 (= 72 (count-prefixed-lines topology "  (position "))
-                 (= 67 (count-prefixed-lines advantage2 "  (place "))
-                 (= 71 (count-prefixed-lines advantage360 "  (place "))
+                 (= 73 (count-prefixed-lines topology "  (position "))
+                 (= 68 (count-prefixed-lines advantage2 "  (place "))
+                 (= 72 (count-prefixed-lines advantage360 "  (place "))
                  (search "(position delete" topology)
                  (search "(position end" topology)
                  (search "(position pgdn" topology)
@@ -485,6 +485,8 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (search "(place page-up (:xkb \"PGUP\") (:kanata \"pgup\"))" advantage2)
                  (search "(place control-plane-alt (:xkb \"LALT\") (:kanata \"lalt\"))"
                          advantage2)
+                 (search "(place direct-hyper (:xkb \"RWIN\") (:kanata \"rmet\"))"
+                         advantage2)
                  (search "(unreachable hotkey-18)" advantage2)
                  (search "(unreachable hotkey-20)" advantage2)
                  (search "(unreachable hotkey-19)" advantage2)
@@ -496,6 +498,8 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (search "(place home (:xkb \"HOME\") (:kanata \"home\"))" advantage360)
                  (search "(place page-up (:xkb \"PGUP\") (:kanata \"pgup\"))" advantage360)
                  (search "(place control-plane-alt (:xkb \"LALT\") (:kanata \"lalt\"))"
+                         advantage360)
+                 (search "(place direct-hyper (:xkb \"RWIN\") (:kanata \"rmet\"))"
                          advantage360)
                  (search "(place hotkey-18 (:xkb \"COMP\") (:kanata \"K18\"))"
                          advantage360)

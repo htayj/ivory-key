@@ -33,7 +33,7 @@ and proving live keyboard behavior are different evidence levels.
   unless another target or separately proven emulation is supplied.
 - `topologies/kinesis-advantage.ivory` and `topologies/one-key.ivory` record
   logical positions and descriptive geometry. The Kinesis topology is the
-  complete 72-position A2/A360 union, with explicit physical/unreachable
+  complete 73-position A2/A360 union, with explicit physical/unreachable
   coverage in each device; it does not infer missing geometry from backend
   names.
 - `devices/kinesis-advantage2.ivory` and

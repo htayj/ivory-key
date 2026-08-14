@@ -120,7 +120,7 @@ simulator, compiler, backend, XKB, client, or live-device claim.
 |---|---|---|---|
 | §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; no source inventory selects behavior | implementable review tooling remains |
 | §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed tap-holds with an explicit buffered policy/allocation ledger, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle | add generated-artifact and whole-layout event-trace comparison after native-domain and lowerer closure | blocked by lowering/equivalence proof |
-| §13.3 complete physical placement | the complete 72-position union, A2 coverage of 67 physical plus five typed-unreachable positions, A360 coverage of 71 physical plus typed-unreachable `<LSGT>`, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
+| §13.3 complete physical placement | the complete 73-position union, A2 coverage of 68 physical plus five typed-unreachable positions, A360 coverage of 72 physical plus typed-unreachable `<LSGT>`, and an ordered C1--C7/F1--F2 disposition for every primary `defsrc` row | obtain runtime/device evidence for the still-unproved classes, especially C7; no direct primary `defsrc` provenance exists for `<LSGT>`, and `process-unmapped-keys yes` leaves non-`defsrc` input outside the ledger | requires new evidence, not a topology guess |
 | §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the selected Kanata-1.12 contract and oracle prove bounded release, deadline, repeated interval, modifier/function lifetime, and selector-carrier paths | extend the reference/backend domain to every emitted route class, then prove complete timed, overlay, selector-visibility, and generated-backend traces | blocked by native-domain/lowering proof |
 | §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
@@ -452,9 +452,9 @@ guessed.
   interactions, and 16 structurally transcribed tap-hold interactions. The
   realization selects their buffered compatibility policy and typed allocation
   ledger, while the compiler still refuses emission.
-- The shared topology is the complete 72-position device union. Advantage 2
-  has 67 physical placements plus typed-unreachable `<LSGT>` and four local
-  hotkeys; Advantage 360 has 71 physical placements plus typed-unreachable
+- The shared topology is the complete 73-position device union. Advantage 2
+  has 68 physical placements plus typed-unreachable `<LSGT>` and four local
+  hotkeys; Advantage 360 has 72 physical placements plus typed-unreachable
   `<LSGT>`. The `mode-key` maps to `MENU`/`menu` on A2 and `CAPS`/`caps` on
   360. RETURN remains the sole physical Enter identity.
 - `manna-cadet-advantage360-linux` is a second project composition. It selects

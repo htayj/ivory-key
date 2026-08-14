@@ -164,7 +164,7 @@
                           (ivory-key.model:realization-kanata-buffered-allocation-policy-actions
                            allocation)))
                  #'<)))
-    (is-equal 72 (length (ivory-key.model:topology-positions topology)))
+    (is-equal 73 (length (ivory-key.model:topology-positions topology)))
     ;; Literal direct routes are transcribed; only C7 remains a typed physical
     ;; input without an invented ordinary layout behavior.
     (dolist (position direct-native-positions)
@@ -172,13 +172,15 @@
       (is (ivory-key.model:layout-binding layout position)))
     (is (ivory-key.model:find-position "control-plane-alt" topology))
     (is (null (ivory-key.model:layout-binding layout "control-plane-alt")))
+    (is (ivory-key.model:find-position "direct-hyper" topology))
+    (is (null (ivory-key.model:layout-binding layout "direct-hyper")))
     (dolist (specification
-             '(("kinesis-advantage2" 67
+             '(("kinesis-advantage2" 68
                 (("hotkey-18" :unreachable nil nil)
                  ("hotkey-20" :unreachable nil nil)
                  ("hotkey-19" :unreachable nil nil)
                  ("hotkey-21" :unreachable nil nil)))
-               ("kinesis-advantage360" 71
+               ("kinesis-advantage360" 72
                 (("hotkey-18" :physical "COMP" "K18")
                  ("hotkey-20" :physical "VOL+" "K20")
                  ("hotkey-19" :physical "PROP" "K19")
@@ -190,7 +192,7 @@
                  (getf (ivory-key.model:placement-metadata device)
                        :backend-mappings)))
           (is (ivory-key.model:placement-coverage-complete-p device))
-          (is-equal 72 (length coverage))
+          (is-equal 73 (length coverage))
           (is-equal physical-count
                     (count :physical coverage
                            :key #'ivory-key.model:device-position-coverage-disposition))
@@ -203,7 +205,8 @@
                    '(("left" "LEFT" "left") ("right" "RGHT" "right")
                      ("up" "UP" "up") ("down" "DOWN" "down")
                      ("home" "HOME" "home") ("page-up" "PGUP" "pgup")
-                     ("control-plane-alt" "LALT" "lalt")))
+                     ("control-plane-alt" "LALT" "lalt")
+                     ("direct-hyper" "RWIN" "rmet")))
             (destructuring-bind (position xkb kanata) row
               (is-equal :physical
                         (ivory-key.model:device-position-coverage-disposition

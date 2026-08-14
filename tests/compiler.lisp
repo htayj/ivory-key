@@ -1436,10 +1436,10 @@ complete carrier table from an invented Manna behavior.
         (is-equal '(:position "less-greater" :disposition :unreachable)
                   (find "less-greater" coverage :test #'string=
                         :key (lambda (record) (getf record :position))))
-        (is-equal 72 (length coverage))
+        (is-equal 73 (length coverage))
         (dolist (position
                  '("left" "right" "up" "down" "home" "page-up"
-                   "control-plane-alt"))
+                   "control-plane-alt" "direct-hyper"))
           (is-equal (list :position position :disposition :physical)
                     (find position coverage :test #'string=
                           :key (lambda (record) (getf record :position)))))
@@ -1568,7 +1568,7 @@ complete carrier table from an invented Manna behavior.
                   '("left" "right" "up" "down" "home" "page-up"))
                 (hotkey-routes
                   '("hotkey-18" "hotkey-20" "hotkey-19" "hotkey-21")))
-            (is-equal 72 (length coverage))
+            (is-equal 73 (length coverage))
             (dolist (row hotkeys)
               (destructuring-bind (position disposition) row
                 (is-equal (list :position position :disposition disposition)
@@ -1591,6 +1591,10 @@ complete carrier table from an invented Manna behavior.
                                   :test #'string=
                                   :key #'ivory-key.backend:key-entry-position)))))
             (is (null (find "control-plane-alt"
+                            (ivory-key.backend::lowering-request-entries request)
+                            :test #'string=
+                            :key #'ivory-key.backend:key-entry-position)))
+            (is (null (find "direct-hyper"
                             (ivory-key.backend::lowering-request-entries request)
                             :test #'string=
                             :key #'ivory-key.backend:key-entry-position)))

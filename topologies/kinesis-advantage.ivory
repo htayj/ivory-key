@@ -11,6 +11,9 @@
 ;; variants.  Its carrier lowering is not embedded in the layout.
 ;; The immediate Top selector is likewise direct in both primary variants.
 ;; Enter's separate tap-hold Top path is intentionally not inferred here.
+;; Both primary defsrc tables also contain a direct rmet pass-through.  It is
+;; a physical source identity distinct from the home-row Hyper hold output;
+;; no abstract binding or modifier semantics are inferred for it.
 ;; These four primary normal-layer inputs are evidenced only as the physical
 ;; sources of the sixteen selected tap-hold aliases.  Their geometry is not
 ;; inferred from backend key names.  Enter uses the existing RETURN position;
@@ -90,6 +93,7 @@
   (position home)
   (position page-up)
   (position control-plane-alt)
+  (position direct-hyper)
   (position hotkey-18)
   (position hotkey-20)
   (position hotkey-19)

@@ -136,11 +136,12 @@ tables that have an evidenced device placement, while preserving physical
 Kanata events for XKB to translate. This remains a refused partial proposal,
 not a generatable replacement.
 
-The Kinesis topology is the complete 72-position union: the 52 static
+The Kinesis topology is the complete 73-position union: the 52 static
 positions, two direct physical case holders, directly evidenced `greek` and
 `top` selectors, a shared `mode-key`, six navigation positions, one C7 control
-position, four tap-only positions, and four Advantage 360 local hotkeys. A2
-classifies 67 positions physical and five unreachable; A360 classifies 71
+position, the direct `rmet` pass-through, four tap-only positions, and four
+Advantage 360 local hotkeys. A2 classifies 68 positions physical and five
+unreachable; A360 classifies 72
 physical and only `<LSGT>` unreachable. The shared mode-key's inactive result
 still differs by device:
 

@@ -36,15 +36,15 @@
 ;; on Advantage 360), so only its common active function result is stated.
 ;; These primary normal-layer inputs have direct, context-independent tap
 ;; identities.  Their held interpretation is carried only by the explicit
-;; unselected interactions below; no backend token or timing policy lives
-;; in these ordinary bindings.
+;; interactions below; the selected compatibility and allocations remain in
+;; the realization, not in these ordinary bindings.
 ;; Both frozen primary normal layers select exactly these sixteen
 ;; TAP-HOLD-RELEASE aliases.  The source establishes their literal taps,
 ;; semantic held resources, and equal timeout pairs (250 ms only for A);
-;; it does not select an interaction-compatibility policy, Kanata action,
-;; allocation, backend grade, or artifact-emission path.  Delete and Enter
-;; are transcribed because both normal layers select gdel/rtop, but the
-;; buffered policy still explicitly refuses them for lack of direct traces.
+;; it does not itself select an interaction-compatibility policy, Kanata
+;; action, allocation, backend grade, or artifact-emission path.  The Manna
+;; realization selects all sixteen, including the evidenced gdel/rtop rows,
+;; while retaining the independent native-domain emission refusal.
 ;; The physical defsrc token is ent; RETURN is its existing shared logical
 ;; position.  Do not add an ENTER topology position merely for this alias.
 ;; The frozen navigation rows and the four Advantage 360 local hotkeys are

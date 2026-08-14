@@ -88,6 +88,7 @@
   (place home (:xkb "HOME") (:kanata "home"))
   (place page-up (:xkb "PGUP") (:kanata "pgup"))
   (place control-plane-alt (:xkb "LALT") (:kanata "lalt"))
+  (place direct-hyper (:xkb "RWIN") (:kanata "rmet"))
   (place hotkey-18 (:xkb "COMP") (:kanata "K18"))
   (place hotkey-20 (:xkb "VOL+") (:kanata "K20"))
   (place hotkey-19 (:xkb "PROP") (:kanata "K19"))
