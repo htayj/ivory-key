@@ -18,6 +18,33 @@
   (ivory-key.simulate::simulate-normalized-layout-events
    layout events :axes axes :latches latches :until until))
 
+(defun layout-simulation-manna-direct-holder-layout ()
+  "Project only the four immediate source-held interactions for their exact
+reference traces.  This is a test projection, not a realization-policy choice:
+the sixteen transcribed timing interactions remain unselected and therefore
+outside these direct-owner tests."
+  (let* ((layout (ivory-key.model:decode-layout-forms
+                  (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
+         (normalized (ivory-key.model:normalize-layout layout))
+         (names '("hold-case-left-shift" "hold-case-right-shift"
+                  "hold-greek-selector" "hold-top-selector")))
+    (make-instance
+     'ivory-key.model:normalized-layout
+     :name (ivory-key.model:normalized-layout-name normalized)
+     :topology (ivory-key.model:normalized-layout-topology normalized)
+     :axes (ivory-key.model:normalized-layout-axes normalized)
+     :modifiers (ivory-key.model:normalized-layout-modifiers normalized)
+     :bindings (ivory-key.model:normalized-layout-bindings normalized)
+     :patches (ivory-key.model:normalized-layout-patches normalized)
+     :interactions
+     (remove-if-not
+      (lambda (interaction)
+        (member (ivory-key.model:identifier-name
+                 (ivory-key.model:normalized-interaction-name interaction))
+                names :test #'string=))
+      (ivory-key.model:normalized-layout-interactions normalized))
+     :origin (ivory-key.model:normalized-layout-origin normalized))))
+
 (defun layout-simulation-topology (&rest positions)
   (ivory-key.model::make-topology
    "layout-simulation-topology"
@@ -45,13 +72,11 @@
 (deftest simulation-manna-direct-selectors-hold-and-release-exactly
   "The two direct primary selector paths have no tap-hold timing to infer.
 
-Greek and Top are each immediate one-participant held interactions.  The
-Delete/Enter aliases remain outside this trace because their 200 ms commitment
-and cancellation policy is not yet a Manna model decision.
+Greek and Top are each immediate one-participant held interactions.  The test
+projects the four direct holders from the complete source layout; it does not
+select a policy for the sixteen 200/250 ms interactions.
 "
-  (let* ((layout (ivory-key.model:decode-layout-forms
-                  (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
-         (normalized (ivory-key.model:normalize-layout layout))
+  (let* ((normalized (layout-simulation-manna-direct-holder-layout))
          (result
            (layout-simulation-result
             normalized
@@ -96,9 +121,7 @@ fixture.  It proves both source-release orders: the first release restores the
 base state only underneath the remaining held contribution, and the final
 release exposes plain case.
 "
-  (let* ((layout (ivory-key.model:decode-layout-forms
-                  (ivory-key.syntax:parse-file "layouts/manna-cadet.ivory")))
-         (normalized (ivory-key.model:normalize-layout layout))
+  (let* ((normalized (layout-simulation-manna-direct-holder-layout))
          (result
            (layout-simulation-result
             normalized

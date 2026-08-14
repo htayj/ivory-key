@@ -41,7 +41,7 @@ suite and the Guix-only core proof.
 
 ## Observed state-machine contract
 
-The six checked tests use both small synthetic configurations and the actual
+The checked tests use both small synthetic configurations and the actual
 hash-frozen Advantage 2 configuration. They exercise its two equal timer
 shapes, 200/200 ms and 250/250 ms, with `concurrent-tap-hold yes`, and assert:
 
@@ -75,7 +75,7 @@ observable release, not evidence for an unmodeled cancellation operation.
 
 ## Advantage 2 native input-domain edge order
 
-The sixth test keeps the same hash-frozen Advantage 2 configuration and uses
+The native-domain matrix keeps the same hash-frozen Advantage 2 configuration and uses
 `f`/`@Sf` as the pending owner.  It converts Kanata's simulated output to its
 ASCII edge spelling and removes only `t:...ms` records.  The remaining strings
 below are therefore exact normalized output-edge order: key and carrier
@@ -110,6 +110,42 @@ events result.  The broader observations therefore create model/lowering test
 obligations; they do not authorize a generic replay source construct or make
 the current bounded reference transaction a whole-device implementation.
 
+## Carrier lifetime boundary
+
+The same pinned oracle has a ten-row carrier-lifetime matrix for direct
+`lctl → out-code:85` and `rctl → out-code:84`.  Every row has an identical
+trailing 10 ms settling interval after carrier-up, so a release cannot be
+mistaken for an unflushed terminal event.  The exact normalized edges are
+asserted by `ivory_key_actual_advantage2_carrier_lifetime_matrix`.
+
+## Opt-in AD01 Kanata-to-generated-XKB differential
+
+One separately invoked differential joins two already narrow boundaries. The
+hash-gated Kanata oracle emits exactly eight tagged, asserted edge records for
+the base, code-85, code-84, and code-85-plus-84 contexts. Each context has an
+owner-first plain row and a foreign-first shifted row, and every row has the
+same trailing 10 ms settling interval. The Common Lisp driver accepts only
+that closed label set and the `F`, `LShift`, `Q`, code-84, and code-85 edge
+vocabulary before passing a temporary record file to the libxkbcommon probe.
+
+Run the opt-in composition in the declared environment with the exact archive:
+
+```sh
+KANATA_CARGO_TOOLCHAIN=nightly direnv exec . \
+  sbcl --script tests/external/manna-xkb-group2-state.lisp \
+  --kanata-ad01-differential PATH-TO-kanata-1.12.0.tar.gz \
+  PATH-TO-FROZEN-MANNA-ROOT
+```
+
+At the single `Q` down, the C probe checks the generated AD01 symbol, effective
+and depressed group, and exact effective and consumed modifier masks, including
+the Group1 alphabetic type's Shift/Lock/LevelThree consumption and Group2's
+Shift-only consumption. It then
+requires one complete Q interval and zero remaining parsed-key, modifier, or
+group state. This proves only those eight Kanata-output-to-generated-XKB
+records. It does not select an interaction policy or profile, authorize Kanata
+emission, cover arbitrary input routes, or prove client/live-device behavior.
+
 The oracle also establishes an important incompatibility with the currently
 proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md): Kanata 1.12.0
 does not leave a foreign key temporally untouched while a tap-hold is pending.
@@ -128,9 +164,11 @@ This evidence narrows, but does not eliminate, the owner decision:
    1.12.0 and cannot use the generic Kanata tap-hold action as an exact
    lowering.
 2. A Kanata-1.12 compatibility profile must model the pending foreign-event
-   buffer and its ordered release. That requires an explicit ownership,
-   buffering, cancellation, and replay contract before it can enter the
-   abstract interaction model or compiler.
+   buffer and its ordered release. Ivory Key now has a bounded single-owner
+   reference transaction, derived normalized contracts, and an inert typed
+   compiler handoff. Cancellation, multi-owner arbitration, native input-domain
+   closure, and backend differential proof remain mandatory before selection
+   or emission.
 
 Until one route is selected and implemented, the active Manna realization
 continues to refuse all fourteen primary tap-holds and the two alternate

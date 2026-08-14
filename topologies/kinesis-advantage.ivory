@@ -11,6 +11,10 @@
 ;; variants.  Its carrier lowering is not embedded in the layout.
 ;; The immediate Top selector is likewise direct in both primary variants.
 ;; Enter's separate tap-hold Top path is intentionally not inferred here.
+;; These four primary normal-layer inputs are evidenced only as the physical
+;; sources of the sixteen selected tap-hold aliases.  Their geometry is not
+;; inferred from backend key names.  Enter uses the existing RETURN position;
+;; do not invent a duplicate logical position for it.
 ;; This is one physical location with device-specific inactive output:
 ;; Menu on Advantage 2 and Caps Lock on Advantage 360.  The primary function
 ;; patch gives both variants the same active Alt Mode command.
@@ -69,6 +73,10 @@
   (position slash)
   (position backspace)
   (position space)
+  (position escape)
+  (position delete)
+  (position end)
+  (position pgdn)
   (position less-greater)
   (position case-left-shift)
   (position case-right-shift)

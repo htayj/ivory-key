@@ -353,9 +353,21 @@ evidence for the pinned Guix claim.
 
 The second mode emits the closed Ivory Key map then checks its generated state
 contract described above. Explicit `<ZEHA>=93` makes that test independent of
-the host's pre-existing keycode name. Neither mode establishes how frozen
-Kanata code 85 reaches XKB, or client protocol, compositor, live-device, and
-historical migration equivalence. Those remain explicit refusal boundaries.
+the host's pre-existing keycode name. Neither ordinary mode establishes how
+frozen Kanata code 85 reaches XKB. The opt-in differential below covers only
+its closed AD01 records; arbitrary routes, client protocol, compositor,
+live-device, and historical migration equivalence remain explicit refusal
+boundaries.
+
+An additional opt-in `--kanata-ad01-differential` mode invokes the separately
+hash-gated Kanata 1.12 oracle, extracts only its closed eight tagged AD01 edge
+records, and applies those edges to the generated 51-override Manna XKB map.
+Its C boundary admits only `F`, `LShift`, `Q`, and carrier codes 84/85; it
+checks exact symbol, group, effective/consumed modifiers at Q-down (including
+Group1 alphabetic Shift/Lock/LevelThree versus Group2 Shift consumption) and complete
+terminal settling. This is a composed environmental sub-contract, not a
+compiler capability, selected profile, emission permission, or whole-layout
+differential.
 
 CLI inspection, explanation, and compilation may instead select a confined
 project composition with `--project PROJECT --composition NAME`; this is an

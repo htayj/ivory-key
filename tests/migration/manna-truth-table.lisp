@@ -371,11 +371,10 @@ family--without turning the migration script into another behavior table.
 (defun checked-in-fixture-evidence-p (derived-static-bindings)
   "Verify only mechanically checkable claims made by the migration fixture.
 
-The checked-in fixture covers direct single-key held lifecycles.  The raw
-primary source aliases below preserve tap-hold parameters and usage without
-claiming an Ivory Key activation policy or lifecycle equivalence.  The source
-checkout supplied to MAIN is hash-verified before these checked-in counts and
-raw rows are considered evidence."
+The checked-in fixture covers direct single-key held lifecycles and structurally
+transcribes the selected source aliases without choosing an activation policy
+or lifecycle equivalence.  The source checkout supplied to MAIN is hash-
+verified before these checked-in counts and raw rows are considered evidence."
   (let ((layout (uiop:read-file-string (repository-file "layouts/manna-cadet.ivory")))
         (topology (uiop:read-file-string
                    (repository-file "topologies/kinesis-advantage.ivory")))
@@ -388,12 +387,18 @@ raw rows are considered evidence."
         (vocabulary (uiop:read-file-string
                      (repository-file
                       "realizations/manna-cadet-output-vocabulary.ivory"))))
-    (unless (= 52 (count-prefixed-lines layout "  (binding"))
-      (error "Manna fixture no longer has exactly 52 static bindings."))
+    (unless (= 56 (count-prefixed-lines layout "  (binding"))
+      (error "Manna fixture no longer has 52 static plus four direct bindings."))
     (unless (= 29 (count-prefixed-lines layout "    (binding "))
       (error "Manna fixture no longer has the complete 29-entry primary function table."))
     (unless (search derived-static-bindings layout)
       (error "Manna fixture's 52x8 static tables differ from the frozen mechanical render."))
+    (dolist (binding '("(binding escape (named-key escape))"
+                       "(binding delete (named-key delete))"
+                       "(binding end (command end))"
+                       "(binding pgdn (named-key page-down))"))
+      (unless (search binding layout)
+        (error "Manna fixture lost direct frozen normal binding ~A." binding)))
     (unless (and (search "(axis function (:states inactive active) (:resolution patch))" layout)
                  (search (format nil "(overlay~%    primary-function") layout)
                  (search "(binding mode-key (command alt-mode))" layout))
@@ -415,13 +420,28 @@ raw rows are considered evidence."
       (error "Manna fixture lost an evidence-backed immediate held lifecycle."))
     (when (or (search "latch-latch" layout)
               (search "(:participants i o)" layout)
-              (/= 4 (count-substrings layout "(interaction")))
-      (error "A comment-only latch or old chord was reintroduced as active Manna behavior."))
+              (/= 20 (count-substrings layout "(interaction")))
+      (error "Manna fixture must have four direct and sixteen unselected source interactions."))
+    (dolist (name '("tap-hold-case-f" "tap-hold-case-j"
+                    "tap-hold-control-d" "tap-hold-control-k"
+                    "tap-hold-meta-s" "tap-hold-meta-l"
+                    "tap-hold-super-a" "tap-hold-super-semicolon"
+                    "tap-hold-hyper-escape" "tap-hold-hyper-apostrophe"
+                    "tap-hold-alt-backspace" "tap-hold-alt-space"
+                    "tap-hold-function-end" "tap-hold-function-pgdn"
+                    "tap-hold-script-delete" "tap-hold-plane-enter"))
+      (unless (search (format nil "(interaction~%    ~A" name) layout)
+        (error "Manna fixture lost source interaction ~A." name)))
     (when (some (lambda (escape)
                   (search escape layout :test #'char-equal))
                 '("UE00" "arbitrary-code" "@sc-" "(keysym"))
       (error "Manna abstract layout contains a backend carrier or spelling escape hatch."))
-    (unless (and (search "(position case-left-shift" topology)
+    (unless (and (search "(position escape" topology)
+                 (search "(position delete" topology)
+                 (search "(position end" topology)
+                 (search "(position pgdn" topology)
+                 (not (search "(position enter" topology))
+                 (search "(position case-left-shift" topology)
                  (search "(position case-right-shift" topology)
                  (search "(position greek" topology)
                  (search "(position top" topology)
@@ -436,8 +456,23 @@ raw rows are considered evidence."
                  (search "(place top (:xkb \"LVL3\") (:kanata \"rctl\"))" advantage360)
                  (search "(place mode-key (:xkb \"MENU\") (:kanata \"menu\"))" advantage2)
                  (search "(place mode-key (:xkb \"CAPS\") (:kanata \"caps\"))" advantage360)
+                 (search "(place escape (:xkb \"ESC\") (:kanata \"esc\"))" advantage2)
+                 (search "(place delete (:xkb \"DELE\") (:kanata \"del\"))" advantage2)
+                 (search "(place end (:xkb \"END\") (:kanata \"end\"))" advantage2)
+                 (search "(place pgdn (:xkb \"PGDN\") (:kanata \"pgdn\"))" advantage2)
+                 (search "(place escape (:xkb \"ESC\") (:kanata \"esc\"))" advantage360)
+                 (search "(place delete (:xkb \"DELE\") (:kanata \"del\"))" advantage360)
+                 (search "(place end (:xkb \"END\") (:kanata \"end\"))" advantage360)
+                 (search "(place pgdn (:xkb \"PGDN\") (:kanata \"pgdn\"))" advantage360)
+                 (search "(map-output named-key delete (:xkb \"Delete\") (:kanata \"del\"))" vocabulary)
+                 (search "(map-output named-key escape (:xkb \"Escape\") (:kanata \"esc\"))" vocabulary)
+                 (search "(map-output named-key page-down (:xkb \"Next\") (:kanata \"pgdn\"))" vocabulary)
+                 (not (search "(map-output named-key end" vocabulary))
                  (search "manna-cadet-advantage360-linux" realizations))
       (error "Manna device-variant placement or Advantage 360 composition is missing."))
+    (when (or (search "(interaction-compatibility" realizations)
+              (search "(kanata-buffered-allocations" realizations))
+      (error "Manna source transcription must not select timing policy or allocation."))
     (unless (= 29 (count-substrings vocabulary "(:kanata \"(arbitrary-code "))
       (error "Manna vocabulary no longer has exactly 29 carrier-backed outputs."))
     (dolist (row +frozen-function-carriers+)
@@ -487,6 +522,7 @@ raw rows are considered evidence."
                  (= 58 (count-prefixed-lines first-diff "| `@sc-"))
                  (= 16 (count-substrings first-diff "tap-hold-policy-refused"))
                  (= 8 (count-substrings first-diff "device-variant-refused"))
+                 (search "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, no selected policy | all classified below | 0 |" first-diff)
                  (search "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |" first-diff)
                  (search "| Advantage 2 chorded | `e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd` | 68 | `normal` (complete) | 47 (16 tap-hold / 31 carrier) | 29 | 58 / 58 | none |" first-diff)
                  (search "| Advantage 360 chorded | `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | 72 | `normal` (complete) | 47 (16 tap-hold / 31 carrier) | 29 | 56 / 58; missing `menu`, `menu` | `K18=127`, `K19=130`, `K20=115`, `K21=142` |" first-diff)
@@ -501,7 +537,7 @@ raw rows are considered evidence."
                  (= 8 (count-prefixed-lines first-diff "| 360 only | `@"))
                  (search "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` |" first-diff)
                  (search "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` |" first-diff)
-                 (search "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `proposed-profile-unencoded` |" first-diff)
+                 (search "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `typed-policy-unselected` |" first-diff)
                  (search "| `case-left-shift` | `lshift` → `lshift` |" first-diff)
                  (search "| `greek` | `lctl` → `@gr` |" first-diff)
                  (search "| `top` | `rctl` → `@top` |" first-diff)

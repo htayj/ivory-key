@@ -1042,10 +1042,13 @@ runtime behavior.
                    (render-fixture-bindings root stream))))
     (unless (search fixture layout)
       (error "Manna fixture's 52 static tables differ from the frozen mechanical render.")))
-  (unless (= 52 (count-prefixed-lines layout "  (binding"))
-    (error "Manna fixture must contain exactly 52 static bindings."))
-  (unless (= 57 (count-prefixed-lines topology "  (position "))
-    (error "Manna topology must contain exactly 52 static and 5 control positions."))
+  ;; The mechanically rendered block remains exactly 52 static tables.  Four
+  ;; source-selected tap identities are represented by context-free ordinary
+  ;; bindings after that block.
+  (unless (= 56 (count-prefixed-lines layout "  (binding"))
+    (error "Manna fixture must contain 52 static and 4 tap bindings."))
+  (unless (= 61 (count-prefixed-lines topology "  (position "))
+    (error "Manna topology must contain 52 static, 5 control, and 4 tap positions."))
   (dolist (row (static-placement-rows))
     (destructuring-bind (logical xkb kanata) row
       (unless (and (search (format nil "(position ~A" logical) topology)
@@ -1060,9 +1063,9 @@ runtime behavior.
                (search "(unreachable less-greater)" advantage2)
                (search "(unreachable less-greater)" advantage360))
     (error "<LSGT> must remain explicitly unreachable without an invented placement."))
-  (unless (and (= 56 (count-prefixed-lines advantage2 "  (place "))
-               (= 56 (count-prefixed-lines advantage360 "  (place ")))
-    (error "Each Manna device fixture must contain exactly 56 classified placements."))
+  (unless (and (= 60 (count-prefixed-lines advantage2 "  (place "))
+               (= 60 (count-prefixed-lines advantage360 "  (place ")))
+    (error "Each Manna device fixture must contain exactly 60 classified placements."))
   t)
 
 (defun checked-function-fixture-p (root layout advantage2 advantage360 vocabulary)
@@ -1160,13 +1163,26 @@ runtime behavior.
                  (exact-source-line-p xkb-source
                                       "override key <ZEHA> { type[Group1]=\"ONE_LEVEL\", symbols[Group1]=[ ISO_Level3_Shift ] };"))
       (error "Frozen XKB direct selector definitions changed.")))
-  (unless (= 4 (count-prefixed-lines layout "  (interaction"))
-    (error "Manna fixture must contain exactly four direct held interactions."))
+  (unless (= 20 (count-prefixed-lines layout "  (interaction"))
+    (error "Manna fixture must contain four direct holders and sixteen tap-holds."))
+  (dolist (name '("tap-hold-case-f" "tap-hold-case-j"
+                  "tap-hold-control-d" "tap-hold-control-k"
+                  "tap-hold-meta-s" "tap-hold-meta-l"
+                  "tap-hold-super-a" "tap-hold-super-semicolon"
+                  "tap-hold-hyper-escape" "tap-hold-hyper-apostrophe"
+                  "tap-hold-alt-backspace" "tap-hold-alt-space"
+                  "tap-hold-function-end" "tap-hold-function-pgdn"
+                  "tap-hold-script-delete" "tap-hold-plane-enter"))
+    (unless (search (format nil "(interaction~%    ~A" name) layout)
+      (error "Manna fixture lost source-selected interaction ~A." name)))
   t)
 
 (defun no-active-unresolved-behavior-p (layout)
-  (when (or (search (format nil "(interaction~%    tap-hold-") layout)
-            (search (format nil "(interaction~%    latch-latch") layout)
+  ;; The sixteen source-selected tap-hold structures are now deliberately
+  ;; present for inspection, but no realization selects their compatibility
+  ;; policy or backend allocation.  Guessed latch/chord/game behavior remains
+  ;; forbidden in the common fixture.
+  (when (or (search (format nil "(interaction~%    latch-latch") layout)
             (search "(:participants i o)" layout)
             (search (format nil "(interaction~%    game") layout))
     (error "A refused Manna timing/chord/game behavior was made active."))
@@ -1309,7 +1325,7 @@ claim zero unchecked differences.
             (static-nosymbol-count root))
     (format stream "| Function outputs | 29 A2 + 29 360 placements | 29 shared outputs | 2 activators | 0 |~%")
     (format stream "| Direct selectors | 4 A2 + 4 360 observations | 4 abstract held interactions | backend lowering refused | 0 |~%")
-    (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 0 active | all classified below | 0 |~%")
+    (format stream "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, no selected policy | all classified below | 0 |~%")
     (format stream "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |~%~%")
     (format stream "| Primary aliases | ~D A2 + ~D 360 declarations | ~D + ~D classified | no implicit alias meaning | 0 |~%~%"
             (length a2-aliases) (length a360-aliases)
@@ -1373,7 +1389,7 @@ claim zero unchecked differences.
     (format stream "|---|---|---|---|~%")
     (format stream "| `<LSGT>` physical placement | A2 and 360 | `typed-unreachable` | Static table is exact, but neither primary `defsrc` has a direct token; both device records refuse a placement. |~%")
     (format stream "| `mode-key` inactive result | A2 / 360 | `device-specific-inactive-output` | Frozen source is `menu` / `caps`; only the common active `alt-mode` output is transcribed. |~%")
-    (format stream "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `proposed-profile-unencoded` | The hash-pinned Kanata-1.12 oracle records delayed foreign-event ordering, and the model has a bounded single-owner pending-input transaction. Native queue closure, realization-owned allocation/lowering, whole-pipeline proof, and a selected `.ivory` profile remain absent. |~%")
+    (format stream "| `kanata-1-12-buffered` compatibility profile | 14 primary + 2 selector aliases | `typed-policy-unselected` | The hash-pinned Kanata-1.12 oracle records delayed foreign-event ordering, and the model/compiler carry a bounded contract plus inert typed action handoff. Native queue closure, selected realization-owned allocations, whole-pipeline proof, and a selected `.ivory` profile remain absent. |~%")
     (dolist (row +unresolved-primary-tap-holds+)
       (destructuring-bind (alias position family) row
         (format stream "| `@~A` at `~A` (~A) | A2 and 360 | `tap-hold-policy-refused` | Timeout, interruption, commitment, owner release, and lowerer semantics are not selected. |~%"

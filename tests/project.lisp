@@ -121,6 +121,30 @@
                                 (ivory-key.project:project-definition-name item)))
                         (ivory-key.project:project-load-result-definitions result))))))
 
+(deftest project-manna-source-transcribes-primary-tap-holds-without-selecting-policy
+  "The checked-in project remains inspectable while its timing behavior is
+unselected.  This covers the real graph rather than a decoder-only fixture."
+  (let* ((project (ivory-key.project:load-project
+                   (truename "manna-cadet-project.ivory")
+                   :source-roots (list (truename "./"))))
+         (layout (ivory-key.project:project-layout project "manna-cadet" :errorp t)))
+    (is-equal 56 (length (ivory-key.model:layout-bindings layout)))
+    (is-equal 20 (length (ivory-key.model:layout-interactions layout)))
+    (dolist (device-name '("kinesis-advantage2" "kinesis-advantage360"))
+      (let ((device (ivory-key.project:project-device project device-name :errorp t)))
+        (dolist (position '("escape" "delete" "end" "pgdn"))
+          (is-equal :physical
+                    (ivory-key.model:device-position-coverage-disposition
+                     (ivory-key.model:placement-coverage-for-position
+                      device position))))))
+    ;; The physical Enter token reuses RETURN; no duplicate topology identity
+    ;; is invented for the rtop alias.
+    (is (null (find "enter"
+                    (ivory-key.model:topology-positions
+                     (ivory-key.model:layout-topology layout))
+                    :test #'ivory-key.model:identifier=
+                    :key #'ivory-key.model:position-name)))))
+
 (deftest project-device-coverage-rejects-duplicate-and-unknown-declarations
   (with-project-test-directory (directory)
     (let ((entry (write-complete-project

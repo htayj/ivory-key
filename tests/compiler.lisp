@@ -1384,8 +1384,10 @@ complete carrier table from an invented Manna behavior.
          (ivory-key.cli::compiler-realization-selector-policy realization))
       (is request)
       ;; The frozen XKB inventory has 52 tables; <LSGT> is explicitly outside
-      ;; selected device coverage, leaving 51 Manna selector overrides.
-      (is-equal 51 (length (ivory-key.backend::lowering-request-entries request)))
+      ;; selected device coverage, leaving 51 selector overrides plus the
+      ;; three directly routable named-key bindings.  Frozen END remains the
+      ;; command route; its overlapping buffered interaction is still refused.
+      (is-equal 54 (length (ivory-key.backend::lowering-request-entries request)))
       (let* ((metadata (ivory-key.backend::lowering-request-metadata request))
              (carriers (getf metadata :xkb-carrier-entries))
              (allocations (getf metadata :carrier-allocations))
@@ -1494,9 +1496,18 @@ complete carrier table from an invented Manna behavior.
                backend (request-with-coverage replacement)))))))
       (is-equal
        '(:unsupported-kanata-selector-action-plan :unsupported-semantic-modifiers
+         :unsupported-command-output
          :unsupported-timed-interaction :unsupported-timed-interaction
          :unsupported-timed-interaction :unsupported-timed-interaction
-         :unreachable-device-position :unproved-patch-activation)
+         :unreachable-device-position :unproved-patch-activation
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction
+         :unsupported-timed-interaction :unsupported-timed-interaction)
        (mapcar #'ivory-key.cli::compiler-fidelity-issue-code issues))
       ;; Final project compilation chooses the deterministic first refusal;
       ;; it never writes a partial source proposal.

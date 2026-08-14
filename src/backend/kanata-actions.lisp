@@ -4,10 +4,11 @@
 (in-package #:ivory-key.backend)
 
 ;;; This file is intentionally an action *description*, rather than an
-;;; emitter extension.  The known Kanata 1.12 probe does not prove deadline
-;;; custody, cancellation, or bounded replay of a foreign event.  Therefore a
-;;; valid value below is useful for deterministic inspection and future
-;;; review, but does not constitute a permitted backend realization.
+;;; emitter extension.  The known Kanata 1.12 probe proves the bounded
+;;; single-owner deadline-custody path, but not cancellation, multi-owner
+;;; arbitration, or closure of the emitted configuration's wider input domain.
+;;; Therefore a valid value below is useful for deterministic inspection and
+;;; future review, but does not constitute a permitted backend realization.
 
 (define-condition kanata-action-validation-error (error)
   ((code :initarg :code :reader kanata-action-validation-error-code)

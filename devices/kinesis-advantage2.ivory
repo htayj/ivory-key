@@ -7,6 +7,9 @@
 ;; The Advantage 2 layered source calls this position lctl; normal-layer @gr emits the Greek selector carrier.
 ;; The direct rctl source emits the Top selector carrier.  Enter's distinct
 ;; tap-hold alias is not represented by this immediate placement.
+;; Escape, Delete, End, and PgDn occur in both frozen primary normal-layer
+;; defsrc declarations and are recorded only with their observed physical
+;; tokens.  Enter remains the existing RETURN/RTRN placement.
 ;; The same physical location is Menu outside the function patch and emits
 ;; the Alt Mode command inside it.  The latter still requires carrier
 ;; lowering, so this placement records only the frozen source spellings.
@@ -44,6 +47,10 @@
   (place left-bracket (:xkb "AD11") (:kanata "["))
   (place right-bracket (:xkb "AD12") (:kanata "]"))
   (place return (:xkb "RTRN") (:kanata "ent"))
+  (place escape (:xkb "ESC") (:kanata "esc"))
+  (place delete (:xkb "DELE") (:kanata "del"))
+  (place end (:xkb "END") (:kanata "end"))
+  (place pgdn (:xkb "PGDN") (:kanata "pgdn"))
   (place a (:xkb "AC01") (:kanata "a"))
   (place s (:xkb "AC02") (:kanata "s"))
   (place d (:xkb "AC03") (:kanata "d"))

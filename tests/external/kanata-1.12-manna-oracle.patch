@@ -1,6 +1,6 @@
 --- a/src/tests/sim_tests/tap_hold_tests.rs
 +++ b/src/tests/sim_tests/tap_hold_tests.rs
-@@ -1279,3 +1279,155 @@
+@@ -1279,3 +1279,195 @@
          result
      );
  }
@@ -135,6 +135,46 @@
 +            "{}",
 +            label
 +        );
++    }
++}
++
++#[test]
++fn ivory_key_actual_advantage2_ad01_xkb_differential() {
++    let cfg = include_str!("../../../cfg_samples/ivory-key-manna.kbd");
++    for (label, events, expected) in [
++        ("base-owner-first-plain", "d:f t:50 d:q t:10 u:f t:10 u:q t:10 t:10", "dn:F dn:Q up:F up:Q"),
++        ("base-foreign-first-shifted", "d:f t:50 d:q t:10 u:q t:10 u:f t:10 t:10", "dn:LShift dn:Q up:Q up:LShift"),
++        ("85-owner-first-plain", "d:lctl t:10 d:f t:50 d:q t:10 u:f t:10 u:q t:10 u:lctl t:10 t:10", "out-code:85;Press dn:F dn:Q up:F up:Q out-code:85;Release"),
++        ("85-foreign-first-shifted", "d:lctl t:10 d:f t:50 d:q t:10 u:q t:10 u:f t:10 u:lctl t:10 t:10", "out-code:85;Press dn:LShift dn:Q up:Q up:LShift out-code:85;Release"),
++        ("84-owner-first-plain", "d:rctl t:10 d:f t:50 d:q t:10 u:f t:10 u:q t:10 u:rctl t:10 t:10", "out-code:84;Press dn:F dn:Q up:F up:Q out-code:84;Release"),
++        ("84-foreign-first-shifted", "d:rctl t:10 d:f t:50 d:q t:10 u:q t:10 u:f t:10 u:rctl t:10 t:10", "out-code:84;Press dn:LShift dn:Q up:Q up:LShift out-code:84;Release"),
++        ("85+84-owner-first-plain", "d:lctl t:10 d:rctl t:10 d:f t:50 d:q t:10 u:f t:10 u:q t:10 u:rctl t:10 u:lctl t:10 t:10", "out-code:85;Press out-code:84;Press dn:F dn:Q up:F up:Q out-code:84;Release out-code:85;Release"),
++        ("85+84-foreign-first-shifted", "d:lctl t:10 d:rctl t:10 d:f t:50 d:q t:10 u:q t:10 u:f t:10 u:rctl t:10 u:lctl t:10 t:10", "out-code:85;Press out-code:84;Press dn:LShift dn:Q up:Q up:LShift out-code:84;Release out-code:85;Release"),
++    ] {
++        let actual = simulate(cfg, events).to_ascii().no_time();
++        assert_eq!(expected, actual, "{}", label);
++        println!("\nIVORY-KEY-AD01-DIFFERENTIAL\t{}\t{}", label, actual);
++    }
++}
++
++#[test]
++fn ivory_key_actual_advantage2_carrier_lifetime_matrix() {
++    let cfg = include_str!("../../../cfg_samples/ivory-key-manna.kbd");
++    for (label, events, expected) in [
++        ("85-alone", "d:lctl t:10 u:lctl t:10", "out-code:85;Press out-code:85;Release"),
++        ("84-alone", "d:rctl t:10 u:rctl t:10", "out-code:84;Press out-code:84;Release"),
++        ("85-before-owner", "d:lctl t:10 d:f t:200 u:f t:10 u:lctl t:10", "out-code:85;Press dn:LShift up:LShift out-code:85;Release"),
++        ("84-before-owner", "d:rctl t:10 d:f t:200 u:f t:10 u:rctl t:10", "out-code:84;Press dn:LShift up:LShift out-code:84;Release"),
++        ("85-after-owner", "d:f t:50 d:lctl t:150 u:lctl t:10 u:f t:10 t:10", "dn:LShift out-code:85;Press out-code:85;Release up:LShift"),
++        ("84-after-owner", "d:f t:50 d:rctl t:150 u:rctl t:10 u:f t:10 t:10", "dn:LShift out-code:84;Press out-code:84;Release up:LShift"),
++        ("85-foreign-q-owner-first", "d:lctl t:10 d:f t:50 d:q t:10 u:f t:10 u:q t:10 u:lctl t:10", "out-code:85;Press dn:F dn:Q up:F up:Q out-code:85;Release"),
++        ("85-foreign-q-q-first", "d:lctl t:10 d:f t:50 d:q t:10 u:q t:10 u:f t:10 u:lctl t:10", "out-code:85;Press dn:LShift dn:Q up:Q up:LShift out-code:85;Release"),
++        ("84-foreign-q-owner-first", "d:rctl t:10 d:f t:50 d:q t:10 u:f t:10 u:q t:10 u:rctl t:10", "out-code:84;Press dn:F dn:Q up:F up:Q out-code:84;Release"),
++        ("84-foreign-q-q-first", "d:rctl t:10 d:f t:50 d:q t:10 u:q t:10 u:f t:10 u:rctl t:10", "out-code:84;Press dn:LShift dn:Q up:Q up:LShift out-code:84;Release"),
++    ] {
++        assert_eq!(expected, simulate(cfg, events).to_ascii().no_time(), "{}", label);
++        println!("IVORY-KEY-CARRIER-LIFETIME\t{}\t{}", label,
++                 simulate(cfg, events).to_ascii().no_time());
 +    }
 +}
 +

@@ -2,9 +2,10 @@
 /*
  * libxkbcommon state probe for Ivory Key's generated selector carrier map.
  *
- * This is deliberately a selected generated-map sub-contract.  It does not
- * claim that the frozen Manna source, Kanata event delivery, or a client
- * protocol uses the same carrier bridge.
+ * This is deliberately a selected generated-map sub-contract.  Its optional
+ * Kanata input is the closed eight-record AD01 oracle output only; it does not
+ * claim that arbitrary Kanata event delivery, the frozen Manna source, or a
+ * client protocol uses the same carrier bridge.
  */
 
 #include <stdio.h>
@@ -69,6 +70,272 @@ require_modifier_inactive(struct xkb_state *state, xkb_mod_index_t modifier,
     if (xkb_state_mod_index_is_active(state, modifier,
                                       XKB_STATE_MODS_EFFECTIVE))
         fail(message);
+}
+
+struct ad01_differential_case {
+    const char *label;
+    xkb_keysym_t symbol;
+    xkb_layout_index_t layout;
+    int shift;
+    int level_three;
+    int top;
+};
+
+struct ad01_edge_counts {
+    unsigned int f_down;
+    unsigned int f_up;
+    unsigned int shift_down;
+    unsigned int shift_up;
+    unsigned int q_down;
+    unsigned int q_up;
+    unsigned int level_three_down;
+    unsigned int level_three_up;
+    unsigned int top_down;
+    unsigned int top_up;
+};
+
+static void
+require_ad01_differential_state(
+    struct xkb_state *state, xkb_keycode_t q,
+    xkb_mod_index_t shift_index, xkb_mod_index_t lock_index,
+    xkb_mod_index_t mod5_index,
+    const struct ad01_differential_case *test_case)
+{
+    xkb_mod_mask_t shift_mask = (xkb_mod_mask_t) 1 << shift_index;
+    xkb_mod_mask_t lock_mask = (xkb_mod_mask_t) 1 << lock_index;
+    xkb_mod_mask_t mod5_mask = (xkb_mod_mask_t) 1 << mod5_index;
+    xkb_mod_mask_t expected_effective =
+        (test_case->shift ? shift_mask : 0) |
+        (test_case->level_three ? mod5_mask : 0);
+    /* The consumed mask describes the key type's selectors, including
+     * selectors which are not currently depressed.  AD01's Group1
+     * FOUR_LEVEL_ALPHABETIC type consumes Shift, Lock, and LevelThree;
+     * Group2's TWO_LEVEL type consumes Shift while leaving LevelThree and
+     * Lock client-visible. */
+    xkb_mod_mask_t expected_consumed =
+        shift_mask | (test_case->top ? 0 : (lock_mask | mod5_mask));
+    xkb_mod_mask_t effective = xkb_state_serialize_mods(
+        state, XKB_STATE_MODS_EFFECTIVE);
+    xkb_mod_mask_t consumed = xkb_state_key_get_consumed_mods2(
+        state, q, XKB_CONSUMED_MODE_XKB);
+
+    if (xkb_state_key_get_one_sym(state, q) != test_case->symbol)
+        fail("AD01 differential symbol differs at Q down");
+    if (xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE) !=
+            test_case->layout ||
+        xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_DEPRESSED) !=
+            test_case->layout)
+        fail("AD01 differential group differs at Q down");
+    if (effective != expected_effective)
+        fail("AD01 differential effective modifier mask differs at Q down");
+    if (consumed != expected_consumed) {
+        fprintf(stderr,
+                "GENERATED-XKB-SELECTOR-STATE: FAILED: AD01 differential consumed modifier mask differs at Q down (%s: actual=0x%lx expected=0x%lx)\n",
+                test_case->label, (unsigned long) consumed,
+                (unsigned long) expected_consumed);
+        exit(1);
+    }
+}
+
+static void
+require_ad01_differential_settled(
+    struct xkb_state *state, xkb_keycode_t q,
+    const struct ad01_differential_case *test_case,
+    const struct ad01_edge_counts *counts,
+    int f_down, int shift_down, int q_down, int level_three_down, int top_down)
+{
+    unsigned int plain = test_case->shift ? 0U : 1U;
+    unsigned int shifted = test_case->shift ? 1U : 0U;
+    unsigned int level_three = test_case->level_three ? 1U : 0U;
+    unsigned int top = test_case->top ? 1U : 0U;
+
+    if (counts->q_down != 1 || counts->q_up != 1 ||
+        counts->f_down != plain || counts->f_up != plain ||
+        counts->shift_down != shifted || counts->shift_up != shifted ||
+        counts->level_three_down != level_three ||
+        counts->level_three_up != level_three ||
+        counts->top_down != top || counts->top_up != top)
+        fail("AD01 differential record has the wrong edge multiplicity");
+    if (f_down || shift_down || q_down || level_three_down || top_down)
+        fail("AD01 differential record left a parsed edge held");
+    if (xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED) != 0 ||
+        xkb_state_serialize_mods(state, XKB_STATE_MODS_LATCHED) != 0 ||
+        xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED) != 0 ||
+        xkb_state_serialize_mods(state, XKB_STATE_MODS_EFFECTIVE) != 0)
+        fail("AD01 differential record left modifier state active");
+    if (xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_DEPRESSED) != 0 ||
+        xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_LATCHED) != 0 ||
+        xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_LOCKED) != 0 ||
+        xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE) != 0)
+        fail("AD01 differential record left group state active");
+    if (xkb_state_key_get_one_sym(state, q) != XKB_KEY_q)
+        fail("AD01 differential record did not settle to base q");
+}
+
+static void
+run_ad01_differential_record(
+    struct xkb_keymap *keymap, char *payload,
+    const struct ad01_differential_case *test_case)
+{
+    struct xkb_state *state = xkb_state_new(keymap);
+    struct ad01_edge_counts counts = {0};
+    xkb_keycode_t f = xkb_keymap_key_by_name(keymap, "AC04");
+    xkb_keycode_t q = xkb_keymap_key_by_name(keymap, "AD01");
+    xkb_keycode_t shift = xkb_keymap_key_by_name(keymap, "LFSH");
+    xkb_keycode_t top = xkb_keymap_key_by_name(keymap, "LVL3");
+    xkb_keycode_t level_three = xkb_keymap_key_by_name(keymap, "ZEHA");
+    xkb_mod_index_t shift_index = xkb_keymap_mod_get_index(
+        keymap, XKB_MOD_NAME_SHIFT);
+    xkb_mod_index_t lock_index = xkb_keymap_mod_get_index(
+        keymap, XKB_MOD_NAME_CAPS);
+    xkb_mod_index_t mod5_index = xkb_keymap_mod_get_index(keymap, "Mod5");
+    int f_down = 0;
+    int shift_down = 0;
+    int q_down = 0;
+    int level_three_down = 0;
+    int top_down = 0;
+    char *token = payload;
+
+    if (state == NULL)
+        fail("cannot create AD01 differential state");
+    if (f == XKB_KEYCODE_INVALID || q == XKB_KEYCODE_INVALID ||
+        shift == XKB_KEYCODE_INVALID || top != 92 || level_three != 93 ||
+        shift_index == XKB_MOD_INVALID || lock_index == XKB_MOD_INVALID ||
+        mod5_index == XKB_MOD_INVALID)
+        fail("AD01 differential map lacks its closed key allocation");
+    if (*token == '\0' || *token == ' ')
+        fail("AD01 differential record has an empty edge sequence");
+
+    while (token != NULL) {
+        char *next = strchr(token, ' ');
+
+        if (next != NULL) {
+            if (next == token || next[1] == '\0' || next[1] == ' ')
+                fail("AD01 differential record has noncanonical spacing");
+            *next = '\0';
+        }
+        if (strcmp(token, "dn:F") == 0) {
+            if (f_down)
+                fail("AD01 differential repeats F down");
+            f_down = 1;
+            counts.f_down++;
+            xkb_state_update_key(state, f, XKB_KEY_DOWN);
+        } else if (strcmp(token, "up:F") == 0) {
+            if (!f_down)
+                fail("AD01 differential has F up without down");
+            f_down = 0;
+            counts.f_up++;
+            xkb_state_update_key(state, f, XKB_KEY_UP);
+        } else if (strcmp(token, "dn:LShift") == 0) {
+            if (shift_down)
+                fail("AD01 differential repeats LShift down");
+            shift_down = 1;
+            counts.shift_down++;
+            xkb_state_update_key(state, shift, XKB_KEY_DOWN);
+        } else if (strcmp(token, "up:LShift") == 0) {
+            if (!shift_down)
+                fail("AD01 differential has LShift up without down");
+            shift_down = 0;
+            counts.shift_up++;
+            xkb_state_update_key(state, shift, XKB_KEY_UP);
+        } else if (strcmp(token, "dn:Q") == 0) {
+            if (q_down || counts.q_down != 0)
+                fail("AD01 differential does not contain one Q interval");
+            q_down = 1;
+            counts.q_down++;
+            xkb_state_update_key(state, q, XKB_KEY_DOWN);
+            require_ad01_differential_state(
+                state, q, shift_index, lock_index, mod5_index, test_case);
+        } else if (strcmp(token, "up:Q") == 0) {
+            if (!q_down || counts.q_up != 0)
+                fail("AD01 differential has invalid Q up");
+            q_down = 0;
+            counts.q_up++;
+            xkb_state_update_key(state, q, XKB_KEY_UP);
+        } else if (strcmp(token, "out-code:85;Press") == 0) {
+            if (level_three_down)
+                fail("AD01 differential repeats code 85 press");
+            level_three_down = 1;
+            counts.level_three_down++;
+            xkb_state_update_key(state, level_three, XKB_KEY_DOWN);
+        } else if (strcmp(token, "out-code:85;Release") == 0) {
+            if (!level_three_down)
+                fail("AD01 differential has code 85 release without press");
+            level_three_down = 0;
+            counts.level_three_up++;
+            xkb_state_update_key(state, level_three, XKB_KEY_UP);
+        } else if (strcmp(token, "out-code:84;Press") == 0) {
+            if (top_down)
+                fail("AD01 differential repeats code 84 press");
+            top_down = 1;
+            counts.top_down++;
+            xkb_state_update_key(state, top, XKB_KEY_DOWN);
+        } else if (strcmp(token, "out-code:84;Release") == 0) {
+            if (!top_down)
+                fail("AD01 differential has code 84 release without press");
+            top_down = 0;
+            counts.top_up++;
+            xkb_state_update_key(state, top, XKB_KEY_UP);
+        } else {
+            fail("AD01 differential record contains an unapproved edge");
+        }
+        token = next == NULL ? NULL : next + 1;
+    }
+
+    require_ad01_differential_settled(
+        state, q, test_case, &counts, f_down, shift_down, q_down,
+        level_three_down, top_down);
+    xkb_state_unref(state);
+}
+
+static void
+run_ad01_differential(struct xkb_keymap *keymap, const char *records_path)
+{
+    static const struct ad01_differential_case cases[] = {
+        {"base-owner-first-plain", XKB_KEY_q, 0, 0, 0, 0},
+        {"base-foreign-first-shifted", XKB_KEY_Q, 0, 1, 0, 0},
+        {"85-owner-first-plain", XKB_KEY_Greek_theta, 0, 0, 1, 0},
+        {"85-foreign-first-shifted", XKB_KEY_Greek_THETA, 0, 1, 1, 0},
+        {"84-owner-first-plain", XKB_KEY_upcaret, 1, 0, 0, 1},
+        {"84-foreign-first-shifted", XKB_KEY_NoSymbol, 1, 1, 0, 1},
+        {"85+84-owner-first-plain", XKB_KEY_upcaret, 1, 0, 1, 1},
+        {"85+84-foreign-first-shifted", XKB_KEY_NoSymbol, 1, 1, 1, 1}
+    };
+    FILE *records = fopen(records_path, "rb");
+    char line[1024];
+
+    if (records == NULL)
+        fail("cannot open AD01 differential records");
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        char *first_tab;
+        char *second_tab;
+        size_t length;
+
+        if (fgets(line, sizeof(line), records) == NULL)
+            fail("AD01 differential record set ended early");
+        length = strlen(line);
+        if (length == 0 || line[length - 1] != '\n')
+            fail("AD01 differential record is unterminated or oversized");
+        line[--length] = '\0';
+        if (length > 0 && line[length - 1] == '\r')
+            fail("AD01 differential record uses a noncanonical line ending");
+        first_tab = strchr(line, '\t');
+        if (first_tab == NULL)
+            fail("AD01 differential record lacks its first delimiter");
+        *first_tab = '\0';
+        second_tab = strchr(first_tab + 1, '\t');
+        if (second_tab == NULL || strchr(second_tab + 1, '\t') != NULL)
+            fail("AD01 differential record does not have exactly three fields");
+        *second_tab = '\0';
+        if (strcmp(line, "IVORY-KEY-AD01-DIFFERENTIAL") != 0)
+            fail("AD01 differential record has an unknown tag");
+        if (strcmp(first_tab + 1, cases[index].label) != 0)
+            fail("AD01 differential record label/order differs");
+        run_ad01_differential_record(keymap, second_tab + 1, &cases[index]);
+    }
+    if (fgets(line, sizeof(line), records) != NULL || !feof(records))
+        fail("AD01 differential record set has trailing data");
+    fclose(records);
 }
 
 static void
@@ -229,6 +496,8 @@ main(int argc, char **argv)
     xkb_keycode_t ad01, shift, lvl3, zeha;
     xkb_mod_index_t shift_index, mod5_index;
     const char *keymap_path;
+    const char *records_path = NULL;
+    int differential = 0;
     int frozen = 0;
 
     if (argc == 2) {
@@ -236,8 +505,12 @@ main(int argc, char **argv)
     } else if (argc == 4 && strcmp(argv[1], "--frozen") == 0) {
         frozen = 1;
         keymap_path = argv[2];
+    } else if (argc == 4 && strcmp(argv[1], "--kanata-ad01") == 0) {
+        differential = 1;
+        records_path = argv[2];
+        keymap_path = argv[3];
     } else {
-        fail("usage: manna-xkb-group2-state GENERATED-KEYMAP | --frozen FROZEN-KEYMAP XKB-INCLUDE-DIRECTORY");
+        fail("usage: manna-xkb-group2-state GENERATED-KEYMAP | --frozen FROZEN-KEYMAP XKB-INCLUDE-DIRECTORY | --kanata-ad01 RECORDS GENERATED-KEYMAP");
     }
     file = fopen(keymap_path, "rb");
     if (file == NULL)
@@ -259,6 +532,16 @@ main(int argc, char **argv)
         xkb_keymap_unref(keymap);
         xkb_context_unref(context);
         puts("FROZEN-MANNA-XKB-GROUP2-STATE: PASSED");
+        return 0;
+    }
+
+    if (differential) {
+        require_ad01_shape(keymap);
+        require_lsgt_inherited_boundary(keymap);
+        run_ad01_differential(keymap, records_path);
+        xkb_keymap_unref(keymap);
+        xkb_context_unref(context);
+        puts("KANATA-GENERATED-XKB-AD01-DIFFERENTIAL: PASSED");
         return 0;
     }
 

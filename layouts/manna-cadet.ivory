@@ -34,6 +34,19 @@
 ;; The shared logical mode-key denotes the same physical location in both
 ;; devices.  Its inactive result differs (Menu on Advantage 2, Caps Lock
 ;; on Advantage 360), so only its common active function result is stated.
+;; These primary normal-layer inputs have direct, context-independent tap
+;; identities.  Their held interpretation is carried only by the explicit
+;; unselected interactions below; no backend token or timing policy lives
+;; in these ordinary bindings.
+;; Both frozen primary normal layers select exactly these sixteen
+;; TAP-HOLD-RELEASE aliases.  The source establishes their literal taps,
+;; semantic held resources, and equal timeout pairs (250 ms only for A);
+;; it does not select an interaction-compatibility policy, Kanata action,
+;; allocation, backend grade, or artifact-emission path.  Delete and Enter
+;; are transcribed because both normal layers select gdel/rtop, but the
+;; buffered policy still explicitly refuses them for lack of direct traces.
+;; The physical defsrc token is ent; RETURN is its existing shared logical
+;; position.  Do not add an ENTER topology position merely for this alias.
 
 (ivory-key 1)
 (define-layout
@@ -617,6 +630,10 @@
     (at (plain greek top) (named-symbol bar))
     (at (shifted greek top) (named-symbol brokenbar))
   )
+  (binding escape (named-key escape))
+  (binding delete (named-key delete))
+  (binding end (command end))
+  (binding pgdn (named-key page-down))
   (interaction
     hold-case-left-shift
     (:participants case-left-shift)
@@ -663,6 +680,587 @@
       (:do none)
       (:while (hold-axis-state plane top))
       (:exit (set-axis-state plane base))
+    )
+  )
+  (interaction
+    tap-hold-case-f
+    (:participants f)
+    (:observe any-position)
+    (:anchor f)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down f) :while-down f))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state case shifted))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down f)
+          (capture foreign (down (other-than f)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state case shifted))
+    )
+    (case
+      tap
+      (:match (and (sequence (down f) (up f)) (duration f :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key f))
+    )
+  )
+  (interaction
+    tap-hold-case-j
+    (:participants j)
+    (:observe any-position)
+    (:anchor j)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down j) :while-down j))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state case shifted))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down j)
+          (capture foreign (down (other-than j)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state case shifted))
+    )
+    (case
+      tap
+      (:match (and (sequence (down j) (up j)) (duration j :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key j))
+    )
+  )
+  (interaction
+    tap-hold-control-d
+    (:participants d)
+    (:observe any-position)
+    (:anchor d)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down d) :while-down d))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier control))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down d)
+          (capture foreign (down (other-than d)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier control))
+    )
+    (case
+      tap
+      (:match (and (sequence (down d) (up d)) (duration d :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key d))
+    )
+  )
+  (interaction
+    tap-hold-control-k
+    (:participants k)
+    (:observe any-position)
+    (:anchor k)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down k) :while-down k))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier control))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down k)
+          (capture foreign (down (other-than k)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier control))
+    )
+    (case
+      tap
+      (:match (and (sequence (down k) (up k)) (duration k :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key k))
+    )
+  )
+  (interaction
+    tap-hold-meta-s
+    (:participants s)
+    (:observe any-position)
+    (:anchor s)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down s) :while-down s))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier meta))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down s)
+          (capture foreign (down (other-than s)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier meta))
+    )
+    (case
+      tap
+      (:match (and (sequence (down s) (up s)) (duration s :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key s))
+    )
+  )
+  (interaction
+    tap-hold-meta-l
+    (:participants l)
+    (:observe any-position)
+    (:anchor l)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down l) :while-down l))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier meta))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down l)
+          (capture foreign (down (other-than l)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier meta))
+    )
+    (case
+      tap
+      (:match (and (sequence (down l) (up l)) (duration l :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key l))
+    )
+  )
+  (interaction
+    tap-hold-super-a
+    (:participants a)
+    (:observe any-position)
+    (:anchor a)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 250 :after (down a) :while-down a))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier super))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down a)
+          (capture foreign (down (other-than a)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier super))
+    )
+    (case
+      tap
+      (:match (and (sequence (down a) (up a)) (duration a :less-than 250)))
+      (:commit when-matched)
+      (:do (named-key a))
+    )
+  )
+  (interaction
+    tap-hold-super-semicolon
+    (:participants semicolon)
+    (:observe any-position)
+    (:anchor semicolon)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down semicolon) :while-down semicolon))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier super))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down semicolon)
+          (capture foreign (down (other-than semicolon)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier super))
+    )
+    (case
+      tap
+      (:match
+        (and
+          (sequence (down semicolon) (up semicolon))
+          (duration semicolon :less-than 200)
+        )
+      )
+      (:commit when-matched)
+      (:do (named-key semicolon))
+    )
+  )
+  (interaction
+    tap-hold-hyper-escape
+    (:participants escape)
+    (:observe any-position)
+    (:anchor escape)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down escape) :while-down escape))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier hyper))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down escape)
+          (capture foreign (down (other-than escape)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier hyper))
+    )
+    (case
+      tap
+      (:match
+        (and (sequence (down escape) (up escape)) (duration escape :less-than 200))
+      )
+      (:commit when-matched)
+      (:do (named-key escape))
+    )
+  )
+  (interaction
+    tap-hold-hyper-apostrophe
+    (:participants apostrophe)
+    (:observe any-position)
+    (:anchor apostrophe)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down apostrophe) :while-down apostrophe))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier hyper))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down apostrophe)
+          (capture foreign (down (other-than apostrophe)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier hyper))
+    )
+    (case
+      tap
+      (:match
+        (and
+          (sequence (down apostrophe) (up apostrophe))
+          (duration apostrophe :less-than 200)
+        )
+      )
+      (:commit when-matched)
+      (:do (named-key apostrophe))
+    )
+  )
+  (interaction
+    tap-hold-alt-backspace
+    (:participants backspace)
+    (:observe any-position)
+    (:anchor backspace)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down backspace) :while-down backspace))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier alt))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down backspace)
+          (capture foreign (down (other-than backspace)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier alt))
+    )
+    (case
+      tap
+      (:match
+        (and
+          (sequence (down backspace) (up backspace))
+          (duration backspace :less-than 200)
+        )
+      )
+      (:commit when-matched)
+      (:do (named-key backspace))
+    )
+  )
+  (interaction
+    tap-hold-alt-space
+    (:participants space)
+    (:observe any-position)
+    (:anchor space)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down space) :while-down space))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier alt))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down space)
+          (capture foreign (down (other-than space)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-modifier alt))
+    )
+    (case
+      tap
+      (:match (and (sequence (down space) (up space)) (duration space :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key space))
+    )
+  )
+  (interaction
+    tap-hold-function-end
+    (:participants end)
+    (:observe any-position)
+    (:anchor end)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down end) :while-down end))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state function active))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down end)
+          (capture foreign (down (other-than end)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state function active))
+    )
+    (case
+      tap
+      (:match (and (sequence (down end) (up end)) (duration end :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key end))
+    )
+  )
+  (interaction
+    tap-hold-function-pgdn
+    (:participants pgdn)
+    (:observe any-position)
+    (:anchor pgdn)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down pgdn) :while-down pgdn))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state function active))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down pgdn)
+          (capture foreign (down (other-than pgdn)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state function active))
+    )
+    (case
+      tap
+      (:match (and (sequence (down pgdn) (up pgdn)) (duration pgdn :less-than 200)))
+      (:commit when-matched)
+      (:do (named-key page-down))
+    )
+  )
+  (interaction
+    tap-hold-script-delete
+    (:participants delete)
+    (:observe any-position)
+    (:anchor delete)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down delete) :while-down delete))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state script greek))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down delete)
+          (capture foreign (down (other-than delete)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state script greek))
+    )
+    (case
+      tap
+      (:match
+        (and (sequence (down delete) (up delete)) (duration delete :less-than 200))
+      )
+      (:commit when-matched)
+      (:do (named-key delete))
+    )
+  )
+  (interaction
+    tap-hold-plane-enter
+    (:participants return)
+    (:observe any-position)
+    (:anchor return)
+    (:arbitration (priority hold-timeout hold-after-foreign-release tap))
+    (case
+      hold-timeout
+      (:match (deadline 200 :after (down return) :while-down return))
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state plane top))
+    )
+    (case
+      hold-after-foreign-release
+      (:match
+        (sequence
+          (down return)
+          (capture foreign (down (other-than return)))
+          (up (captured foreign))
+        )
+      )
+      (:commit when-matched)
+      (:do none)
+      (:effect-start on-commit)
+      (:while (hold-axis-state plane top))
+    )
+    (case
+      tap
+      (:match
+        (and (sequence (down return) (up return)) (duration return :less-than 200))
+      )
+      (:commit when-matched)
+      (:do (named-key return))
     )
   )
   (overlay

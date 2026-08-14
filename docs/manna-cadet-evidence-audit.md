@@ -21,16 +21,17 @@ The labels below are deliberately narrow:
 
 ## Phase 7 and Phase 9 boundary
 
-The completed evidence tranche is deliberately limited to the 52 static XKB
-tables, the five semantic-modifier names, both primary layered physical
-placements, the two direct immediate selector lifecycles, and the 29 output
-positions of the common primary function table.
+The completed evidence tranche records 52 static XKB tables, four direct
+normal-layer bindings, the five semantic-modifier names, both primary layered
+physical placements, four direct immediate selector lifecycles, sixteen
+structurally transcribed but unselected tap-hold interactions, and the 29
+output positions of the common primary function table.
 The latter is represented as the abstract `function` patch axis in
 `layouts/manna-cadet.ivory`; it contains command identities or Unicode scalar
 outputs, never XKB keysyms, Kanata aliases, or carrier numbers.  The function
 axis has no source activation behavior yet.  This accurately records what the
 active table does *after* the source layer is active, without claiming that
-Ivory Key has reproduced the two tap-hold activators.
+Ivory Key has selected or reproduced the two tap-hold activators.
 
 That evidence does **not** meet Phase 7's migration exit criterion.  The
 selected profile now has a complete typed-output vocabulary and deterministic
@@ -76,7 +77,7 @@ to a refused class.
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |
 |---|---|---|---|
 | §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers above, exact carriers/function positions, and the complete chorded structure below | cross-check mnemonic placements mechanically; neither source inventory selects behavior | implementable review tooling remains |
-| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, 29 function rows per device, four immediate holders, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
+| §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, four direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed/unselected tap-holds, all remaining source differences classified, and a separately tagged Kanata-1.12 state-machine oracle for bounded tap-hold paths | add generated-artifact and whole-layout event-trace comparison only after the refused interactions have a selected semantics and lowerer | blocked by semantic/lowering choices |
 | §13.3 complete physical placement | 51 physically covered Manna selector overrides, four immediate direct holders/selectors, the mode-key position, and an explicit typed-unreachable `<LSGT>` record on both devices | obtain additional device/event evidence for the residual common controls and A2 `lrld`; no direct primary `defsrc` provenance exists for `<LSGT>` | requires new evidence, not a topology guess |
 | §13.5 complete simulation | exact static resolution and the two-owner direct-case lifecycle are exercised; the separate Kanata-1.12 oracle proves same-owner modifier/function-layer lifetime and bounded release paths. Proposed ADR 0003 also has a source-decoded/reference-simulated no-delay 14+2 fixture: every literal tap/deadline row, immutable foreign capture, early-owner-up tap fallback, all five modifier families, case, script/plane capture/release, both release orders for every paired hold family, and a foreign interaction armed independently before its later own tap | project the still-unselected policy onto an active reviewed Manna composition, then prove complete timed, overlay, selector-visibility, and generated-backend traces; a shared foreign-UP cross-interaction ordering remains deliberately unselected | blocked by profile selection and lowering choices |
 | §13.6 full compile and target validation | a deterministic non-emitting static/function proposal is inspectable and validated as far as its selected profile allows | plan and validate a complete replacement only after every active interaction and placement has a realizable semantics | blocked by semantic/lowering choices |
@@ -92,7 +93,7 @@ can become active migration behavior:
 
 | Source area | Current fail-closed disposition | Owner decision required for activation |
 |---|---|---|
-| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and 200/200 timings (250/250 only for `a`) are evidence; all 16 are refused. Proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md) now has an executable abstract/reference fixture for the complete 14+2 inventory, but no checked-in Manna layout, realization, or backend selects it | select a complete commitment, interruption, equal-time, foreign-event, cancellation, and multi-owner policy. The Kanata-1.12 oracle buffers/reorders pending foreign events, while ADR 0003 forbids delay/replay; selecting either route is an explicit compatibility choice |
+| fourteen primary tap-holds and the Delete/Enter selector tap-holds | exact literal actions and 200/200 timings (250/250 only for `a`) are evidence; all 16 are structurally transcribed in the checked-in Manna layout but refused because no realization or backend selects them. Proposed [ADR 0003](decisions/0003-manna-release-trigger-v1.md) has an executable abstract/reference fixture for the complete 14+2 inventory | select a complete commitment, interruption, equal-time, foreign-event, cancellation, and multi-owner policy. The Kanata-1.12 oracle buffers/reorders pending foreign events, while ADR 0003 forbids delay/replay; selecting either route is an explicit compatibility choice |
 | five semantic modifiers | target-neutral identities and historical sources are transcribed; their tap-hold activation is refused | select the timed lifecycle and application-visible realization, including any side distinction beyond P-14's source-neutral default |
 | function overlay | all 29 active-table results are transcribed; End/PgDn activation is refused | select function hold commitment, first/last-owner overlay lifetime, patch interaction, and an exact lowerer |
 | direct Greek and Top selectors | immediate abstract held lifecycles are transcribed; the selected generated-XKB carrier map has a separately probed libxkbcommon state sub-contract | select Kanata carrier/lifetime lowering and any historical/client/live-equivalence claim; the generated sub-contract is not frozen-source equivalence |
@@ -148,7 +149,7 @@ drop or reinterpret it.
 | Physical source surface | Frozen normal-layer result | Classification |
 |---|---|---|
 | `lshift`, `rshift`, arrows, `home`, and `pgup` | passed through by both primary layered files; XKB supplies the corresponding direct named keys | unresolved common controls: their physical source is known, but no target-neutral layout behavior/lifetime has been selected |
-| `esc`, apostrophe, Backspace, Space, Enter, Delete, End, and PgDn | each is part of a primary tap-hold or function selector except for its tap result | listed in the timing table below; no duplicate logical placement is manufactured for its tap and hold outputs |
+| `esc`, apostrophe, Backspace, Space, Enter, Delete, End, and PgDn | each is part of a primary tap-hold or function selector except for its tap result | all 16 interaction shapes are transcribed but unselected; `escape`, `delete`, and `pgdn` have direct named-key ordinary bindings, while frozen `<END>` is the semantic `end` command; RETURN remains the sole Enter position |
 | Advantage 2 `lalt` | source spells the normal result `lrld` | unresolved: no alias defines that spelling in the frozen file, so no semantic identity is inferred |
 | Advantage 360 `K18`, `K20`, `K19`, `K21` | source-only local keys emit `F18`, `F20`, `F19`, `F21` respectively | device-specific direct outputs; absent from the shared layout because the A2 primary source has no corresponding positions |
 | A2 `menu` / 360 `caps` | direct inactive result differs by device; function result is common `alt-mode` | transcribed only as the shared active `mode-key` patch binding; inactive common behavior remains intentionally unspecified |
@@ -402,13 +403,15 @@ guessed.
 
 ## Checked-in consequences and review gates
 
-- `layouts/manna-cadet.ivory` has 52 static bindings, one function patch with
-  29 entries, and four active immediate held interactions. It has no Manna
-  tap-hold or chord interaction.
-- The shared topology has the 52 static positions, two direct physical case
-  holders, immediate Greek and Top selectors, and the common `mode-key`. Each
-  device has 56 explicit placements; the `mode-key` maps to `MENU`/`menu` on
-  A2 and `CAPS`/`caps` on 360.
+- `layouts/manna-cadet.ivory` has 52 static eight-context bindings, four direct
+  ordinary bindings, one function patch with 29 entries, four immediate held
+  interactions, and 16 structurally transcribed but unselected tap-hold
+  interactions. It selects no compatibility policy, allocation, or emission.
+- The shared topology has the 52 static positions, four additional direct
+  normal-layer positions, two direct physical case holders, immediate Greek
+  and Top selectors, and the common `mode-key`. Each device has 60 explicit
+  placements; the `mode-key` maps to `MENU`/`menu` on A2 and `CAPS`/`caps` on
+  360. RETURN remains the sole physical Enter identity.
 - `manna-cadet-advantage360-linux` is a second project composition.  It selects
   the frozen 360 placement only; it does not select or implement the game
   layer.
@@ -420,7 +423,7 @@ guessed.
   placement, carrier, selector, chord row, or count before printing `Unchecked
   differences: 0`; that terminal count means every frozen-versus-fixture
   difference is classified, not that a refusal is solved. It separately
-  data-checks all 14 primary `tap-hold-release` aliases, their normal-layer
+  data-checks all 16 selected `tap-hold-release` aliases, their normal-layer
   selection, direct Shift holders, and relevant `defcfg` policy without making
   them active Manna semantics.
 

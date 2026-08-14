@@ -148,12 +148,19 @@
          (placement (planner-test-placement topology mappings))
          (plan (planner-test-plan layout placement))
          (bindings (ivory-key.backend::lowering-plan-bindings plan)))
-    ;; The 52 frozen symbol tables fit conventional XKB eight-level capacity;
-    ;; that does not allocate case/script/plane selectors or five modifiers.
-    (is-equal 52 (length bindings))
-    (is (every (lambda (binding)
-                 (= 8 (ivory-key.backend::static-table-requirement-state-count binding)))
-               bindings))
+    ;; Fifty-two frozen symbol tables fit conventional XKB eight-level
+    ;; capacity.  Four literal primary-layer bindings are direct outputs, not
+    ;; selector tables; neither class allocates selectors or five modifiers.
+    (is-equal 56 (length bindings))
+    (let ((selector-tables
+            (remove-if-not
+             (lambda (binding)
+               (= 8 (ivory-key.backend::static-table-requirement-state-count binding)))
+             bindings)))
+      (is-equal 52 (length selector-tables))
+      (is (every (lambda (binding)
+                   (= 8 (ivory-key.backend::static-table-requirement-state-count binding)))
+                 selector-tables)))
     (is (every (lambda (binding)
                  (eq :exact
                      (ivory-key.backend:realization-grade

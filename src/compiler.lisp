@@ -1393,7 +1393,7 @@ member of POLICY.  This helper intentionally names no generic interaction.
              "Kanata 1.12 buffers/replays pending foreign events, so its generic action is not exact for this selected modern no-delay interaction."))
     (:kanata-1-12-buffered
      (values :unimplemented-kanata-1-12-buffered-interaction-policy
-             "This selected Kanata 1.12 buffer/replay interaction lacks a closed ownership, cancellation, and ordered-replay action IR."))
+             "This selected Kanata 1.12 buffer/replay interaction has an inert typed action handoff, but native cancellation, multi-owner arbitration, and input-domain closure remain unproved."))
     ;; The typed model validator makes this defensive branch unreachable for
     ;; ordinary source/model values.  Preserve a stable refusal if a caller
     ;; mutates an identity-bearing object after validation.

@@ -46,25 +46,119 @@
          (function-q
            (ivory-key.model:normalized-layout-binding-for-context
             normalized "q" function-context :active-patches '("primary-function"))))
-    ;; The mechanically frozen table covers exactly 52 static XKB positions.
-    ;; The primary layered function table is a sparse patch; its two tap-hold
-    ;; activators and older 45 ms chord behavior are intentionally absent.
-    ;; Direct physical Shift holders and the Greek/Top selectors are separate,
-    ;; exact single-key held interactions, not ordinary bindings or inferred
-    ;; tap-holds.
-    (is-equal 52 (length (ivory-key.model:layout-bindings layout)))
+    ;; The mechanically frozen table remains exactly 52 eight-context XKB
+    ;; positions.  Four extra context-independent bindings are the literal
+    ;; taps for primary source-selected interactions, not a change to the
+    ;; 52-table truth contract.
+    (is-equal 56 (length (ivory-key.model:layout-bindings layout)))
+    (let ((static-bindings
+            (remove-if-not
+             (lambda (binding)
+               (typep (ivory-key.model:binding-behavior binding)
+                      'ivory-key.model:behavior-table))
+             (ivory-key.model:layout-bindings layout))))
+      (is-equal 52 (length static-bindings))
+      (is (every (lambda (binding)
+                   (= 8 (length
+                         (ivory-key.model:behavior-table-entries
+                          (ivory-key.model:binding-behavior binding)))))
+                 static-bindings)))
+    (dolist (expected '(("escape" . "escape")
+                        ("delete" . "delete")
+                        ("pgdn" . "page-down")))
+      (let ((binding (find (car expected) (ivory-key.model:layout-bindings layout)
+                           :test #'ivory-key.model:identifier=
+                           :key #'ivory-key.model:binding-position)))
+        (is binding)
+        (is (typep (ivory-key.model:binding-behavior binding)
+                   'ivory-key.model:named-key-output))
+        (is-equal (cdr expected)
+                  (ivory-key.model:identifier-name
+                  (ivory-key.model:named-key-name
+                    (ivory-key.model:binding-behavior binding))))))
+    ;; Frozen <END> is Manna's END command (UE00D), not the generic End
+    ;; keysym.  Its timed candidate is still the named physical-key identity.
+    (let ((binding (find "end" (ivory-key.model:layout-bindings layout)
+                         :test #'ivory-key.model:identifier=
+                         :key #'ivory-key.model:binding-position)))
+      (is (typep (ivory-key.model:binding-behavior binding)
+                 'ivory-key.model:command-output))
+      (is-equal "end"
+                (ivory-key.model:identifier-name
+                 (ivory-key.model:command-name
+                  (ivory-key.model:binding-behavior binding)))))
     (is-equal '("hold-case-left-shift" "hold-case-right-shift"
-                "hold-greek-selector" "hold-top-selector")
+                "hold-greek-selector" "hold-top-selector"
+                "tap-hold-case-f" "tap-hold-case-j"
+                "tap-hold-control-d" "tap-hold-control-k"
+                "tap-hold-meta-s" "tap-hold-meta-l"
+                "tap-hold-super-a" "tap-hold-super-semicolon"
+                "tap-hold-hyper-escape" "tap-hold-hyper-apostrophe"
+                "tap-hold-alt-backspace" "tap-hold-alt-space"
+                "tap-hold-function-end" "tap-hold-function-pgdn"
+                "tap-hold-script-delete" "tap-hold-plane-enter")
               (mapcar (lambda (interaction)
                         (ivory-key.model:identifier-name
                          (ivory-key.model:interaction-name interaction)))
                       interactions))
     (is-equal '(("case-left-shift") ("case-right-shift")
-                ("greek") ("top"))
+                ("greek") ("top")
+                ("f") ("j") ("d") ("k") ("s") ("l") ("a")
+                ("semicolon") ("escape") ("apostrophe") ("backspace")
+                ("space") ("end") ("pgdn") ("delete") ("return"))
               (mapcar (lambda (interaction)
                         (mapcar #'ivory-key.model:identifier-name
                                 (ivory-key.model:interaction-participants interaction)))
                       interactions))
+    (dolist (row '(("tap-hold-case-f" "f" "f" 200)
+                   ("tap-hold-case-j" "j" "j" 200)
+                   ("tap-hold-control-d" "d" "d" 200)
+                   ("tap-hold-control-k" "k" "k" 200)
+                   ("tap-hold-meta-s" "s" "s" 200)
+                   ("tap-hold-meta-l" "l" "l" 200)
+                   ("tap-hold-super-a" "a" "a" 250)
+                   ("tap-hold-super-semicolon" "semicolon" "semicolon" 200)
+                   ("tap-hold-hyper-escape" "escape" "escape" 200)
+                   ("tap-hold-hyper-apostrophe" "apostrophe" "apostrophe" 200)
+                   ("tap-hold-alt-backspace" "backspace" "backspace" 200)
+                   ("tap-hold-alt-space" "space" "space" 200)
+                   ("tap-hold-function-end" "end" "end" 200)
+                   ("tap-hold-function-pgdn" "pgdn" "page-down" 200)
+                   ("tap-hold-script-delete" "delete" "delete" 200)
+                   ("tap-hold-plane-enter" "return" "return" 200)))
+      (destructuring-bind (name position tap timeout) row
+        (let* ((interaction (find name interactions
+                                  :test #'ivory-key.model:identifier=
+                                  :key #'ivory-key.model:interaction-name))
+               (candidates (ivory-key.model:interaction-candidates interaction))
+               (timeout-candidate (first candidates))
+               (tap-candidate (third candidates)))
+          (is interaction)
+          (is-equal :any-position (ivory-key.model:interaction-observe interaction))
+          (is-equal position
+                    (ivory-key.model:identifier-name
+                     (ivory-key.model:interaction-anchor interaction)))
+          (is-equal '(:priority ("hold-timeout" "hold-after-foreign-release" "tap"))
+                    (let ((arbitration
+                            (ivory-key.model:interaction-arbitration interaction)))
+                      (list (first arbitration)
+                            (mapcar #'ivory-key.model:identifier-name
+                                    (second arbitration)))))
+          (is-equal '(("hold-timeout" :on-commit)
+                      ("hold-after-foreign-release" :on-commit)
+                      ("tap" :on-match))
+                    (mapcar (lambda (candidate)
+                              (list (ivory-key.model:identifier-name
+                                     (ivory-key.model:candidate-name candidate))
+                                    (ivory-key.model:candidate-effect-start candidate)))
+                            candidates))
+          (is-equal timeout
+                    (first (ivory-key.model:temporal-pattern-arguments
+                            (ivory-key.model:candidate-match timeout-candidate))))
+          (is-equal tap
+                    (ivory-key.model:identifier-name
+                     (ivory-key.model:named-key-name
+                      (ivory-key.model:candidate-behavior tap-candidate)))))))
     (is-equal 1 (length overlays))
     (is-equal 29 (length (ivory-key.model:overlay-patch-bindings function-overlay)))
     (is (typep (ivory-key.model:patch-binding-behavior mode-key)

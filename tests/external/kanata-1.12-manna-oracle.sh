@@ -44,11 +44,13 @@ cargo_program=${CARGO:-cargo}
 if [ -n "${KANATA_CARGO_TOOLCHAIN:-}" ]; then
     "$cargo_program" "+$KANATA_CARGO_TOOLCHAIN" test ivory_key_ \
         --manifest-path "$source_directory/Cargo.toml" \
-        --no-default-features --features simulated_output -- --nocapture
+        --no-default-features --features simulated_output -- \
+        --test-threads=1 --nocapture
 else
     "$cargo_program" test ivory_key_ \
         --manifest-path "$source_directory/Cargo.toml" \
-        --no-default-features --features simulated_output -- --nocapture
+        --no-default-features --features simulated_output -- \
+        --test-threads=1 --nocapture
 fi
 
 echo "KANATA-1.12-MANNA-ORACLE: PASSED"

@@ -9,8 +9,11 @@
   manna-cadet-linux-output
   (backends xkb kanata)
   (map-output named-key backspace (:xkb "BackSpace"))
+  (map-output named-key delete (:xkb "Delete") (:kanata "del"))
+  (map-output named-key escape (:xkb "Escape") (:kanata "esc"))
   (map-output named-key iso-left-tab (:xkb "ISO_Left_Tab"))
   (map-output named-key linefeed (:xkb "Linefeed"))
+  (map-output named-key page-down (:xkb "Next") (:kanata "pgdn"))
   (map-output named-key return (:xkb "Return"))
   (map-output named-key tab (:xkb "Tab"))
   (map-output named-symbol ampersand (:xkb "ampersand"))

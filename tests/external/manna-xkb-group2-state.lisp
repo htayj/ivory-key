@@ -5,14 +5,17 @@
 ;;;; Invoke from the Ivory Key checkout root:
 ;;;;   sbcl --script tests/external/manna-xkb-group2-state.lisp MANNA-ROOT
 ;;;;   sbcl --script tests/external/manna-xkb-group2-state.lisp --generated-only MANNA-ROOT
+;;;;   sbcl --script tests/external/manna-xkb-group2-state.lisp
+;;;;     --kanata-ad01-differential KANATA-ARCHIVE MANNA-ROOT
 ;;;;
 ;;;; It verifies the hash-addressed frozen Manna review inputs, then creates
 ;;;; closed Ivory Key generated XKB selector maps and exercises those emitted
 ;;;; artifacts through libxkbcommon.  The generated-only mode is for a host
 ;;;; whose xkeyboard-config data cannot satisfy the separately pinned frozen
-;;;; map observation; it preserves the same byte hash gate.  Neither mode
-;;;; compiles the frozen map as equivalent or invokes Kanata, a device, or a
-;;;; client protocol.
+;;;; map observation; it preserves the same byte hash gate.  Neither ordinary
+;;;; mode compiles the frozen map as equivalent or invokes Kanata, a device,
+;;;; or a client protocol.  The opt-in third mode invokes only the hash-gated
+;;;; oracle and accepts its closed eight tagged AD01 records.
 
 (require "asdf")
 
@@ -24,6 +27,26 @@
 (defparameter +external-validation-tag+ :external-manna-xkb-group2-state)
 
 (defparameter +frozen-validation-tag+ :external-manna-frozen-xkb-group2-state)
+
+(defparameter +kanata-ad01-validation-tag+
+  :external-kanata-generated-xkb-ad01-differential)
+
+(defparameter +kanata-ad01-record-tag+ "IVORY-KEY-AD01-DIFFERENTIAL")
+
+(defparameter +kanata-ad01-record-labels+
+  '("base-owner-first-plain"
+    "base-foreign-first-shifted"
+    "85-owner-first-plain"
+    "85-foreign-first-shifted"
+    "84-owner-first-plain"
+    "84-foreign-first-shifted"
+    "85+84-owner-first-plain"
+    "85+84-foreign-first-shifted"))
+
+(defparameter +kanata-ad01-record-edges+
+  '("dn:F" "up:F" "dn:LShift" "up:LShift" "dn:Q" "up:Q"
+    "out-code:84;Press" "out-code:84;Release"
+    "out-code:85;Press" "out-code:85;Release"))
 
 (defparameter +frozen-manna-inputs+
   '(("xkb/symbols/spacecadet"
@@ -63,6 +86,13 @@
   (let ((pathname (uiop:ensure-directory-pathname (pathname argument))))
     (unless (uiop:directory-exists-p pathname)
       (error "Frozen Manna checkout is not a directory: ~A" argument))
+    (truename pathname)))
+
+(defun source-archive (argument)
+  "Resolve one existing regular archive without accepting a default."
+  (let ((pathname (probe-file (pathname argument))))
+    (unless (and pathname (not (uiop:directory-pathname-p pathname)))
+      (error "Kanata source archive is not a regular file: ~A" argument))
     (truename pathname)))
 
 (defun require-frozen-inputs (root)
@@ -111,6 +141,70 @@
                    flags)))
     (uiop:run-program arguments :output :string :error-output :output)
     binary))
+
+(defun tagged-record-line-p (line)
+  "Whether LINE starts with the exact closed Kanata differential tag."
+  (let ((tag-length (length +kanata-ad01-record-tag+)))
+    (and (>= (length line) tag-length)
+         (string= line +kanata-ad01-record-tag+ :end1 tag-length))))
+
+(defun extract-kanata-ad01-records (output pathname)
+  "Extract exactly the eight closed oracle records into PATHNAME."
+  (let ((records nil))
+    (dolist (line (uiop:split-string output :separator '(#\Newline)))
+      (when (search +kanata-ad01-record-tag+ line)
+        (unless (tagged-record-line-p line)
+          (error "Kanata AD01 tag appeared outside a canonical record: ~S" line))
+        (when (find #\Return line)
+          (error "Kanata AD01 record has a noncanonical line ending: ~S" line))
+        (let ((fields (uiop:split-string line :separator '(#\Tab))))
+          (unless (and (= (length fields) 3)
+                       (string= (first fields) +kanata-ad01-record-tag+)
+                       (plusp (length (second fields)))
+                       (plusp (length (third fields))))
+            (error "Kanata AD01 record does not have three closed fields: ~S"
+                   line))
+          (let ((payload (third fields)))
+            (when (or (char= (char payload 0) #\Space)
+                      (char= (char payload (1- (length payload))) #\Space)
+                      (search "  " payload))
+              (error "Kanata AD01 record has noncanonical edge spacing: ~S"
+                     line))
+            (dolist (edge (uiop:split-string payload :separator '(#\Space)))
+              (unless (member edge +kanata-ad01-record-edges+ :test #'string=)
+                (error "Kanata AD01 record contains an unapproved edge: ~S"
+                       edge))))
+          (push line records))))
+    (setf records (nreverse records))
+    (unless (equal +kanata-ad01-record-labels+
+                   (mapcar (lambda (record)
+                             (second
+                              (uiop:split-string record :separator '(#\Tab))))
+                           records))
+      (error "Kanata AD01 record label set/order is not the closed eight-row matrix."))
+    (with-open-file (stream pathname :direction :output :if-exists :error
+                                     :if-does-not-exist :create
+                                     :external-format :utf-8)
+      (dolist (record records)
+        (write-line record stream)))
+    pathname))
+
+(defun run-kanata-ad01-oracle (archive root directory)
+  "Run the hash-gated Kanata oracle and return its strict record file."
+  (let ((script
+          (merge-pathnames "tests/external/kanata-1.12-manna-oracle.sh"
+                           (repository-root)))
+        (records (merge-pathnames "kanata-ad01-records.tsv" directory)))
+    (multiple-value-bind (output error-output status)
+        (uiop:run-program
+         (list (namestring script) (namestring archive) (namestring root))
+         :output :string :error-output :output :ignore-error-status t)
+      (declare (ignore error-output))
+      (unless (and (eql status 0)
+                   (search "KANATA-1.12-MANNA-ORACLE: PASSED" output))
+        (error "Hash-gated Kanata oracle failed with status ~S:~%~A"
+               status output))
+      (extract-kanata-ad01-records output records))))
 
 (defun generated-selector-context (case script plane)
   (ivory-key.model:make-context-tuple
@@ -244,7 +338,7 @@ Kanata selector action/lifetime implementation exists.
                         stream))
         pathname))))
 
-(defun run-probe (root &key (frozen-mode-p t))
+(defun run-probe (root &key (frozen-mode-p t) kanata-archive)
   "Run distinct frozen-map and generated-map state contracts.
 
 The hash gate fixes the source review set.  The frozen mode preserves the
@@ -272,11 +366,22 @@ only the separately selected typed carrier contract.
                               (uiop:run-program
                                (list (namestring binary) (namestring keymap))
                                :output :string :error-output :output))))
+                (manna-keymap (generated-manna-selector-keymap directory))
                 (manna-output
                   (uiop:run-program
-                   (list (namestring binary)
-                         (namestring (generated-manna-selector-keymap directory)))
-                   :output :string :error-output :output)))
+                   (list (namestring binary) (namestring manna-keymap))
+                   :output :string :error-output :output))
+                (kanata-records
+                  (and kanata-archive
+                       (run-kanata-ad01-oracle kanata-archive root directory)))
+                (kanata-differential-output
+                  (and kanata-records
+                       (uiop:run-program
+                        (list (namestring binary) "--kanata-ad01"
+                              (namestring kanata-records)
+                              (namestring manna-keymap))
+                        :output :string :error-output :output
+                        :ignore-error-status t))))
            (when frozen-mode-p
              (unless (search "FROZEN-MANNA-XKB-GROUP2-STATE: PASSED" frozen-output)
                (error "Frozen Manna XKB state probe did not pass:~%~A"
@@ -289,6 +394,11 @@ only the separately selected typed carrier contract.
            (unless (search "GENERATED-XKB-SELECTOR-STATE: PASSED" manna-output)
              (error "Generated full Manna XKB partial request state probe did not pass:~%~A"
                     manna-output))
+           (when kanata-archive
+             (unless (search "KANATA-GENERATED-XKB-AD01-DIFFERENTIAL: PASSED"
+                             kanata-differential-output)
+               (error "Kanata-to-generated-XKB AD01 differential did not pass:~%~A"
+                      kanata-differential-output)))
            (when frozen-mode-p
              (format t "EXTERNAL-VALIDATION ~S: PASSED (frozen LVL3/LVL5 state observation retained).~%"
                      +frozen-validation-tag+))
@@ -296,6 +406,9 @@ only the separately selected typed carrier contract.
                    +external-validation-tag+)
            (format t "EXTERNAL-VALIDATION ~S: PASSED (generated 51-override Manna XKB partial request only).~%"
                    +external-validation-tag+)
+           (when kanata-archive
+             (format t "EXTERNAL-VALIDATION ~S: PASSED (eight hash-gated Kanata edge records through generated AD01 XKB/libxkbcommon state).~%"
+                     +kanata-ad01-validation-tag+))
            :passed)
       (when (probe-file directory)
         (uiop:delete-directory-tree directory :validate t)))))
@@ -317,7 +430,12 @@ only the separately selected typed carrier contract.
           ((and (= (length arguments) 2)
                 (string= (first arguments) "--generated-only"))
            (run-probe (source-root (second arguments)) :frozen-mode-p nil))
-          (t (error "Usage: manna-xkb-group2-state.lisp [--generated-only] MANNA-ROOT")))))
+          ((and (= (length arguments) 3)
+                (string= (first arguments) "--kanata-ad01-differential"))
+           (run-probe (source-root (third arguments))
+                      :frozen-mode-p nil
+                      :kanata-archive (source-archive (second arguments))))
+          (t (error "Usage: manna-xkb-group2-state.lisp [--generated-only] MANNA-ROOT | --kanata-ad01-differential KANATA-ARCHIVE MANNA-ROOT")))))
 
 (handler-case
     (progn
