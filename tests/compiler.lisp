@@ -1539,12 +1539,14 @@ complete carrier table from an invented Manna behavior.
   "Typed coverage plus literal rows is not permission to invent C7 or game behavior."
   (dolist (specification
            '(("manna-cadet-linux"
+              68
               (("hotkey-18" :unreachable) ("hotkey-20" :unreachable)
                ("hotkey-19" :unreachable) ("hotkey-21" :unreachable)))
              ("manna-cadet-advantage360-linux"
+              72
               (("hotkey-18" :physical) ("hotkey-20" :physical)
                ("hotkey-19" :physical) ("hotkey-21" :physical)))))
-    (destructuring-bind (composition hotkeys) specification
+    (destructuring-bind (composition source-count hotkeys) specification
       (multiple-value-bind (unit placement realization)
           (ivory-key.cli:load-project-composition-for-compilation
            "manna-cadet-project.ivory" composition)
@@ -1598,6 +1600,31 @@ complete carrier table from an invented Manna behavior.
                             (ivory-key.backend::lowering-request-entries request)
                             :test #'string=
                             :key #'ivory-key.backend:key-entry-position)))
+            (let* ((plan
+                     (ivory-key.backend:lower-request
+                      (ivory-key.backend:make-kanata-backend) request))
+                   (config (ivory-key.backend:kanata-plan-buffered-config plan))
+                   (carrier-cells
+                     (remove-if-not
+                      (lambda (cell)
+                        (typep (ivory-key.backend:kanata-buffered-layer-cell-action cell)
+                               'ivory-key.backend:kanata-arbitrary-code-action))
+                      (ivory-key.backend:kanata-buffered-config-layer-cells config))))
+              (is-equal source-count
+                        (length (ivory-key.backend::kanata-plan-sources plan)))
+              (is (ivory-key.backend:kanata-buffered-config-native-domain-closed-p
+                   config))
+              (is (null
+                   (ivory-key.backend:kanata-defcfg-requirements-process-unmapped-keys
+                    (ivory-key.backend:kanata-buffered-config-defcfg config))))
+              (is-equal '(84 85)
+                        (sort
+                         (mapcar
+                          (lambda (cell)
+                            (ivory-key.backend:kanata-arbitrary-code-action-code
+                             (ivory-key.backend:kanata-buffered-layer-cell-action cell)))
+                          carrier-cells)
+                         #'<)))
             (is issues)
             (is-equal 16
                       (length

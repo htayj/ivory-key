@@ -952,7 +952,8 @@ The grammar deliberately contains closed atoms, semantic identities, explicit
 alias names, and route references only.  It cannot carry a parenthesized
 action or arbitrary configuration fragment.
 "
-  (let ((actions nil) (routes nil))
+  (let ((actions nil) (routes nil) (pass-throughs nil)
+        (close-unmapped-input-p nil) (close-clause-seen-p nil))
     (dolist (clause (cdr (%form-children context form 1 nil
                                          "KANATA-BUFFERED-ALLOCATIONS declaration")))
       (cond
@@ -964,6 +965,26 @@ action or arbitrary configuration fragment.
                                          "Buffered route position")
                   (%text-node-value context (third children) "Buffered route token"))
                  routes)))
+        ((%named-form-p clause "pass-through")
+         (let ((children (%form-children context clause 2 nil
+                                         "Buffered PASS-THROUGH clause")))
+           (dolist (position (cdr children))
+             (push (%identifier-node-name
+                    context position "Buffered native pass-through position")
+                   pass-throughs))))
+        ((%named-form-p clause "close-unmapped-input")
+         (when close-clause-seen-p
+           (%fail context :duplicate-realization-kanata-buffered-unmapped-policy
+                  "Buffered CLOSE-UNMAPPED-INPUT may appear only once."))
+         (let ((children (%form-children context clause 2 2
+                                         "Buffered CLOSE-UNMAPPED-INPUT clause")))
+           (unless (string= (%identifier-node-name
+                             context (second children) "Buffered unmapped-input policy")
+                            "yes")
+             (%fail context :invalid-realization-kanata-buffered-unmapped-policy
+                    "Buffered CLOSE-UNMAPPED-INPUT must be YES.")))
+         (setf close-clause-seen-p t
+               close-unmapped-input-p t))
         ((%named-form-p clause "action")
          (let* ((children (%form-children context clause 6 6
                                            "Buffered ACTION clause"))
@@ -1007,7 +1028,9 @@ action or arbitrary configuration fragment.
                 "KANATA-BUFFERED-ALLOCATIONS has unsupported clause ~S."
                 (%form-name clause)))))
     (ivory-key.model::make-realization-kanata-buffered-allocation-policy
-     (nreverse actions) (nreverse routes))))
+     (nreverse actions) (nreverse routes)
+     :native-pass-through-positions (nreverse pass-throughs)
+     :close-unmapped-input-p close-unmapped-input-p)))
 
 (defun %decode-realization (definition output-vocabularies)
   (let* ((context (%make-project-context (project-definition-path definition)

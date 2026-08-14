@@ -114,6 +114,12 @@ physical inputs Kanata may process: an external input absent from `defsrc`
 remains an unresolved/refused foreign-input route. The ledger grants no replay,
 simulator, compiler, backend, XKB, client, or live-device claim.
 
+The selected generated profile deliberately changes that boundary to
+`process-unmapped-keys no`. Its typed allocation explicitly names the five
+binding-free pass-through rows and the two direct selector carriers, and the
+backend refuses an unclassified `defsrc` row. This is a reviewed fail-closed
+correction, not a claim that the frozen source had a closed hardware domain.
+
 ### Remaining evidence and tooling work
 
 | PLAN requirement or evidence gap | What is already proven | Bounded next work / blocker | Disposition |

@@ -334,6 +334,8 @@
    #:make-realization-kanata-buffered-allocation-policy
    #:realization-kanata-buffered-allocation-policy-actions
    #:realization-kanata-buffered-allocation-policy-foreign-routes
+   #:realization-kanata-buffered-allocation-policy-native-pass-through-positions
+   #:realization-kanata-buffered-allocation-policy-close-unmapped-input-p
    #:validate-realization-kanata-buffered-allocation-policy
    #:realization-selector-policy #:make-realization-selector-policy
    #:validate-realization-selector-policy
@@ -523,6 +525,7 @@
    #:kanata-buffered-config-defcfg
    #:kanata-buffered-config-aliases
    #:kanata-buffered-config-layer-cells
+   #:kanata-buffered-config-native-domain-closed-p
    #:kanata-buffered-layer-cell
    #:kanata-buffered-layer-cell-position
    #:kanata-buffered-layer-cell-input-token

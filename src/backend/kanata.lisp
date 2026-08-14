@@ -391,6 +391,8 @@ atom/action before text emission.
     (let ((interactions (lowering-request-interactions request))
           (interaction-compatibility-policy
             (%kanata-metadata-value request :interaction-compatibility-policy))
+          (buffered-allocation-policy
+            (%kanata-metadata-value request :kanata-buffered-allocation-policy))
           (buffered-actions
             (%kanata-metadata-value request :kanata-buffered-actions)))
       (when interaction-compatibility-policy
@@ -477,7 +479,33 @@ atom/action before text emission.
             (layers (%kanata-layer-rows request source-rows))
             (buffered-config
               (and buffered-actions
-                   (make-kanata-buffered-config buffered-actions source-rows))))
+                   (let* ((selector-policy
+                            (%kanata-metadata-value request :selector-policy))
+                          (carriers
+                            (and selector-policy
+                                 (mapcar
+                                  (lambda (carrier)
+                                    (cons
+                                     (ivory-key.model:realization-carrier-position carrier)
+                                     (ivory-key.model:realization-carrier-linux-code carrier)))
+                                  (ivory-key.model:realization-selector-policy-carriers
+                                   selector-policy))))
+                          (pass-throughs
+                            (and buffered-allocation-policy
+                                 (ivory-key.model:realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                                  buffered-allocation-policy)))
+                          (closed-p
+                            (and buffered-allocation-policy
+                                 (ivory-key.model:realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+                                  buffered-allocation-policy))))
+                     (make-kanata-buffered-config
+                      buffered-actions source-rows
+                      :mapped-positions
+                      (mapcar #'key-entry-position
+                              (lowering-request-entries request))
+                      :pass-through-positions pass-throughs
+                      :direct-carriers carriers
+                      :close-unmapped-input-p closed-p)))))
       (make-instance 'kanata-plan
                      :name (lowering-request-name request)
                      :sources (mapcar #'cdr source-rows)
@@ -499,7 +527,11 @@ atom/action before text emission.
        :unproved-kanata-buffered-native-domain
        "Buffered Kanata aliases remain non-emitting: cancellation, foreign arbitration, queue bounds, and the complete native input domain are not proved."))
     (require-permitted-realizations (kanata-plan-realizations plan))
-    (format stream "(defcfg~%  process-unmapped-keys yes~@[~%  concurrent-tap-hold yes~])~%~%"
+    (format stream "(defcfg~%  process-unmapped-keys ~A~@[~%  concurrent-tap-hold yes~])~%~%"
+            (if (and buffered-config
+                     (null (kanata-defcfg-requirements-process-unmapped-keys
+                            (kanata-buffered-config-defcfg buffered-config))))
+                "no" "yes")
             buffered-config)
   (format stream "(defsrc~%  ~{~A~^ ~})~%~%" (kanata-plan-sources plan))
     (when buffered-config

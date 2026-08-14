@@ -176,9 +176,19 @@ prove a carrier/pass-through stage without inventing a backend token here.
   ((actions :initarg :actions
             :reader realization-kanata-buffered-allocation-policy-actions)
    (foreign-routes :initarg :foreign-routes
-                   :reader realization-kanata-buffered-allocation-policy-foreign-routes))
+                   :reader realization-kanata-buffered-allocation-policy-foreign-routes)
+   ;; Physical rows without an abstract binding are not implicitly permitted.
+   ;; A complete native-domain proposal names each reviewed pass-through here.
+   (native-pass-through-positions
+    :initarg :native-pass-through-positions :initform nil
+    :reader realization-kanata-buffered-allocation-policy-native-pass-through-positions)
+   ;; True means the emitted Kanata boundary must use
+   ;; PROCESS-UNMAPPED-KEYS NO and prove every DEFSRC row classified.
+   (close-unmapped-input-p
+    :initarg :close-unmapped-input-p :initform nil
+    :reader realization-kanata-buffered-allocation-policy-close-unmapped-input-p))
   (:documentation
-   "Closed allocation table for an explicitly selected buffered policy."))
+                 "Closed allocation table for an explicitly selected buffered policy."))
 
 (defun %realization-kanata-buffered-safe-token-p (value)
   "Recognize one opaque Kanata atom, never an action/configuration fragment."
@@ -396,11 +406,17 @@ interaction identity into a backend alias spelling on its own.
                           "Buffered action allocation fields must be canonical.")))
   action)
 
-(defun make-realization-kanata-buffered-allocation-policy (actions foreign-routes)
+(defun make-realization-kanata-buffered-allocation-policy
+    (actions foreign-routes &key native-pass-through-positions
+                                  close-unmapped-input-p)
   "Create a canonical finite allocation table for inert buffered Kanata ASTs."
-  (unless (and (listp actions) (listp foreign-routes))
+  (unless (and (listp actions) (listp foreign-routes)
+               (listp native-pass-through-positions))
     (%realization-error :invalid-realization-kanata-buffered-allocation-policy
-                        "Buffered action and foreign-route allocations must be lists."))
+                        "Buffered action, foreign-route, and pass-through allocations must be lists."))
+  (unless (member close-unmapped-input-p '(nil t))
+    (%realization-error :invalid-realization-kanata-buffered-unmapped-policy
+                        "Buffered close-unmapped-input flag must be boolean."))
   (when (null actions)
     (%realization-error :empty-realization-kanata-buffered-actions
                         "Buffered allocation policy needs at least one action row."))
@@ -418,8 +434,18 @@ interaction identity into a backend alias spelling on its own.
                     (identifier-key
                      (realization-kanata-buffered-foreign-route-position route)))
    :duplicate-realization-kanata-buffered-route "Buffered foreign routes")
-  (let ((route-positions
+  (let ((pass-throughs
+          (%realization-kanata-buffered-identifiers
+           native-pass-through-positions
+           :invalid-realization-kanata-buffered-pass-through
+           "Buffered native pass-through positions"))
+        (route-positions
           (mapcar #'realization-kanata-buffered-foreign-route-position foreign-routes)))
+    (when (some (lambda (position)
+                  (identifier-member-p position pass-throughs))
+                route-positions)
+      (%realization-error :realization-kanata-buffered-route-pass-through-collision
+                          "Buffered foreign routes and pass-through positions must be disjoint."))
     (dolist (action actions)
       (dolist (position
                (realization-kanata-buffered-action-foreign-route-positions action))
@@ -428,13 +454,15 @@ interaction identity into a backend alias spelling on its own.
                               "Buffered action ~A refers to undeclared route ~A."
                               (identifier-name
                                (realization-kanata-buffered-action-interaction action))
-                              (identifier-name position))))))
-  (make-instance 'realization-kanata-buffered-allocation-policy
-                 :actions (sort (copy-list actions) #'identifier<
-                                :key #'realization-kanata-buffered-action-interaction)
-                 :foreign-routes
-                 (sort (copy-list foreign-routes) #'identifier<
-                       :key #'realization-kanata-buffered-foreign-route-position)))
+                              (identifier-name position)))))
+    (make-instance 'realization-kanata-buffered-allocation-policy
+                   :actions (sort (copy-list actions) #'identifier<
+                                  :key #'realization-kanata-buffered-action-interaction)
+                   :foreign-routes
+                   (sort (copy-list foreign-routes) #'identifier<
+                         :key #'realization-kanata-buffered-foreign-route-position)
+                   :native-pass-through-positions pass-throughs
+                   :close-unmapped-input-p close-unmapped-input-p)))
 
 (defun validate-realization-kanata-buffered-allocation-policy (policy)
   "Validate POLICY and reject noncanonical programmatic list order."
@@ -444,7 +472,13 @@ interaction identity into a backend alias spelling on its own.
   (let ((canonical
           (make-realization-kanata-buffered-allocation-policy
            (realization-kanata-buffered-allocation-policy-actions policy)
-           (realization-kanata-buffered-allocation-policy-foreign-routes policy))))
+           (realization-kanata-buffered-allocation-policy-foreign-routes policy)
+           :native-pass-through-positions
+           (realization-kanata-buffered-allocation-policy-native-pass-through-positions
+            policy)
+           :close-unmapped-input-p
+           (realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+            policy))))
     (unless (and (= (length (realization-kanata-buffered-allocation-policy-actions policy))
                     (length (realization-kanata-buffered-allocation-policy-actions canonical)))
                  (= (length (realization-kanata-buffered-allocation-policy-foreign-routes policy))
@@ -458,7 +492,22 @@ interaction identity into a backend alias spelling on its own.
                         (mapcar #'realization-kanata-buffered-foreign-route-position
                                 (realization-kanata-buffered-allocation-policy-foreign-routes policy))
                         (mapcar #'realization-kanata-buffered-foreign-route-position
-                                (realization-kanata-buffered-allocation-policy-foreign-routes canonical))))
+                                (realization-kanata-buffered-allocation-policy-foreign-routes canonical)))
+                 (every #'identifier=
+                        (realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                         policy)
+                        (realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                         canonical))
+                 (= (length
+                     (realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                      policy))
+                    (length
+                     (realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                      canonical)))
+                 (eq (realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+                      policy)
+                     (realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+                      canonical)))
       (%realization-error :noncanonical-realization-kanata-buffered-allocation-policy
                           "Buffered allocation policy rows must be canonical.")))
   policy)

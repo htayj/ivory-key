@@ -187,38 +187,48 @@ The selection is carried as typed model metadata so `planned`, `backend`, and
 `explain` output can identify the intended contract. The modern route is
 unsupported because Kanata 1.12 buffers and redispatches pending foreign input,
 contrary to its no-delay rule. The versioned buffered route has a closed,
-derived normalized contract and a bounded reference dispatch transaction.
-That reference route can resolve an explicitly selected owner's ordinary tap
-binding and an unpatched foreign output table at the eventual dispatch
-frontier. Every possible table value must be text, a named key, a named symbol,
-or `none`; commands, state changes, overlays, and timed re-entry still refuse.
+derived normalized contract and a bounded reference dispatch barrier. Its
+currently admitted foreign route is exactly one context-free named-key
+binding. Context tables, commands, state changes, overlays, and timed re-entry
+still refuse in the reference path.
 
 A buffered realization may additionally describe the backend atoms needed by
 the existing non-emitting Kanata action IR:
 
 ```lisp
 (kanata-buffered-allocations
+  (close-unmapped-input yes)
+  (pass-through case-left-shift case-right-shift mode-key)
   (route b b)
   (action tap-hold-case-f
+    (alias sf)
     (tap f)
     (hold axis-modifier case shifted lshift)
     (routes b)))
 ```
 
-`route` associates one admitted logical position with one opaque Kanata token.
-An `action` names one selected interaction, its tap token, one typed hold, and
-a nonempty set of declared route positions. The closed hold forms are
+`close-unmapped-input yes` selects `process-unmapped-keys no`; it is the
+fail-closed generated-profile boundary, not a claim about the frozen files,
+which used `yes`. `pass-through` explicitly names reviewed physical rows that
+have no abstract binding. `route` associates one admitted logical position
+with one opaque Kanata token. An `action` names one selected interaction, its
+realization-owned alias, tap token, one typed hold, and a nonempty set of
+declared route positions. The closed hold forms are
 `(hold modifier MODIFIER TOKEN)`,
 `(hold axis-modifier AXIS STATE TOKEN)`, and
-`(hold axis-layer AXIS STATE LAYER TOKEN)`. The allocation action set must
+`(hold axis-layer AXIS STATE LAYER TOKEN)`, plus the evidence-bounded
+`(hold axis-carrier AXIS STATE 84|85)`. The allocation action set must
 equal the compatibility instance set exactly. Tokens are validated as single
 atoms; this surface cannot contain an alias body, S-expression action, or
 configuration fragment.
 
-The current compiler handoff constructs a backend route only when that
-position is one context-free named-key binding. The broader output-table route
-above is reference semantics awaiting the Kanata-to-XKB pipeline differential;
-it cannot yet populate an action allocation or clear a backend refusal.
+The compiler now constructs a complete, inspection-only native layer proposal
+for either checked-in device: ordinary/static mappings, all 16 owner aliases,
+the two direct selector carriers, five explicit pass-through rows, and the
+function layer are aligned against all 68/72 `defsrc` positions. Construction
+fails if any physical row is unclassified or an explicit pass-through is
+absent. This structural closure does not itself prove temporal or downstream
+XKB equivalence.
 
 These allocations authorize inspection only. The compiler may construct the
 typed action values, but it retains

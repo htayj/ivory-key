@@ -355,11 +355,11 @@
   route)
 
 (defun make-kanata-defcfg-requirements (&key process-unmapped-keys concurrent-tap-hold)
-  (unless (and (eq process-unmapped-keys t)
+  (unless (and (member process-unmapped-keys '(nil t))
                (eq concurrent-tap-hold :required))
     (%kanata-action-error
      :invalid-kanata-defcfg-requirements
-     "Buffered Kanata actions require explicit PROCESS-UNMAPPED-KEYS T and CONCURRENT-TAP-HOLD :REQUIRED."))
+     "Buffered Kanata actions require an explicit boolean PROCESS-UNMAPPED-KEYS and CONCURRENT-TAP-HOLD :REQUIRED."))
   (let ((requirements
           (make-instance 'kanata-defcfg-requirements
                          :process-unmapped-keys process-unmapped-keys
@@ -370,7 +370,8 @@
 (defun %validate-kanata-defcfg-requirements (requirements)
   (unless (and (typep requirements 'kanata-defcfg-requirements)
                (%kanata-defcfg-requirements-validated-p requirements)
-               (eq (kanata-defcfg-requirements-process-unmapped-keys requirements) t)
+               (member (kanata-defcfg-requirements-process-unmapped-keys requirements)
+                       '(nil t))
                (eq (kanata-defcfg-requirements-concurrent-tap-hold requirements)
                    :required))
     (%kanata-action-error :invalid-kanata-defcfg-requirements
@@ -773,6 +774,8 @@ which a later exact emitter would need to prove again.
    ;; Only owner aliases and realization-owned direct named-key routes occur
    ;; here.  The ordinary plan supplies every other base layer cell.
    (layer-cells :initarg :layer-cells :reader kanata-buffered-config-layer-cells)
+   (native-domain-closed-p :initarg :native-domain-closed-p :initform nil
+                           :reader kanata-buffered-config-native-domain-closed-p)
    (validated-p :initform nil :accessor %kanata-buffered-config-validated-p)))
 
 (defun %kanata-buffered-action< (left right)
@@ -810,9 +813,10 @@ which a later exact emitter would need to prove again.
     (values by-position by-input)))
 
 (defun %make-kanata-buffered-layer-cell (position input-token action)
-  (unless (typep action '(or kanata-key-action kanata-alias-ref-action))
+  (unless (typep action '(or kanata-key-action kanata-alias-ref-action
+                             kanata-arbitrary-code-action))
     (%kanata-action-error :invalid-kanata-buffered-layer-cell
-                          "Buffered layer cells may contain only direct keys or alias references."))
+                          "Buffered layer cells may contain only direct keys, carriers, or alias references."))
   (%validate-kanata-action action)
   (make-instance 'kanata-buffered-layer-cell
                  :position (%kanata-action-identifier position "Buffered cell position")
@@ -830,7 +834,9 @@ which a later exact emitter would need to prove again.
   (%validate-kanata-action (kanata-buffered-layer-cell-action cell))
   cell)
 
-(defun make-kanata-buffered-config (actions source-rows)
+(defun make-kanata-buffered-config
+    (actions source-rows &key mapped-positions pass-through-positions
+                              direct-carriers close-unmapped-input-p)
   "Build a complete typed alias/defcfg/layer-cell proposal from ACTIONS.
 
 Every alias is explicit in its realization allocation; every owner and direct
@@ -869,7 +875,8 @@ result is non-emitting until the independent native-domain proof gate clears.
                    (push (%make-kanata-buffered-layer-cell position input action) cells))))
         (dolist (action ordered-actions)
           (unless (and (eq (kanata-defcfg-requirements-process-unmapped-keys
-                            (kanata-buffered-interaction-action-defcfg action)) t)
+                            (kanata-buffered-interaction-action-defcfg action))
+                           (not close-unmapped-input-p))
                        (eq (kanata-defcfg-requirements-concurrent-tap-hold
                             (kanata-buffered-interaction-action-defcfg action)) :required))
             (%kanata-action-error :conflicting-kanata-buffered-defcfg
@@ -904,13 +911,56 @@ result is non-emitting until the independent native-domain proof gate clears.
                       (setf (gethash (ivory-key.model:identifier-name position)
                                      cell-positions) key-action)
                       (push (%make-kanata-buffered-layer-cell position input key-action)
-                            cells))))))))
+                            cells)))))))
+        (dolist (carrier direct-carriers)
+          (unless (and (consp carrier)
+                       (typep (car carrier) 'ivory-key.model:identifier)
+                       (member (cdr carrier) '(84 85)))
+            (%kanata-action-error :invalid-kanata-buffered-direct-carrier
+                                  "Buffered direct carrier must be an identifier paired with code 84 or 85."))
+          (let* ((position (car carrier))
+                 (input (source-input-for position "direct carrier"))
+                 (name (ivory-key.model:identifier-name position)))
+            (when (gethash name cell-positions)
+              (%kanata-action-error :duplicate-kanata-buffered-layer-cell
+                                    "Buffered direct carrier collides at ~A." name))
+            (setf (gethash name cell-positions) t)
+            (push (%make-kanata-buffered-layer-cell
+                   position input (make-kanata-arbitrary-code-action (cdr carrier)))
+                  cells)))
+        (when close-unmapped-input-p
+          (let ((classified (make-hash-table :test #'equal)))
+            (dolist (position mapped-positions)
+              (setf (gethash (ivory-key.model:identifier-name
+                              (%kanata-action-identifier position "Mapped position"))
+                             classified) t))
+            (dolist (action ordered-actions)
+              (setf (gethash
+                     (ivory-key.model:identifier-name
+                      (kanata-owner-placement-position
+                       (kanata-buffered-interaction-action-owner action)))
+                     classified) t))
+            (dolist (carrier direct-carriers)
+              (setf (gethash (ivory-key.model:identifier-name (car carrier)) classified) t))
+            (dolist (position pass-through-positions)
+              (let ((name (ivory-key.model:identifier-name
+                           (%kanata-action-identifier position "Pass-through position"))))
+                (unless (gethash name source-by-position)
+                  (%kanata-action-error :unknown-kanata-buffered-pass-through-position
+                                        "Buffered pass-through ~A is absent from DEFSRC." name))
+                (setf (gethash name classified) t)))
+            (dolist (row source-rows)
+              (unless (gethash (car row) classified)
+                (%kanata-action-error :unclassified-kanata-buffered-source-position
+                                      "Buffered native domain does not classify DEFSRC position ~A."
+                                      (car row)))))))
       ;; Replace marker T values by their key actions for the shared-route case.
       (setf cells
             (sort cells #'%kanata-buffered-layer-cell<))
       (let ((config (make-instance 'kanata-buffered-config
                                    :defcfg defcfg :aliases ordered-actions
-                                   :layer-cells cells)))
+                                   :layer-cells cells
+                                   :native-domain-closed-p close-unmapped-input-p)))
         (setf (%kanata-buffered-config-validated-p config) t)
         (validate-kanata-buffered-config config)
         config))))
@@ -922,6 +972,11 @@ result is non-emitting until the independent native-domain proof gate clears.
     (%kanata-action-error :unvalidated-kanata-buffered-config
                           "Buffered Kanata configuration was not built by its closed constructor."))
   (%validate-kanata-defcfg-requirements (kanata-buffered-config-defcfg config))
+  (when (kanata-buffered-config-native-domain-closed-p config)
+    (unless (null (kanata-defcfg-requirements-process-unmapped-keys
+                   (kanata-buffered-config-defcfg config)))
+      (%kanata-action-error :open-kanata-buffered-unmapped-input
+                            "A closed buffered native domain must disable unmapped input.")))
   (unless (consp (kanata-buffered-config-aliases config))
     (%kanata-action-error :empty-kanata-buffered-config
                           "Buffered configuration requires one or more aliases."))
@@ -954,7 +1009,13 @@ result is non-emitting until the independent native-domain proof gate clears.
 (defun kanata-buffered-config-canonical-data (config)
   "Return deterministic, non-pathname inspection data for CONFIG."
   (validate-kanata-buffered-config config)
-  (list :defcfg (list :process-unmapped-keys t :concurrent-tap-hold :required)
+  (list :defcfg
+        (list :process-unmapped-keys
+              (kanata-defcfg-requirements-process-unmapped-keys
+               (kanata-buffered-config-defcfg config))
+              :concurrent-tap-hold :required)
+        :native-domain-closed-p
+        (kanata-buffered-config-native-domain-closed-p config)
         :aliases (mapcar #'kanata-buffered-interaction-action-canonical-data
                          (kanata-buffered-config-aliases config))
         :layer-cells

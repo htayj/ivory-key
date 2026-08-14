@@ -163,7 +163,15 @@
                               action)))
                           (ivory-key.model:realization-kanata-buffered-allocation-policy-actions
                            allocation)))
-                 #'<)))
+                 #'<))
+      (is (ivory-key.model:realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+           allocation))
+      (is-equal
+       '("case-left-shift" "case-right-shift" "control-plane-alt"
+         "direct-hyper" "mode-key")
+       (mapcar #'ivory-key.model:identifier-name
+               (ivory-key.model:realization-kanata-buffered-allocation-policy-native-pass-through-positions
+                allocation))))
     (is-equal 73 (length (ivory-key.model:topology-positions topology)))
     ;; Literal direct routes are transcribed; only C7 remains a typed physical
     ;; input without an invented ordinary layout behavior.

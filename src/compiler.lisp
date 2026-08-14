@@ -768,7 +768,8 @@ both paths construct the one public MODEL policy value.
   (unless (ivory-key.syntax:syntax-list-p node)
     (%stage-error :decode :invalid-realization-kanata-buffered-allocation-policy
                   "KANATA-BUFFERED-ALLOCATIONS must be a list."))
-  (let ((actions nil) (routes nil))
+  (let ((actions nil) (routes nil) (pass-throughs nil)
+        (close-unmapped-input-p nil) (close-clause-seen-p nil))
     (dolist (clause (rest (ivory-key.syntax:syntax-list-children node)))
       (unless (ivory-key.syntax:syntax-list-p clause)
         (%stage-error :decode :invalid-realization-kanata-buffered-allocation-policy
@@ -784,6 +785,26 @@ both paths construct the one public MODEL policy value.
                   (%compiler-syntax-identifier (second children) "Buffered route position")
                   (%compiler-syntax-text (third children) "Buffered route token"))
                  routes))
+          ((string= (or name "") "pass-through")
+           (unless (> (length children) 1)
+             (%stage-error :decode :invalid-realization-kanata-buffered-pass-through
+                           "Buffered PASS-THROUGH requires one or more positions."))
+           (dolist (position (rest children))
+             (push (%compiler-syntax-identifier
+                    position "Buffered native pass-through position")
+                   pass-throughs)))
+          ((string= (or name "") "close-unmapped-input")
+           (when close-clause-seen-p
+             (%stage-error :decode :duplicate-realization-kanata-buffered-unmapped-policy
+                           "Buffered CLOSE-UNMAPPED-INPUT may appear only once."))
+           (unless (and (= (length children) 2)
+                        (string= (%compiler-syntax-text
+                                  (second children) "Buffered unmapped-input policy")
+                                 "yes"))
+             (%stage-error :decode :invalid-realization-kanata-buffered-unmapped-policy
+                           "Buffered CLOSE-UNMAPPED-INPUT must be YES."))
+           (setf close-clause-seen-p t
+                 close-unmapped-input-p t))
           ((string= (or name "") "action")
            (unless (= (length children) 6)
              (%stage-error :decode :invalid-realization-kanata-buffered-action
@@ -830,7 +851,9 @@ both paths construct the one public MODEL policy value.
                          name)))))
     (handler-case
         (ivory-key.model::make-realization-kanata-buffered-allocation-policy
-         (nreverse actions) (nreverse routes))
+         (nreverse actions) (nreverse routes)
+         :native-pass-through-positions (nreverse pass-throughs)
+         :close-unmapped-input-p close-unmapped-input-p)
       (ivory-key.model:semantic-error (condition)
         (%stage-error :decode (ivory-key.model:semantic-error-code condition)
                       "Could not decode buffered Kanata allocation policy: ~A"
@@ -1636,7 +1659,11 @@ ordinary compiler lifecycle refusal and backend emission gate are independent.
                          hold)
                         (nreverse routes)
                         (ivory-key.backend::make-kanata-defcfg-requirements
-                         :process-unmapped-keys t :concurrent-tap-hold :required)
+                         :process-unmapped-keys
+                         (not
+                          (ivory-key.model::realization-kanata-buffered-allocation-policy-close-unmapped-input-p
+                           allocation))
+                         :concurrent-tap-hold :required)
                         :provenance
                         (ivory-key.model::interaction-compatibility-contract-origin contract))
                        actions)))))

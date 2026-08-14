@@ -25,6 +25,8 @@
     (instances tap-hold-alt-backspace tap-hold-alt-space tap-hold-case-f tap-hold-case-j tap-hold-control-d tap-hold-control-k tap-hold-function-end tap-hold-function-pgdn tap-hold-hyper-apostrophe tap-hold-hyper-escape tap-hold-meta-l tap-hold-meta-s tap-hold-plane-enter tap-hold-script-delete tap-hold-super-a tap-hold-super-semicolon)
   )
   (kanata-buffered-allocations
+    (close-unmapped-input yes)
+    (pass-through case-left-shift case-right-shift control-plane-alt direct-hyper mode-key)
     (route down down)
     (route home home)
     (route left left)

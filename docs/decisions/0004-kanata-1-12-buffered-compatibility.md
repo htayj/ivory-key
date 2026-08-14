@@ -88,6 +88,16 @@ The frozen mechanical ledger now closes all 68 Advantage2 and 72
 Advantage360 primary input positions. C7/game differences remain separately
 classified; they do not expand this policy's route domain.
 
+The generated profile also makes one deliberate fail-closed correction to the
+frozen configuration boundary. The frozen files use
+`process-unmapped-keys yes`, which admits physical events outside their
+`defsrc` ledgers. The selected Ivory Key allocation uses
+`close-unmapped-input yes`, emitted as `process-unmapped-keys no`, and names
+every binding-free pass-through position explicitly. This makes the generated
+hardware-input surface reviewable and prevents an unknown key from silently
+entering Kanata's pending queue. Revisit this choice if live device evidence
+shows a required input outside `defsrc`; do not broaden it implicitly.
+
 ## Required abstract contract
 
 For policy-selected owners with one shared deadline `D`, the reference model
