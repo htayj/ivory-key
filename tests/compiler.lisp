@@ -59,7 +59,55 @@
 (realize direct-build (:layout direct) (:device test-device) (:profile direct-linux))
 ")
 
-(defun write-compiler-test-project (directory)
+(defparameter +compiler-test-planner-layout+
+  "(ivory-key 1)
+(define-layout planner
+  (uses-topology two)
+  (axis case (:states plain shifted) (:resolution product))
+  (modifiers meta)
+  (binding q
+    (at (plain) (unicode \"q\"))
+    (at (shifted) (unicode \"Q\")))
+  (binding t (named-symbol theta)))
+")
+
+(defparameter +compiler-test-planner-topology+
+  "(ivory-key 1)
+(define-topology two
+  (position q)
+  (position t))
+")
+
+(defparameter +compiler-test-planner-device+
+  "(ivory-key 1)
+(define-device planner-device
+  (uses-topology two)
+  (place q (:xkb AD01) (:kanata q))
+  (place t (:xkb AD02) (:kanata t)))
+")
+
+(defparameter +compiler-test-planner-composition+
+  "(ivory-key 1)
+(realize planner-build (:layout planner) (:device planner-device) (:profile direct-linux))
+")
+
+(defun compiler-test-twenty-level-layout ()
+  (with-output-to-string (stream)
+    (format stream "(ivory-key 1)~%(define-layout twenty~%  (uses-topology one)~%")
+    (format stream "  (axis plane (:states")
+    (loop for number from 1 to 20 do
+      (format stream " s~2,'0D" number))
+    (format stream ") (:resolution product))~%  (binding q~%")
+    (loop for number from 1 to 20 do
+      (format stream "    (at (s~2,'0D) (unicode \"a\"))~%" number))
+    (format stream "  ))~%")))
+
+(defun write-compiler-test-project (directory &key
+                                               (layout-source +compiler-test-layout+)
+                                               (topology-source +compiler-test-topology+)
+                                               (device-source +compiler-test-device+)
+                                               (realization-source +compiler-test-realization+)
+                                               (composition-source +compiler-test-composition+))
   (compiler-test-write
    directory "project.ivory"
    "(ivory-key 1)
@@ -69,11 +117,11 @@
 (import \"realization.ivory\")
 (import \"composition.ivory\")
 ")
-  (compiler-test-write directory "topology.ivory" +compiler-test-topology+)
-  (compiler-test-write directory "layout.ivory" +compiler-test-layout+)
-  (compiler-test-write directory "device.ivory" +compiler-test-device+)
-  (compiler-test-write directory "realization.ivory" +compiler-test-realization+)
-  (compiler-test-write directory "composition.ivory" +compiler-test-composition+)
+  (compiler-test-write directory "topology.ivory" topology-source)
+  (compiler-test-write directory "layout.ivory" layout-source)
+  (compiler-test-write directory "device.ivory" device-source)
+  (compiler-test-write directory "realization.ivory" realization-source)
+  (compiler-test-write directory "composition.ivory" composition-source)
   (merge-pathnames "project.ivory" directory))
 
 (defun compiler-project-error-code-from (thunk)
@@ -170,6 +218,90 @@
                                              (namestring layout) "--events" "unused.ivory"))))
       (is (search "normalized-layout direct" (get-output-stream-string standard-output)))
       (is (search "simulation-adapter-unavailable" (get-output-stream-string error-output))))))
+
+(deftest compiler-explain-reports-planner-obligations-without-relaxing-emission
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project
+                     directory
+                     :layout-source +compiler-test-planner-layout+
+                     :topology-source +compiler-test-planner-topology+
+                     :device-source +compiler-test-planner-device+
+                     :composition-source +compiler-test-planner-composition+))
+           (layout (merge-pathnames "layout.ivory" directory))
+           (topology (merge-pathnames "topology.ivory" directory))
+           (device (merge-pathnames "device.ivory" directory))
+           (realization (merge-pathnames "realization.ivory" directory))
+           (direct-result nil)
+           (project-result nil)
+           (direct-report
+             (with-output-to-string (stream)
+               (setf direct-result
+                     (ivory-key.cli::explain-layout-source
+                      layout :topology-path topology :device-path device
+                      :realization-path realization :stream stream))))
+           (project-report
+             (with-output-to-string (stream)
+               (setf project-result
+                     (ivory-key.cli:explain-project-source
+                      project "planner-build" :stream stream)))))
+      ;; The target-neutral planner reports capacity and obligations for both
+      ;; source-loading modes, even though the direct emitter cannot lower the
+      ;; selector, semantic modifier, or abstract named symbol.
+      (is (null direct-result))
+      (is (null project-result))
+      (dolist (report (list direct-report project-report))
+        (is (search "Planner static tables (canonical normalized entry counts)" report))
+        (is (search "q: 2 entries; XKB grade exact" report))
+        (is (search "Planner selector obligations" report))
+        (is (search "case [product] states: plain shifted; default: plain; positions: q"
+                    report))
+        (is (search "Planner semantic-modifier obligations" report))
+        (is (search "  meta" report))
+        (is (search "Planner resource obligations" report))
+        (is (search "selector case:" report))
+        (is (search "semantic-modifier meta:" report))
+        (is (search "named-symbol theta:" report))
+        (is (search "Fidelity: unsupported" report))
+        (is (search "[UNSUPPORTED-CONTEXT-SELECTION]" report))
+        ;; Named symbols stay semantic requirements; the bootstrap emitter
+        ;; must still refuse rather than fabricate an XKB/Kanata spelling.
+        (is (search "[UNMAPPED-NAMED-SYMBOL]" report))))))
+
+(deftest compiler-explain-retains-twenty-level-table-and-refuses-emission
+  (with-compiler-test-directory (directory)
+    (let* ((project (write-compiler-test-project
+                     directory
+                     :layout-source (compiler-test-twenty-level-layout)
+                     :composition-source
+                     "(ivory-key 1)
+(realize direct-build (:layout twenty) (:device test-device) (:profile direct-linux))
+"))
+           (layout (merge-pathnames "layout.ivory" directory))
+           (topology (merge-pathnames "topology.ivory" directory))
+           (device (merge-pathnames "device.ivory" directory))
+           (realization (merge-pathnames "realization.ivory" directory))
+           (direct-result nil)
+           (project-result nil)
+           (direct-report
+             (with-output-to-string (stream)
+               (setf direct-result
+                     (ivory-key.cli::explain-layout-source
+                      layout :topology-path topology :device-path device
+                      :realization-path realization :stream stream))))
+           (project-report
+             (with-output-to-string (stream)
+               (setf project-result
+                     (ivory-key.cli:explain-project-source
+                      project "direct-build" :stream stream)))))
+      (is (null direct-result))
+      (is (null project-result))
+      (dolist (report (list direct-report project-report))
+        (is (search "q: 20 entries; XKB grade unsupported" report))
+        (is (search "requires a separately proven emulation or another target" report))
+        ;; The planner has not made a future emulation claim, and it does not
+        ;; relax the emitter's independent refusal of context selection.
+        (is (search "Fidelity: unsupported" report))
+        (is (search "[UNSUPPORTED-CONTEXT-SELECTION]" report))))))
 
 (deftest compiler-topology-decoder-accepts-distinct-multiple-positions
   (with-compiler-test-directory (directory)

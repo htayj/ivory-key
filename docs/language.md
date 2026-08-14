@@ -122,7 +122,9 @@ their explicit single-file inputs or `--project PROJECT --composition NAME`.
 The modes cannot be mixed. Project `dump-ir` supports typed and normalized
 stages, not raw parsed output. `check` remains a syntax command; it does not
 load a project graph. Source interaction-template declarations remain outside
-the implemented surface subset.
+the implemented surface subset. The semantic output-vocabulary registry is
+also programmatic in this slice; a future realization-profile surface form
+will supply backend spellings without placing them in layout bindings.
 
 The authoritative long-term language design remains [PLAN.md](../PLAN.md).
 This document draws the narrower, implemented boundary.

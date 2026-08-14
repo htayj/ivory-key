@@ -22,7 +22,10 @@ The bootstrap currently provides:
   device, realization, and `realize` composition declarations. Imports are
   confined to configured source roots and reject cycles, traversal escapes,
   and symlink escapes;
-- a reference timed-event simulator and dependency-free simulation tests;
+- a reference timed-event simulator, including a fail-closed adapter for
+  disjoint normalized ordinary bindings plus supported timed interactions;
+- a realization-owned semantic output-vocabulary registry for deterministic
+  named-key, named-symbol, and command spellings;
 - a target-neutral capability planner that preserves normalized static product
   tables, lists selector/modifier/resource requirements, and deterministically
   detects allocation collisions or exhaustion;
@@ -37,9 +40,10 @@ transcription, plus separately identified selector/timed-interaction evidence.
 It is an auditable transcription, not a claim that Ivory Key has generated,
 installed, or activated an equivalent keyboard configuration. The twenty-level
 conformance fixture remains expressible in the abstract model but is not
-silently reduced to eight states. The CLI `simulate` command also remains
-unavailable for a complete layout; the programmatic reference simulator and
-model adapter are implemented.
+silently reduced to eight states. The CLI `simulate` command remains
+unavailable; the programmatic whole-layout adapter accepts its exact supported
+slice and refuses overlays, binding/interaction position overlap, and model
+patterns or actions the event machine cannot represent.
 
 ## Quick start
 

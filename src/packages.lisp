@@ -142,6 +142,17 @@
    #:named-key-output #:make-named-key-output #:named-key-name
    #:named-symbol-output #:make-named-symbol-output #:named-symbol-name
    #:command-output #:make-command-output #:command-name
+   ;; Realization-owned semantic output vocabularies.
+   #:+semantic-output-vocabulary-kinds+
+   #:output-vocabulary-entry #:make-output-vocabulary-entry
+   #:vocabulary-entry-kind #:vocabulary-entry-identity
+   #:vocabulary-entry-backend #:vocabulary-entry-spelling
+   #:vocabulary-entry-key #:vocabulary-entry-canonical-data
+   #:output-vocabulary #:make-output-vocabulary
+   #:output-vocabulary-backends #:output-vocabulary-entries
+   #:output-vocabulary-canonical-data #:semantic-output-kind
+   #:semantic-output-identity #:find-output-vocabulary-entry
+   #:output-vocabulary-spelling #:output-vocabulary-spelling-for-output
    #:no-output-behavior #:+no-output+ #:make-no-output-behavior
    #:modifier-operation-behavior #:make-modifier-operation
    #:modifier-operation #:modifier-operation-modifier
@@ -276,7 +287,11 @@
    #:compile-model-interaction-candidate #:compile-model-interaction
    #:compile-model-interactions #:compile-normalized-interaction-candidate
    #:compile-normalized-interaction #:compile-normalized-interactions
-   #:model-layout-simulator-axes #:compile-model-layout-interactions))
+   #:model-layout-simulator-axes #:compile-model-layout-interactions
+   #:compile-normalized-ordinary-binding
+   #:compile-normalized-ordinary-bindings
+   #:compile-normalized-layout-simulation
+   #:simulate-normalized-layout-events #:simulate-model-layout-events))
 
 (defpackage #:ivory-key.project
   (:use #:cl #:ivory-key.source #:ivory-key.syntax

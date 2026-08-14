@@ -618,6 +618,137 @@ unknown vocabulary entry into an approximate direct key mapping.
 
 ;;; Deterministic inspection -------------------------------------------------
 
+(defun %planner-placement-from-compiler-placement (placement)
+  "Project the bootstrap device envelope into the planner's one-to-one view.
+
+The compiler envelope deliberately preserves both XKB and Kanata spellings for
+each physical switch, whereas PLAN-NORMALIZED-LAYOUT accepts one opaque input
+identity per logical position.  Inspection uses the explicitly declared XKB
+key-name spelling, tagged as an opaque identity, because XKB is the selected
+finite-static-table capability.  This projection is only planner input: it
+does not select a lowering, translate an abstract output, or alter the direct
+emitter request.
+"
+  (unless (typep placement 'compiler-placement)
+    (%stage-error :plan :invalid-compiler-placement
+                  "Capability inspection requires a compiler device placement."))
+  (let ((mappings nil))
+    (dolist (mapping (compiler-placement-mappings placement))
+      (let ((position (car mapping))
+            (spellings (cdr mapping)))
+        (unless (and (stringp position) (listp spellings)
+                     (stringp (getf spellings :xkb))
+                     (plusp (length (getf spellings :xkb))))
+          (%stage-error :plan :invalid-compiler-placement
+                        "Compiler placement mapping ~S lacks one XKB input spelling."
+                        mapping))
+        ;; Prefixing preserves the source spelling as an opaque planner input
+        ;; and keeps it distinct from any future input namespace.
+        (push (cons (format nil "xkb:~A" (getf spellings :xkb)) position)
+              mappings)))
+    (ivory-key.model:make-device-placement
+     (compiler-placement-name placement)
+     ;; The planner only compares topology identities.  Do not borrow the
+     ;; layout's topology object here: doing so would conceal a mismatched
+     ;; compiler-placement topology from its explicit planner refusal.
+     (ivory-key.model:make-topology (compiler-placement-topology placement) nil)
+     (sort mappings #'string< :key #'car))))
+
+(defun %plan-normalized-layout-for-inspection (normalized placement)
+  "Return a target-neutral capability plan or its structured refusal.
+
+The direct compiler remains intentionally stricter than this inspection:
+successful table grading is not permission to emit selectors, semantic
+modifiers, named symbols, commands, or interactions.
+"
+  (handler-case
+      (values
+       (ivory-key.backend:plan-normalized-layout
+        normalized (%planner-placement-from-compiler-placement placement)
+        :backends (list (ivory-key.backend:make-xkb-backend)))
+       nil)
+    (ivory-key.backend:planner-refusal (condition)
+      (values nil condition))))
+
+(defun %planner-inspection-name (value)
+  (typecase value
+    (ivory-key.model:identifier (ivory-key.model:identifier-name value))
+    (string value)
+    (symbol (string-downcase (symbol-name value)))
+    (t (princ-to-string value))))
+
+(defun %planner-result-for-binding (plan binding)
+  (find (ivory-key.model:identifier-name
+         (ivory-key.backend:static-table-requirement-position binding))
+        (ivory-key.backend:lowering-plan-realizations plan)
+        :test #'string=
+        :key (lambda (result)
+               (%planner-inspection-name
+                (ivory-key.backend:realization-feature result)))))
+
+(defun %write-planner-inspection (stream plan refusal)
+  "Write a canonical capability-planner report without implying emission."
+  (format stream "Planner inspection~%")
+  (when refusal
+    (format stream "Planner: refused [~A]: ~A~%"
+            (ivory-key.backend:planner-refusal-code refusal)
+            (ivory-key.backend:planner-refusal-detail refusal))
+    (return-from %write-planner-inspection nil))
+  (format stream "Planner static tables (canonical normalized entry counts)~%")
+  (dolist (binding (ivory-key.backend:lowering-plan-bindings plan))
+    (let ((result (%planner-result-for-binding plan binding)))
+      (format stream "  ~A: ~D entries; XKB grade ~A~%"
+              (ivory-key.model:identifier-name
+               (ivory-key.backend:static-table-requirement-position binding))
+              (ivory-key.backend:static-table-requirement-state-count binding)
+              (if result
+                  (%planner-inspection-name
+                   (ivory-key.backend:realization-grade result))
+                  "unreported"))
+      (when result
+        (format stream "    ~A~%"
+                (ivory-key.backend:realization-detail result)))))
+  (format stream "Planner selector obligations~%")
+  (let ((selectors (ivory-key.backend:lowering-plan-selector-requirements plan)))
+    (if selectors
+        (dolist (selector selectors)
+          (format stream "  ~A [~A] states: ~{~A~^ ~}; default: ~A; positions: ~{~A~^ ~}~%"
+                  (ivory-key.model:identifier-name
+                   (ivory-key.backend:selector-requirement-axis selector))
+                  (%planner-inspection-name
+                   (ivory-key.backend:selector-requirement-resolution selector))
+                  (mapcar #'ivory-key.model:identifier-name
+                          (ivory-key.backend:selector-requirement-states selector))
+                  (ivory-key.model:identifier-name
+                   (ivory-key.backend:selector-requirement-default-state selector))
+                  (mapcar #'ivory-key.model:identifier-name
+                          (ivory-key.backend:selector-requirement-positions selector))))
+        (format stream "  none~%")))
+  (format stream "Planner semantic-modifier obligations~%")
+  (let ((modifiers (ivory-key.backend:lowering-plan-modifier-requirements plan)))
+    (if modifiers
+        (dolist (modifier modifiers)
+          (format stream "  ~A~%"
+                  (ivory-key.model:identifier-name
+                   (ivory-key.backend:modifier-requirement-modifier modifier))))
+        (format stream "  none~%")))
+  (format stream "Planner resource obligations~%")
+  (let ((resources (ivory-key.backend:lowering-plan-resource-requirements plan)))
+    (if resources
+        (dolist (resource resources)
+          (format stream "  ~A ~A~@[ x~D~]: ~A~%"
+                  (%planner-inspection-name
+                   (ivory-key.backend:planner-resource-requirement-kind resource))
+                  (%planner-inspection-name
+                   (ivory-key.backend:planner-resource-requirement-owner resource))
+                  (let ((cardinality
+                          (ivory-key.backend:planner-resource-requirement-cardinality
+                           resource)))
+                    (and (> cardinality 1) cardinality))
+                  (ivory-key.backend:planner-resource-requirement-detail resource)))
+        (format stream "  none~%")))
+  plan)
+
 (defun %behavior-summary (behavior)
   (cond ((typep behavior 'ivory-key.model:text-output)
          (format nil "(unicode ~S)" (ivory-key.model:output-text behavior)))
@@ -1005,13 +1136,18 @@ and realization profile; no imported source is parsed again by this bridge.
       (write-new-pipeline-result pipeline-result output-directory)
       pipeline-result)))
 
-(defun explain-layout-source (layout-path &key topology-path device-path realization-path
-                                          (stream *standard-output*))
-  "Print an exact-or-refused pipeline explanation without emitting artifacts."
-  (let* ((unit (load-layout-for-compilation layout-path :topology-path topology-path))
-         (placement (decode-device-source device-path))
-         (realization (decode-realization-source realization-path)))
-    (%require-compatible-realization realization)
+(defun %explain-compiler-unit (unit placement realization stream)
+  "Print target-neutral obligations and the stricter direct-pipeline result.
+
+The planner section is deliberately observational.  Its exact static-table
+grade establishes only the advertised XKB table-capacity fact; the existing
+direct bridge still independently rejects every selector, semantic output, or
+timed interaction it cannot lower exactly.
+"
+  (%require-compatible-realization realization)
+  (multiple-value-bind (plan planner-refusal)
+      (%plan-normalized-layout-for-inspection
+       (compiler-unit-normalized unit) placement)
     (multiple-value-bind (request issues)
         (analyze-normalized-layout (compiler-unit-normalized unit) placement)
       (format stream "Ivory Key capability explanation~%")
@@ -1020,8 +1156,12 @@ and realization profile; no imported source is parsed again by this bridge.
                (ivory-key.model:normalized-layout-name (compiler-unit-normalized unit)))
               (compiler-placement-name placement)
               (compiler-realization-name realization))
+      (%write-planner-inspection stream plan planner-refusal)
       (if issues
           (progn
+            ;; Preserve the established direct-pipeline disposition and its
+            ;; exact output shape for callers that distinguish this refusal
+            ;; from a planner's independent table-capacity report.
             (format stream "Fidelity: unsupported~%")
             (dolist (issue issues)
               (format stream "  ~A [~A]: ~A~%"
@@ -1034,34 +1174,21 @@ and realization profile; no imported source is parsed again by this bridge.
             (write-string (ivory-key.report:realization-report-string result) stream)
             request)))))
 
+(defun explain-layout-source (layout-path &key topology-path device-path realization-path
+                                          (stream *standard-output*))
+  "Print an exact-or-refused pipeline explanation without emitting artifacts."
+  (let* ((unit (load-layout-for-compilation layout-path :topology-path topology-path))
+         (placement (decode-device-source device-path))
+         (realization (decode-realization-source realization-path)))
+    (%explain-compiler-unit unit placement realization stream)))
+
 (defun explain-project-source (project-path composition-name &key source-roots
                                                            (stream *standard-output*))
   "Explain exact lowering for one named project composition without emission."
   (multiple-value-bind (unit placement realization)
       (load-project-composition-for-compilation project-path composition-name
                                                 :source-roots source-roots)
-    (%require-compatible-realization realization)
-    (multiple-value-bind (request issues)
-        (analyze-normalized-layout (compiler-unit-normalized unit) placement)
-      (format stream "Ivory Key capability explanation~%")
-      (format stream "Layout: ~A~%Device: ~A~%Realization: ~A~%"
-              (ivory-key.model:identifier-name
-               (ivory-key.model:normalized-layout-name (compiler-unit-normalized unit)))
-              (compiler-placement-name placement)
-              (compiler-realization-name realization))
-      (if issues
-          (progn
-            (format stream "Fidelity: unsupported~%")
-            (dolist (issue issues)
-              (format stream "  ~A [~A]: ~A~%"
-                      (compiler-fidelity-issue-feature issue)
-                      (compiler-fidelity-issue-code issue)
-                      (compiler-fidelity-issue-detail issue)))
-            nil)
-          (let ((result (%compile-unit-to-pipeline unit placement realization)))
-            (format stream "Fidelity: exact for the current direct pipeline~%")
-            (write-string (ivory-key.report:realization-report-string result) stream)
-            request)))))
+    (%explain-compiler-unit unit placement realization stream)))
 
 (defun validate-build-directory (directory)
   "Return explicit tool-validation dispositions for an emitted build directory.

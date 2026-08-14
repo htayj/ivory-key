@@ -30,6 +30,14 @@ simultaneous compositions, axis choices, or context tables. Missing table
 entries are errors during semantic validation: a table must explicitly provide
 a behavior, `none`, inheritance, or—only for a patch table—transparency.
 
+An output-vocabulary registry maps typed named-key, named-symbol, and command
+identities to opaque per-backend strings. Registries are realization-owned,
+canonical, deterministic, and reject duplicate identities, ambiguous reverse
+mappings, unknown backends/kinds, and missing mappings. Backend adapters still
+validate their own spelling grammar. The registry is currently a programmatic
+model API; no Manna backend spellings have been guessed or embedded in the
+layout.
+
 The model includes sparse overlay-patch and finite behavior/interaction
 template objects. Programmatic resolution expands behavior templates without
 evaluating layout-provided Lisp and detects recursion. The v1 source decoder
@@ -64,9 +72,17 @@ leaves the latch intact.
 The reference simulator executes its own finite timed-event representation.
 It covers deadline boundaries, distinct release orders, unordered combos,
 priority conflicts, cancellation, latch non-consumption, and paired held
-effects. It is meaningful implementation evidence for those simulation
-objects, but it is not yet wired to decoded `.ivory` layouts or backend
-generation.
+effects. A whole-layout adapter now normalizes an in-memory decoded layout and
+combines disjoint ordinary bindings with supported compiled interactions.
+Ordinary bindings commit on key-down and dispatch against captured context;
+candidate ownership, trace records, and committed-only latch consumption stay
+inside the same event machine.
+
+That adapter fails closed for overlays, an ordinary-binding position that also
+participates in an interaction, unknown or unbound event positions,
+caller-supplied deadline events, invalid explicit context, and every behavior,
+pattern, arbitration, or effect the existing model adapter cannot represent.
+It does not reparse source, lower a backend, deploy, or yet expose a CLI.
 
 ## Planning boundary and present limits
 
@@ -85,10 +101,12 @@ and is `unsupported` unless another target or separately proven emulation is
 provided. The planner does not claim a Kanata or QMK realization merely from
 that requirement, and `require-planned-realizations` refuses unproved plans.
 
-The plan specifies one unified source-to-normalized-to-simulation pipeline.
-The current repository has model, validation, normalization, project loading,
-and simulation pieces, but no complete reference-simulator adapter for a
-decoded whole layout. In particular, no claim of semantic equivalence should
-be made for a fixture merely because it parses or plans, and no backend output
-should be treated as the semantic oracle. That role belongs to the reference
-simulator once the end-to-end frontend is connected.
+Planner inspection is included in both explicit-file and project `explain`
+paths. It reports canonical table sizes and selector, modifier, and resource
+obligations before the stricter direct-emitter disposition. An exact XKB table
+capacity grade is observational and does not authorize selector or output
+lowering.
+
+No claim of semantic equivalence should be made for a fixture merely because
+it parses, simulates a supported subset, or plans. Backend output is never used
+to retroactively define abstract semantics.

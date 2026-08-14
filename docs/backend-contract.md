@@ -103,6 +103,12 @@ project composition with `--project PROJECT --composition NAME`; this is an
 input-selection mode, not deployment. Project mode does not mix independent
 layout/device/profile paths with a composition.
 
+Both `explain` input modes also print a target-neutral planner section with
+canonical static-table counts, XKB table-capacity grades, and selector,
+modifier, and resource obligations. That section is observational: the
+unchanged direct emitter still independently refuses every unproved selector,
+named output, modifier, or timed interaction.
+
 Tool validation is optional environmental evidence. A passing `xkbcli` or
 `kanata` invocation proves only the generated artifact was accepted by that
 installed tool; it does not prove semantic equivalence, live device behavior,
