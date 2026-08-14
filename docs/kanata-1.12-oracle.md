@@ -93,6 +93,10 @@ through XKB.
 | active function-layer transparent key | `d:end t:200 d:f t:50 d:left t:50 u:left t:50 u:f t:10 u:end t:10` | `dn:LShift dn:Left up:Left up:LShift` |
 | repeated foreign intervals | `d:f t:20 d:b t:20 u:b t:20 d:b t:20 u:b t:20 u:f t:10` | `dn:LShift dn:B up:B dn:B up:B up:LShift` |
 | two foreign downs, reverse release order | `d:f t:20 d:b t:20 d:c t:20 u:c t:20 u:b t:20 u:f t:10` | `dn:LShift dn:B dn:C up:C up:B up:LShift` |
+| Delete selector owner, early tap | `d:del t:50 d:q t:10 u:del t:10 u:q t:10` | `dn:Delete dn:Q up:Delete up:Q` |
+| Delete selector owner, foreign-release hold | `d:del t:50 d:q t:50 u:q t:50 u:del t:10` | `out-code:85;Press dn:Q up:Q out-code:85;Release` |
+| Enter selector owner, early tap | `d:ent t:50 d:q t:10 u:ent t:10 u:q t:10` | `dn:Enter dn:Q up:Enter up:Q` |
+| Enter selector owner, foreign-release hold | `d:ent t:50 d:q t:50 u:q t:50 u:ent t:10` | `out-code:84;Press dn:Q up:Q out-code:84;Release` |
 
 These rows establish that the native pending domain is broader than one direct
 ordinary named-key binding.  On this exact runtime/configuration it includes a
@@ -131,7 +135,8 @@ function partition is F1 carrier output (29/29) and F2 transparent-to-normal
 (39/43).
 
 C5 includes `@gdel` and `@rtop` because the frozen normal layers select them;
-their buffered runtime route remains refused for lack of direct oracle traces.
+the direct rows above now establish their early-tap and foreign-release hold
+edge order on the hash-pinned Advantage 2 configuration.
 C7 is explicitly unresolved/refused. The complete 72-row Advantage 360
 `game` layer is arity-checked and explicitly unresolved/refused rather than
 folded into the normal/function classes.
@@ -204,5 +209,5 @@ This evidence narrows, but does not eliminate, the owner decision:
    proof remain mandatory before selection or emission.
 
 Until one route is selected and implemented, the active Manna realization
-continues to refuse all fourteen primary tap-holds and the two alternate
-selector tap-holds before artifact publication.
+continues to refuse all sixteen source-selected tap-holds before artifact
+publication.

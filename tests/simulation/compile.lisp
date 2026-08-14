@@ -710,7 +710,7 @@ replays the other interaction."
   "Script and plane retain captured foreign provenance and self-release."
   (dolist (fixture
            '(("tap-hold-script-delete" "delete" "script" "greek" "roman")
-             ("tap-hold-plane-enter" "enter" "plane" "top" "base")))
+             ("tap-hold-plane-enter" "return" "plane" "top" "base")))
     (destructuring-bind (name position axis active default) fixture
       (let* ((held
                (modern-release-trigger-source-result

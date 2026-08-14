@@ -101,9 +101,9 @@ The closed partition is:
 | F2 | transparent to normal | 39 | 43 | source-classified; runtime unproved |
 
 C5 deliberately includes the source-selected `@gdel` and `@rtop` rows as well
-as the fourteen primary owners. That closes their *source route* disposition;
-it does not add them to ADR 0004's positive runtime evidence or select their
-timed policy. The active 72-row Advantage 360 `game` layer is arity-checked but
+as the fourteen other primary owners. Hash-pinned direct traces now close
+their early-tap and foreign-release runtime edge order; no profile is thereby
+selected. The active 72-row Advantage 360 `game` layer is arity-checked but
 remains a single explicit unresolved/refused surface outside the C/F semantic
 partition.
 
@@ -332,14 +332,10 @@ unblock Manna lowering.
 [ADR 0004](decisions/0004-kanata-1-12-buffered-compatibility.md) records the
 separate proposed, non-default `kanata-1-12-buffered` route from the
 hash-pinned Kanata-1.12 oracle.  It records the oracle's delayed foreign-input
-ordering and first/final-owner lifetime facts alongside the closed 14+2 source
-inventory. A positive buffered-interaction evidence ledger admits only the
-fourteen primary tap-holds to the buffered structural contract; the
-Delete/Enter selector pair
-still refuses because it lacks direct oracle traces. The separate native-route
-ledger nevertheless records `@gdel` and `@rtop` in C5 because both frozen
-normal layers select those physical rows; source selection is not runtime
-evidence. A strict derived
+ordering and first/final-owner lifetime facts alongside the closed sixteen-row
+source inventory. A positive buffered-interaction evidence ledger admits all
+sixteen source-selected normal-layer tap-holds to the structural contract,
+including the now directly traced Delete/Enter selector pair. A strict derived
 normalized contract and bounded direct-named-key dispatch transaction now
 represent the proven prefix subset without adding source replay syntax. It is still not
 a `.ivory` realization, selects no profile, has no exact Kanata lowering, and

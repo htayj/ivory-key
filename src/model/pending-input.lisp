@@ -89,9 +89,9 @@
 ;;
 ;;   (INSTANCE OWNER D HOLD-KIND HOLD-IDENTITY HOLD-STATE TAP CAPTURE)
 ;;
-;; The table contains the 14 primary instances with buffered-runtime evidence.
-;; The source aliases GDEL and RTOP are absent, as is every renamed or merely
-;; structurally similar programmatic interaction.  Modern no-delay remains a
+;; The table contains all 16 primary normal-layer instances with direct,
+;; hash-pinned buffered-runtime evidence.  Every renamed or merely structurally
+;; similar programmatic interaction remains absent. Modern no-delay remains a
 ;; structural contract only and deliberately does not consult this table.
 (defparameter +kanata-1-12-buffered-evidence+
   '(("tap-hold-case-f" "f" 200 :axis-state "case" "shifted" "f" "foreign")
@@ -112,7 +112,11 @@
     ("tap-hold-function-end" "end" 200 :axis-state "function" "active" "end"
      "foreign")
     ("tap-hold-function-pgdn" "pgdn" 200 :axis-state "function" "active"
-     "page-down" "foreign")))
+     "page-down" "foreign")
+    ("tap-hold-script-delete" "delete" 200 :axis-state "script" "greek"
+     "delete" "foreign")
+    ("tap-hold-plane-enter" "return" 200 :axis-state "plane" "top"
+     "return" "foreign")))
 
 (defun %pending-input-error (code control &rest arguments)
   (apply #'signal-semantic-error 'semantic-validation-error code control arguments))

@@ -54,7 +54,7 @@
     ("tap-hold-function-end" "HscL" "end" "end" 200 :axis "function" "active")
     ("tap-hold-function-pgdn" "HscR" "pgdn" "page-down" 200 :axis "function" "active")
     ("tap-hold-script-delete" "gdel" "delete" "delete" 200 :axis "script" "greek")
-    ("tap-hold-plane-enter" "rtop" "enter" "enter" 200 :axis "plane" "top")))
+    ("tap-hold-plane-enter" "rtop" "return" "return" 200 :axis "plane" "top")))
 
 (defun make-manna-release-trigger-v1-source ()
   "Render the complete, unselected 14+2 inventory as closed source forms."

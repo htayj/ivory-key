@@ -1,6 +1,6 @@
 --- a/src/tests/sim_tests/tap_hold_tests.rs
 +++ b/src/tests/sim_tests/tap_hold_tests.rs
-@@ -1279,3 +1279,195 @@
+@@ -1279,3 +1279,207 @@
          result
      );
  }
@@ -128,6 +128,18 @@
 +        ("multiple-foreign-downs-redispatch-fifo",
 +         "d:f t:20 d:b t:20 d:c t:20 u:c t:20 u:b t:20 u:f t:10",
 +         "dn:LShift dn:B dn:C up:C up:B up:LShift"),
++        ("delete-selector-owner-taps-before-foreign-release",
++         "d:del t:50 d:q t:10 u:del t:10 u:q t:10",
++         "dn:Delete dn:Q up:Delete up:Q"),
++        ("delete-selector-owner-commits-greek-on-foreign-release",
++         "d:del t:50 d:q t:50 u:q t:50 u:del t:10",
++         "out-code:85;Press dn:Q up:Q out-code:85;Release"),
++        ("enter-selector-owner-taps-before-foreign-release",
++         "d:ent t:50 d:q t:10 u:ent t:10 u:q t:10",
++         "dn:Enter dn:Q up:Enter up:Q"),
++        ("enter-selector-owner-commits-top-on-foreign-release",
++         "d:ent t:50 d:q t:50 u:q t:50 u:ent t:10",
++         "out-code:84;Press dn:Q up:Q out-code:84;Release"),
 +    ] {
 +        assert_eq!(
 +            expected_edges,

@@ -46,9 +46,8 @@ It has no keyboard, uinput, service, or deployment boundary.  Its exact
 checked event strings live in
 [`tests/external/kanata-1.12-manna-oracle.patch`](../../tests/external/kanata-1.12-manna-oracle.patch).
 
-Both primary frozen `normal` layers select these fourteen aliases.  The two
-alternate selector aliases are declared in the same primary sources.  This is
-the complete candidate inventory for this proposed policy; it does not add
+Both primary frozen `normal` layers select these sixteen aliases. This is the
+complete candidate inventory for this proposed policy; it does not add
 the direct physical Shift holders, inactive historical aliases, game layer, or
 older chorded variants.
 
@@ -76,11 +75,11 @@ records literal source actions, not target-neutral modifier, selector, or
 function semantics.  The two device primary files have the same alias rows;
 the actual configuration exercised by the external oracle is Advantage 2.
 The oracle's actual-configuration traces cover `f`/`j`, all five semantic
-modifier pairs, and `end`/`pgdn`; its small synthetic configurations cover the
-two equal timeout shapes.  It does not separately exercise a buffered foreign
-interval for every source row, and it has no direct `gdel`/`rtop` trace.  The
-14+2 list is therefore a complete frozen source inventory, not permission to
-instantiate every row under this policy.
+modifier pairs, `end`/`pgdn`, and direct early-tap plus foreign-release rows
+for `gdel`/`rtop`; its small synthetic configurations cover the two equal
+timeout shapes. The sixteen-row list is a complete frozen source inventory
+and positive structural evidence boundary, but not proof of the remaining
+whole-device queue and backend obligations.
 
 The frozen mechanical ledger now closes all 68 Advantage2 and 72
 Advantage360 primary input positions. C7/game differences remain separately
@@ -187,8 +186,8 @@ the boundary can grow only with separate semantic and differential evidence.
 
 The barrier is deliberately not a general event queue. It admits only an
 unpatched, context-free, direct named-key ordinary route authorized by the same
-opaque layout token. It refuses `gdel` and
-`rtop`, C7/game or unmapped domains, overlays, stateful/latch-sensitive routes,
+opaque layout token. It refuses C7/game or unmapped domains, overlays,
+stateful/latch-sensitive routes,
 foreign timed interactions, nested/arbitrary replay, and any backend that
 cannot preserve the listed order. It also does not prove a 360 state-machine
 trace, live keyboard events, XKB/client semantics, or the historic source-era
@@ -209,7 +208,7 @@ may inherit from or silently replace the other.  The selected realization
 remains unlowerable until each pipeline stage proves the same pending-input
 and output-order contract.
 
-This decision remains Proposed. The typed policy, positive fourteen-instance
+This decision remains Proposed. The typed policy, positive sixteen-instance
 evidence ledger, strict structural gate, and per-plan barrier reference
 transaction implement a reviewed subset of the model/reference work below.
 They do not by themselves satisfy the whole-layout, cancellation, backend, or

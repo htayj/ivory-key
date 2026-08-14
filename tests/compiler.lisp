@@ -2050,7 +2050,7 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
         (ivory-key.cli::analyze-normalized-layout
          normalized placement :interaction-compatibility-policy policy
          :kanata-buffered-allocation-policy allocation)
-      (is-equal 14
+      (is-equal 16
                 (length (getf (ivory-key.backend::lowering-request-metadata request)
                               :kanata-buffered-actions)))
       (is (member :unproved-kanata-buffered-pending-lifecycle

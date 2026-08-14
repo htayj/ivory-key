@@ -145,7 +145,7 @@ rather than retyping a second target-neutral inventory here.
                     ("bspc" . "backspace")
                     ("spc" . "space")
                     ("del" . "delete")
-                    ("ent" . "enter"))
+                    ("ent" . "return"))
                   :test #'string=))
       token))
 

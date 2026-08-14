@@ -1,5 +1,5 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
-;;;; Structural compatibility contracts over the 14+2 normalized fixture.
+;;;; Structural compatibility contracts over the 16-row normalized fixture.
 
 (in-package #:ivory-key.tests)
 
@@ -108,10 +108,8 @@
     "tap-hold-super-a" "tap-hold-super-semicolon"
     "tap-hold-hyper-escape" "tap-hold-hyper-apostrophe"
     "tap-hold-alt-backspace" "tap-hold-alt-space"
-    "tap-hold-function-end" "tap-hold-function-pgdn"))
-
-(defparameter +pending-input-buffered-refused-names+
-  '("tap-hold-script-delete" "tap-hold-plane-enter"))
+    "tap-hold-function-end" "tap-hold-function-pgdn"
+    "tap-hold-script-delete" "tap-hold-plane-enter"))
 
 (defun pending-input-buffered-evidence-rows ()
   (remove-if-not (lambda (row)
@@ -120,7 +118,7 @@
                  +manna-release-trigger-v1-inventory+))
 
 (defun pending-input-buffered-allocation-policy ()
-  "Return a synthetic, realization-owned 14-row allocation table for tests.
+  "Return a synthetic, realization-owned 16-row allocation table for tests.
 
 This helper proves the typed policy boundary only.  Its opaque tokens are not
 a checked-in Manna profile and do not make the compiler emission-capable.
@@ -142,7 +140,8 @@ a checked-in Manna profile and do not make the compiler emission-capable.
                      :axis-layer identity "hold-function"
                      :state state :layer "function")
                     (ivory-key.model::make-realization-kanata-buffered-hold-allocation
-                     :axis-modifier identity "hold-case" :state state)))))))
+                     :axis-modifier identity (format nil "hold-~A" identity)
+                     :state state)))))))
     (ivory-key.model::make-realization-kanata-buffered-allocation-policy
      (mapcar
       (lambda (row)
@@ -238,15 +237,15 @@ a checked-in Manna profile and do not make the compiler emission-capable.
          allocation))))))
 
 (deftest pending-input-derives-evidenced-buffered-contracts
-  "The buffered route accepts exactly its current 14-instance evidence scope."
+  "The buffered route accepts exactly its current 16-instance evidence scope."
   (let* ((layout (pending-input-normalized-layout))
          (contracts
            (ivory-key.model::derive-interaction-compatibility-contracts
             (pending-input-policy
              :names (mapcar #'first (pending-input-buffered-evidence-rows)))
             layout)))
-    (is-equal 14 (length contracts))
-    ;; The independent fixture inventory must cover exactly the closed 14-row
+    (is-equal 16 (length contracts))
+    ;; The independent fixture inventory must cover exactly the closed 16-row
     ;; buffered table—not a name blacklist plus an accidental extra entry.
     (is-equal +pending-input-buffered-evidence-names+
               (mapcar #'first (pending-input-buffered-evidence-rows)))
@@ -322,25 +321,15 @@ a checked-in Manna profile and do not make the compiler emission-capable.
            (ivory-key.model::derive-interaction-compatibility-contracts
             (pending-input-policy :mode :modern-no-delay)
             layout)))
-    ;; The full 14+2 fixture is structurally derivable for modern mode.  This
-    ;; proves the buffered GDEL/RTOP refusal is an evidence boundary rather
-    ;; than an accidental model-shape failure.
+    ;; The same full fixture remains structurally derivable for modern mode;
+    ;; policy choice changes timing semantics, not the admitted source rows.
     (is-equal 16 (length contracts))
     (dolist (contract contracts)
       (is (typep contract
                  'ivory-key.model::modern-no-delay-interaction-compatibility-contract))
       (is (not (typep contract 'ivory-key.model::pending-foreign-interval-contract))))
-    (dolist (name +pending-input-buffered-refused-names+)
+    (dolist (name +pending-input-buffered-evidence-names+)
       (is (pending-input-contract-for contracts name)))))
-
-(deftest pending-input-buffered-refuses-script-and-plane-with-stable-code
-  (let ((layout (pending-input-normalized-layout)))
-    (dolist (name +pending-input-buffered-refused-names+)
-      (pending-input-signals-code
-       :unsupported-kanata-1-12-buffered-interaction
-       (lambda ()
-         (ivory-key.model::derive-interaction-compatibility-contracts
-          (pending-input-policy :names (list name)) layout))))))
 
 (deftest pending-input-buffered-refuses-renamed-gdel-and-primary-instances
   (let ((layout (pending-input-normalized-layout)))
