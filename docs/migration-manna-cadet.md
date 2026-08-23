@@ -94,7 +94,8 @@ rewritten or treated as runtime evidence.
 
 ## Remaining closeout work
 
-1. Preserve or exercise the documented rollback path with explicit approval.
+1. Preserve the documented rollback path; its live drill was explicitly waived
+   for the accepted basedbox deployment.
 2. Commit and publish the compatibility source and integration evidence with
    the required secret scan, signatures, and green CI.
 3. Keep a separate authorized integration record for any additional target.

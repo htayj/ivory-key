@@ -65,9 +65,10 @@ running StumpWM session reported `(:MOD-1)`, `(:MOD-3)`, `(:MOD-4)`, and
 
 The pre-activation store-backed Home configuration and the disposable staged
 candidate were retained during the transaction.  No rollback was required and
-no rollback drill was performed after acceptance.  A future final-closeout
-record must either exercise and restore the rollback path or explicitly obtain
-approval to retain this accepted deployment without that drill.
+no rollback drill was performed after acceptance.  The authorized operator
+explicitly waived that drill: the prior configurations are version-controlled
+and have already been rolled between multiple machines.  The rollback
+procedure remains documented for a future operational need.
 
 ## Publication status
 
