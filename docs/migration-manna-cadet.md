@@ -38,7 +38,11 @@ and proving live keyboard behavior are different evidence levels.
   names.
 - `devices/kinesis-advantage2.ivory` and
   `devices/kinesis-advantage360.ivory` sketch separate physical mappings and
-  reserved carrier numbers.
+  reserved carrier numbers. Each also records the distinct stable Kanata
+  `/dev/input/by-id/` endpoint found in its frozen primary configuration, so a
+  generated artifact cannot fall back to ambient keyboard discovery. A
+  distinct generated virtual-output name permits target-specific compositor
+  proof without selecting another active Kanata service.
 - `realizations/linux-xkb-kanata.ivory` and
   `realizations/manna-cadet-linux.ivory` express intended pipeline policy.
 
@@ -48,7 +52,9 @@ deterministically. The selected Manna profile closes semantic modifiers,
 direct-held lifecycles, the typed-unreachable `<LSGT>` disposition, function
 activation, and all sixteen timed interactions without embedding backend text
 in the abstract layout. Public compilation produces two exact artifacts and a
-contract containing 29 source-backed carrier allocations.
+contract containing 29 source-backed carrier allocations. Each Kanata artifact
+contains exactly its selected device endpoint and virtual-output identity;
+connecting and exercising that physical device remains Phase 8 evidence.
 
 ## Existing baseline evidence
 
@@ -60,7 +66,7 @@ is read-only with respect to the checkout.
 
 The frozen historical baseline is documented in
 [manna-cadet-baseline.md](manna-cadet-baseline.md): Manna Cadet at commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b`, with five primary and two
+`c92a9fd98adfb334c31ec5be15d444230e879a32`, with five primary and two
 regression-only chorded source-file hashes and the canonical projected
 truth-table digest. Run
 `tools/manna-truth-table.lisp verify ROOT` (or the separately invoked

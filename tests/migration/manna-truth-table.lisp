@@ -555,7 +555,7 @@ verified before these checked-in counts and raw rows are considered evidence."
          (second-routes (tool-output "routes" root)))
     (unless (search "Manna Cadet frozen baseline verified" verification)
       (error "Frozen baseline verification did not report success: ~A" verification))
-    (unless (search "3ef72eabdd26d2154481c1b8fd0becba50dfbb9a0ba50d0d37556930f92dc807"
+    (unless (search "75c57c254bf08ad4a57b958612a57d16f3973349c5d390c767572bedc43ade1a"
                     verification)
       (error "Verification did not report the expected truth-table digest: ~A" verification))
     (frozen-primary-tap-hold-evidence-p root)
@@ -571,7 +571,7 @@ verified before these checked-in counts and raw rows are considered evidence."
     (unless (string= first-routes second-routes)
       (error "Frozen Manna native-route ledger is not deterministic."))
     (unless (and
-             (search "Canonical native-route ledger SHA-256: `24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`"
+             (search "Canonical native-route ledger SHA-256: `9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5`"
                      first-routes)
              (search "SHA-256: `d36a93eab6e2355707f7a6bfbcfac2a4e3b0ea361cc399d388543f51e1f5226b`"
                      first-routes)
@@ -625,7 +625,7 @@ verified before these checked-in counts and raw rows are considered evidence."
                  (= 8 (count-substrings first-diff "device-variant-refused"))
                  (search "| Timed / device variants | 14 primary aliases + 2 selector aliases + 8 game aliases | 16 source structures, selected buffered policy | all classified below | 0 |" first-diff)
                  (search "| Ordered native routes | 68 A2 + 72 A360 `defsrc` rows across `normal` / `fun` | C1--C7 and F1--F2 closed ledger | C7, 360 `game`, and process-unmapped inputs refused | 0 |" first-diff)
-                 (search "Native-route ledger SHA-256: `24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a` (140 ordered rows; unclassified 0)." first-diff)
+                 (search "Native-route ledger SHA-256: `9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5` (140 ordered rows; unclassified 0)." first-diff)
                  (search "| Older chorded sources | 47 aliases + 29 chords per device | 0 active | regression-only structural inventory | 0 |" first-diff)
                  (search "| Advantage 2 chorded | `e4ce45dc6d5f265fbdef1de80e5792e2c7080d2a1c61705efe1b82a05401d4cd` | 68 | `normal` (complete) | 47 (16 tap-hold / 31 carrier) | 29 | 58 / 58 | none |" first-diff)
                  (search "| Advantage 360 chorded | `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | 72 | `normal` (complete) | 47 (16 tap-hold / 31 carrier) | 29 | 56 / 58; missing `menu`, `menu` | `K18=127`, `K19=130`, `K20=115`, `K21=142` |" first-diff)

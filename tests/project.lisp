@@ -195,22 +195,41 @@
     (is (null (ivory-key.model:layout-binding layout "direct-hyper")))
     (dolist (specification
              '(("kinesis-advantage2" 68
+                "/dev/input/by-id/usb-Kinesis_Advantage2_Keyboard_314159265359-if01-event-kbd"
+                "ivory-key-manna-advantage2"
                 (("hotkey-18" :unreachable nil nil)
                  ("hotkey-20" :unreachable nil nil)
                  ("hotkey-19" :unreachable nil nil)
                  ("hotkey-21" :unreachable nil nil)))
                ("kinesis-advantage360" 72
+                "/dev/input/by-id/usb-Kinesis_Kinesis_Adv360_360555127546-if01-event-kbd"
+                "ivory-key-manna-advantage360"
                 (("hotkey-18" :physical "COMP" "K18")
                  ("hotkey-20" :physical "VOL+" "K20")
                  ("hotkey-19" :physical "PROP" "K19")
                  ("hotkey-21" :physical "I150" "K21")))))
-      (destructuring-bind (device-name physical-count hotkeys) specification
+      (destructuring-bind
+          (device-name physical-count endpoint-locator output-name hotkeys)
+          specification
         (let* ((device (ivory-key.project:project-device project device-name :errorp t))
                (coverage (ivory-key.model:placement-position-coverage device))
                (backend-mappings
                  (getf (ivory-key.model:placement-metadata device)
                        :backend-mappings)))
           (is (ivory-key.model:placement-coverage-complete-p device))
+          (let ((endpoints (ivory-key.model:placement-input-endpoints device)))
+            (is-equal 1 (length endpoints))
+            (is-equal "kanata"
+                      (ivory-key.model:identifier-name
+                       (ivory-key.model:device-input-endpoint-backend
+                        (first endpoints))))
+            (is-equal endpoint-locator
+                      (ivory-key.model:device-input-endpoint-locator
+                       (first endpoints)))
+            (is-equal output-name
+                      (ivory-key.model:identifier-name
+                       (ivory-key.model:device-input-endpoint-output-name
+                        (first endpoints)))))
           (is-equal 73 (length coverage))
           (is-equal physical-count
                     (count :physical coverage
@@ -286,6 +305,35 @@
                 (project-error-code-from
                  (lambda ()
                    (ivory-key.project:load-project entry :source-roots (list directory))))))))
+
+(deftest project-device-input-endpoints-are-closed-and-unique
+  (dolist (specification
+           '(("(input-device kanata \"/tmp/event-kbd\" (:output-name test))"
+              :invalid-device-input-endpoint)
+             ("(input-device kanata \"/dev/input/by-id/nested/event-kbd\" (:output-name test))"
+              :invalid-device-input-endpoint)
+             ("(input-device kanata \"/dev/input/by-id/../event-kbd\" (:output-name test))"
+              :invalid-device-input-endpoint)
+             ("(input-device xkb \"/dev/input/by-id/usb-Test-event-kbd\" (:output-name test))"
+              :unknown-device-input-endpoint-backend)
+             ("(input-device kanata \"/dev/input/by-id/usb-Test-event-kbd\" (:output-name first))
+  (input-device kanata \"/dev/input/by-id/usb-Other-event-kbd\" (:output-name second))"
+              :duplicate-device-input-endpoint)))
+    (destructuring-bind (clauses expected-code) specification
+      (with-project-test-directory (directory)
+        (let ((entry (write-complete-project
+                      directory '("topology.ivory" "layout.ivory" "device.ivory"
+                                  "realization.ivory" "composition.ivory"))))
+          (project-test-write
+           directory "device.ivory"
+           (format nil
+                   "(ivory-key 1)~%(define-device board (uses-topology keyboard)~%  (place q (:xkb AD01) (:kanata q))~%  ~A)"
+                   clauses))
+          (is-equal expected-code
+                    (project-error-code-from
+                     (lambda ()
+                       (ivory-key.project:load-project
+                        entry :source-roots (list directory))))))))))
 
 (deftest project-loader-rejects-import-cycles-and-root-escapes
   (with-project-test-directory (directory)

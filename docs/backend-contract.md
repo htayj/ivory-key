@@ -322,6 +322,22 @@ topology disposition inventory independent of backend carrier allocations;
 version 4 adds the closed, privacy-preserving validation-evidence records
 described below; version 5 adds typed provenance. Virtual backend carriers
 remain separate allocations, not input coverage.
+
+Whole-device capture is also separate from both concepts. A device-declared
+Kanata `input-device` endpoint travels through the lowering request and Kanata
+plan; the emitter writes its locator as `linux-dev` and its distinct virtual
+identity as `linux-output-device-name`. The selected native buffered Manna
+profile additionally requires exactly one such endpoint in its closed
+configuration. It never discovers a keyboard, chooses Kanata's ambient
+default, accepts a glob, or derives the locator from a per-key placement.
+Current V1 accepts only one safe `/dev/input/by-id/` basename and an Ivory
+identifier as the output name. Missing selected buffered input, duplicate
+endpoints, unknown backends, nested paths, traversal-bearing locators, and
+malformed output names refuse before artifact construction. The device
+source hash and Kanata artifact digest account for the selected locator in the
+build contract. Legacy programmatic static requests may retain an absent
+endpoint for compatibility; they do not satisfy the Manna integration gate.
+
 `source-map.json` gives every emitted direct mapping an `origin`: either
 `null` for deliberately programmatic IR, or a relocatable source identity with
 definition line/column and an ordered definition-nearest-to-outermost

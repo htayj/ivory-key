@@ -54,12 +54,17 @@ the event machine cannot represent.
 
 ## Quick start
 
-The checked-in `manifest.scm` provides SBCL, ECL, XKB validation and state-test
-development files, Kanata, QMK, a C toolchain, pkg-config, and curl through
-Guix. With direnv installed, approve the checkout once with
+The checked-in `channels.scm` and `manifest.scm` provide SBCL, ECL, XKB
+validation and state-test development files, the required Kanata 1.12.0,
+QMK, a C toolchain, pkg-config, and curl through Guix. With direnv installed,
+approve the checkout once with
 `direnv allow`; `.envrc` then evaluates the manifest through direnv's built-in
-Guix integration. The equivalent one-shot environment is
-`guix shell -m manifest.scm`.
+Guix time-machine integration. The equivalent one-shot environment is:
+
+```sh
+guix time-machine -C channels.scm -- \
+  shell -L guix -m manifest.scm
+```
 
 From this checkout, load the ASDF definition and run the hermetic tests:
 

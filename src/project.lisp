@@ -553,6 +553,7 @@ reliably distinguishable on every supported host.
                                 :key #'%form-name))
          (placements nil)
          (position-coverage nil)
+         (input-endpoints nil)
          (backend-mappings nil)
          (reserved-carriers nil)
          (seen-positions (make-hash-table :test #'equal))
@@ -578,6 +579,43 @@ reliably distinguishable on every supported host.
                  (%fail context :invalid-reserved-carrier
                         "Reserved carrier ~D must be non-negative." value))
                (push value reserved-carriers))))
+          ((%named-form-p clause "input-device")
+           (let* ((endpoint-children
+                    (%form-children context clause 4 4
+                                    "INPUT-DEVICE declaration"))
+                  (backend
+                    (%identifier-node-name context (second endpoint-children)
+                                           "INPUT-DEVICE backend"))
+                  (locator
+                    (%text-node-value context (third endpoint-children)
+                                      "INPUT-DEVICE locator"))
+                  (options (cdddr endpoint-children)))
+             (unless (string= backend "kanata")
+               (%fail context :unknown-device-input-endpoint-backend
+                      "Device ~A has unsupported input endpoint backend ~A."
+                      name backend))
+             (%require-known-options context options '("output-name")
+                                     "INPUT-DEVICE")
+             (let* ((output-option
+                      (%named-option context options "output-name"
+                                     "INPUT-DEVICE" :required t))
+                    (output-node
+                      (%option-single-value
+                       context output-option "INPUT-DEVICE :OUTPUT-NAME"
+                       (lambda (node)
+                         (and (typep node 'syntax-atom)
+                              (eq (syntax-atom-kind node) :identifier)))))
+                    (output-name
+                      (%identifier-node-name context output-node
+                                             "INPUT-DEVICE output name")))
+               (handler-case
+                   (push (ivory-key.model:make-device-input-endpoint
+                          backend locator :output-name output-name)
+                         input-endpoints)
+                 (ivory-key.model:semantic-error (condition)
+                   (%fail context (ivory-key.model:semantic-error-code condition)
+                          "Device ~A input endpoint is invalid: ~A" name
+                          (ivory-key.model:semantic-error-message condition)))))))
           ((%named-form-p clause "place")
            (let* ((place-children (%form-children context clause 4 nil "PLACE declaration"))
                   (position-name (%identifier-node-name context (second place-children)
@@ -629,14 +667,21 @@ reliably distinguishable on every supported host.
                    position-coverage)))
           (t (%fail context :unknown-device-clause
                     "Device ~A has unsupported clause ~S." name (%form-name clause)))))
-      (make-device-placement
-       name topology (sort placements #'string< :key #'car)
-       :position-coverage
-       (sort position-coverage #'identifier<
-             :key #'ivory-key.model:device-position-coverage-position)
-       :metadata (list :backend-mappings
-                       (sort backend-mappings #'string< :key #'car)
-                       :reserved-carriers (sort (remove-duplicates reserved-carriers) #'<))))))
+      (handler-case
+          (make-device-placement
+           name topology (sort placements #'string< :key #'car)
+           :position-coverage
+           (sort position-coverage #'identifier<
+                 :key #'ivory-key.model:device-position-coverage-position)
+           :input-endpoints (nreverse input-endpoints)
+           :metadata (list :backend-mappings
+                           (sort backend-mappings #'string< :key #'car)
+                           :reserved-carriers
+                           (sort (remove-duplicates reserved-carriers) #'<)))
+        (semantic-error (condition)
+          (%fail context (semantic-error-code condition)
+                 "Could not decode device ~A: ~A" name
+                 (semantic-error-message condition)))))))
 
 (defun %decode-output-vocabulary-entry (context vocabulary-name backends clause)
   "Decode one closed MAP-OUTPUT declaration into opaque model entries.

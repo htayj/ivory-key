@@ -74,9 +74,55 @@ the compiler or another consumer that requires a complete placement.
    ;; is never inferred to mean either physical or unreachable.
    (position-coverage :initarg :position-coverage :initform nil
                       :reader placement-position-coverage)
+   ;; Closed backend input endpoints select the physical device as a whole;
+   ;; they are distinct from per-position mappings and virtual carriers.
+   (input-endpoints :initarg :input-endpoints :initform nil
+                    :reader placement-input-endpoints)
    (metadata :initarg :metadata :initform nil :reader placement-metadata)))
 
-(defun make-device-placement (name topology mappings &key position-coverage metadata)
+(defclass device-input-endpoint ()
+  ((backend :initarg :backend :reader device-input-endpoint-backend)
+   (locator :initarg :locator :reader device-input-endpoint-locator)
+   ;; A distinct stable virtual-device name makes target-specific live XKB
+   ;; proof possible when several Kanata services run in one session.
+   (output-name :initarg :output-name :reader device-input-endpoint-output-name)))
+
+(defun %safe-linux-input-by-id-locator-p (locator)
+  (let ((prefix "/dev/input/by-id/"))
+    (and (stringp locator)
+         (> (length locator) (length prefix))
+         (string= locator prefix :end1 (length prefix))
+         ;; One udev by-id basename is allowed, never a nested path or glob.
+         (let ((basename (subseq locator (length prefix))))
+           (and (not (search ".." basename))
+                (every (lambda (character)
+                         (or (char<= #\a (char-downcase character) #\z)
+                             (char<= #\0 character #\9)
+                             (find character "_-." :test #'char=)))
+                       basename))))))
+
+(defun validate-device-input-endpoint (endpoint)
+  "Validate one closed physical-device selector without resolving host state."
+  (unless (and (typep endpoint 'device-input-endpoint)
+               (typep (device-input-endpoint-backend endpoint) 'identifier)
+               (string= (identifier-name
+                         (device-input-endpoint-backend endpoint)) "kanata")
+               (typep (device-input-endpoint-output-name endpoint) 'identifier)
+               (%safe-linux-input-by-id-locator-p
+                (device-input-endpoint-locator endpoint)))
+    (signal-semantic-error
+     'semantic-validation-error :invalid-device-input-endpoint
+     "Device input endpoint needs one safe Kanata /dev/input/by-id locator and output name."))
+  endpoint)
+
+(defun make-device-input-endpoint (backend locator &key output-name)
+  (validate-device-input-endpoint
+   (make-instance 'device-input-endpoint
+                  :backend (ensure-identifier backend) :locator locator
+                  :output-name (ensure-identifier output-name))))
+
+(defun make-device-placement
+    (name topology mappings &key position-coverage input-endpoints metadata)
   "Create a descriptive physical-device placement.
 
 Physical inputs deliberately remain strings; realizing them as evdev or
@@ -89,12 +135,22 @@ firmware codes belongs to a selected realization profile."
                                                     (ensure-identifier (cdr entry))))
                                             mappings)
                           :position-coverage (copy-list position-coverage)
+                          :input-endpoints (copy-list input-endpoints)
                           :metadata metadata)))
     ;; Validate every explicit record at its model boundary.  Completeness is
     ;; intentionally a separate question: legacy programmatic callers can
     ;; inspect a partial placement, whereas project compilation requires it.
     (when position-coverage
       (validate-device-placement-coverage placement))
+    (dolist (endpoint input-endpoints)
+      (validate-device-input-endpoint endpoint))
+    (unless (= (length input-endpoints)
+               (length (remove-duplicates
+                        input-endpoints :test #'identifier=
+                        :key #'device-input-endpoint-backend)))
+      (signal-semantic-error
+       'semantic-validation-error :duplicate-device-input-endpoint
+       "Device placement declares an input endpoint backend more than once."))
     placement))
 
 (defun placement-coverage-for-position (placement position)

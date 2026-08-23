@@ -1,7 +1,10 @@
 # Development conventions
 
 Ivory Key keeps its runtime portable Common Lisp and UIOP only. Development
-commands run through the checked-in Guix manifest:
+commands run through the checked-in, channel-pinned Guix manifest. Direnv
+automatically uses `guix time-machine` because `channels.scm` is present; the
+equivalent one-shot shell is `guix time-machine -C channels.scm -- shell -L
+guix -m manifest.scm`.
 
 ```sh
 direnv exec . sbcl --non-interactive \
@@ -58,12 +61,11 @@ direnv exec . sbcl --script tests/migration/manna-truth-table.lisp \
 
 The Kanata 1.12 state-machine oracle is more environmental still: it requires
 the exact hash-pinned upstream source archive, the hash-frozen Manna checkout,
-and a Rust nightly toolchain.  It neither belongs to ASDF nor touches a live
-input device:
+and the Rust 1.88 toolchain supplied by the manifest. It neither belongs to
+ASDF nor touches a live input device:
 
 ```sh
-KANATA_CARGO_TOOLCHAIN=nightly \
-  tests/external/kanata-1.12-manna-oracle.sh \
+direnv exec . tests/external/kanata-1.12-manna-oracle.sh \
   PATH-TO-kanata-1.12.0.tar.gz \
   PATH-TO-FROZEN-MANNA-ROOT
 ```

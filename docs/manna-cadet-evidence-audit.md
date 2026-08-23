@@ -1,7 +1,7 @@
 # Manna Cadet evidence audit
 
 This audit classifies the Manna Cadet material available at frozen commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b`.  It is a migration review aid,
+`c92a9fd98adfb334c31ec5be15d444230e879a32`.  It is a migration review aid,
 not a generated-keymap, installation, or live-input-equivalence claim.  The
 five hash-addressed primary inputs, two separately classified chorded inputs,
 and the static-table digest are recorded in
@@ -87,7 +87,7 @@ sbcl --script tools/manna-truth-table.lisp routes \
 
 It hash-gates the two layered sources, preserves every `defsrc` index, and
 requires exact `normal`/`fun` coverage. Its canonical digest is
-`24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`.
+`9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5`.
 The closed partition is:
 
 | Code | Stable source-route class | A2 | A360 | Evidence disposition |
@@ -127,7 +127,7 @@ correction, not a claim that the frozen source had a closed hardware domain.
 |---|---|---|---|
 | §13.1 frozen inventory of the selected layered and chorded sources | five primary hashes, two regression-only chorded hashes, static-table digest, all primary aliases/layers, the 140-row canonical native-route ledger, exact carriers/function positions, and the complete chorded structure below | no Phase 7 work remains | complete |
 | §13.2/§13.7 reviewable truth and behavior comparison | static 52 × 8 table, fourteen direct bindings, 29 function rows per device, four immediate holders, 16 source-transcribed tap-holds, all differences classified, generated-artifact traces, and the pinned Kanata-1.12 oracle | live comparison is Phase 8 | complete for generation |
-| §13.3 complete physical placement | complete 73-position union, A2 68 physical/five unreachable, A360 72 physical/one unreachable, and an ordered disposition for every primary `defsrc` row | live hardware confirmation is Phase 8 | complete for generation |
+| §13.3 complete physical placement | complete 73-position union, A2 68 physical/five unreachable, A360 72 physical/one unreachable, an ordered disposition for every primary `defsrc` row, and the two frozen source-recorded `/dev/input/by-id/` endpoints carried into generated artifacts with distinct targetable virtual-output names | connection and live hardware/output identity confirmation are Phase 8 | complete for generation |
 | §13.5 complete simulation | selected barrier covers deadlines, repeated/reverse intervals, equal/unequal owners, modifier/function lifetime, selectors, context tables, and function patch routing | live client behavior is Phase 8 | complete for selected profile |
 | §13.6 full compile and target validation | public project compilation emits deterministic A2/A360 XKB and Kanata artifacts with exact grades and 29 provenance-bearing allocations; installed tools accept them | installation is Phase 8 | complete |
 | historical-runtime equivalence | source text plus a source-archive-checked Kanata-1.12 state-machine oracle establish bounded current-runtime behavior | recover the frozen baseline runtime/pin and raw event-level traces, or explicitly create a new non-historical compatibility profile | original historical evidence absent; no claim permitted |
@@ -323,7 +323,7 @@ says the latter changes how near-simultaneous tap-hold timeouts expire.
 
 This is a source-plus-documentation interpretation, not yet a frozen runtime
 oracle: a narrow search of frozen commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b` finds no Kanata binary/version,
+`c92a9fd98adfb334c31ec5be15d444230e879a32` finds no Kanata binary/version,
 package pin, or lock file (its README only links upstream).  Neither primary
 file supplies a total order for equal-time events, multi-owner release, or the
 precise concurrent-tap-hold scheduler. No Ivory Key interaction is added to

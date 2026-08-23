@@ -26,11 +26,10 @@ applies only the checked-in test patch, and invokes Kanata's own
 simulated-output state machine with default features disabled. No keyboard,
 uinput device, service, or installed configuration is opened or changed.
 
-Run it with an explicitly selected Cargo toolchain:
+Run it with the manifest's pinned Rust 1.88 Cargo toolchain:
 
 ```sh
-KANATA_CARGO_TOOLCHAIN=nightly \
-  tests/external/kanata-1.12-manna-oracle.sh \
+direnv exec . tests/external/kanata-1.12-manna-oracle.sh \
   PATH-TO-kanata-1.12.0.tar.gz \
   PATH-TO-FROZEN-MANNA-ROOT
 ```
@@ -137,7 +136,7 @@ sbcl --script tools/manna-truth-table.lisp routes \
 ```
 
 The canonical render has SHA-256
-`24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`.
+`9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5`.
 It preserves all ordered A2 68 and A360 72 `defsrc` rows and pairs each with
 its exact `normal` and `fun` action. The normal partition is C1 context/direct
 identity (39/39), C2 physical modifier (3/3), C3 residual named key (7/7), C4
@@ -180,8 +179,7 @@ vocabulary before passing a temporary record file to the libxkbcommon probe.
 Run the opt-in composition in the declared environment with the exact archive:
 
 ```sh
-KANATA_CARGO_TOOLCHAIN=nightly direnv exec . \
-  sbcl --script tests/external/manna-xkb-group2-state.lisp \
+direnv exec . sbcl --script tests/external/manna-xkb-group2-state.lisp \
   --kanata-ad01-differential PATH-TO-kanata-1.12.0.tar.gz \
   PATH-TO-FROZEN-MANNA-ROOT
 ```
