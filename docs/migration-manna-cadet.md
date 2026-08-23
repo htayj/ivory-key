@@ -1,11 +1,13 @@
 # Manna Cadet migration status
 
-## Status: generated migration complete; no deployment performed
+## Status: basedbox deployment accepted; final publication closeout pending
 
 Ivory Key now generates the reviewed A2 and Advantage360 XKB/Kanata replacement
-artifacts, but it has not installed or activated them. Phase 7 is complete at
-the source, allocation, emission, validation, and differential-proof boundary;
-Phase 8 live integration remains a separate authorized operation.
+artifacts, and the Advantage360 deployment on basedbox has been activated and
+accepted. Phase 7 is complete at the source, allocation, emission, validation,
+and differential-proof boundary; the [Phase 8 integration record](integration/2026-08-23-basedbox-phase-8.md)
+captures the live transaction.  Final rollback and publication evidence remain
+before the whole project can be called complete.
 
 This distinction is deliberate: parsing a fixture, constructing a partial
 model, emitting a small backend plan, validating syntax with an external tool,
@@ -54,7 +56,8 @@ activation, and all sixteen timed interactions without embedding backend text
 in the abstract layout. Public compilation produces two exact artifacts and a
 contract containing 29 source-backed carrier allocations. Each Kanata artifact
 contains exactly its selected device endpoint and virtual-output identity;
-connecting and exercising that physical device remains Phase 8 evidence.
+connecting and exercising the Advantage360 device is recorded in the Phase 8
+integration evidence; equivalent evidence for another target remains separate.
 
 ## Existing baseline evidence
 
@@ -89,14 +92,12 @@ It also inventories the two older chorded files structurally (47 aliases and
 profile, and the 360 file's `menu`/`caps` source-token mismatch is not silently
 rewritten or treated as runtime evidence.
 
-## Work still required before live replacement
+## Remaining closeout work
 
-1. In a separately authorized session, regenerate and preflight a fresh build
-   under the declared Guix environment.
-2. Integrate it through the documented reversible transaction, preserving the
-   existing configuration and rollback path.
-3. Prove the live virtual/device event path and record the result. Repository
-   generation and installed-tool validation are not deployment proof.
+1. Preserve or exercise the documented rollback path with explicit approval.
+2. Commit and publish the compatibility source and integration evidence with
+   the required secret scan, signatures, and green CI.
+3. Keep a separate authorized integration record for any additional target.
 
 The planned Sway migration document that names Kanata 1.12.0 is supplemental
 context only: its `wev` steps are proposed checks, not captured Manna event
