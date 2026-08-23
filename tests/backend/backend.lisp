@@ -766,9 +766,9 @@ three normalized candidates MODEL originally proved.
   (let* ((backend (ivory-key.backend:make-xkb-backend))
          (allocations
            '(("control" "lctl" "LCTL" "Control_L" "Control")
-             ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+             ("meta" "lalt" "LALT" "Meta_L" "Mod3")
              ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
-             ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+             ("alt" "ralt" "RALT" "Alt_L" "Mod1")
              ("super" "lmet" "LWIN" "Super_L" "Mod4")))
          (request
            (backend-test-request
@@ -779,6 +779,7 @@ three normalized candidates MODEL originally proved.
             backend (ivory-key.backend:lower-request backend request))))
     (is (search "modifier_map None { <RALT>, <LCTL>, <RWIN>, <LALT>, <LWIN> };"
                 text))
+    (is (search "replace modifier_map Mod1 { <RALT> };" text))
     (is (search "replace key <RWIN>" text))
     (is (search "symbols[Group1]=[ Hyper_L ]" text))
     (dolist (bad

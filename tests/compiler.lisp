@@ -1729,11 +1729,11 @@ complete carrier table from an invented Manna behavior.
                        '("replace key <LCTL>" "symbols[Group1]=[ Control_L ]"
                          "modifier_map Control { <LCTL> }"
                          "replace key <LALT>" "symbols[Group1]=[ Meta_L ]"
-                         "modifier_map Mod1 { <LALT> }"
+                         "modifier_map Mod3 { <LALT> }"
                          "replace key <RWIN>" "symbols[Group1]=[ Hyper_L ]"
                          "modifier_map Mod2 { <RWIN> }"
                          "replace key <RALT>" "symbols[Group1]=[ Alt_L ]"
-                         "modifier_map Mod3 { <RALT> }"
+                         "modifier_map Mod1 { <RALT> }"
                          "replace key <LWIN>" "symbols[Group1]=[ Super_L ]"
                          "modifier_map Mod4 { <LWIN> }"))
                 (is (search fragment xkb-text)))

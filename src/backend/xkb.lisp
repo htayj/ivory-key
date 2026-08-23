@@ -37,11 +37,13 @@ particular, ZEHA is keycode 93, not an alias of LVL5 or LVL3.")
 
 (defparameter +xkb-semantic-modifier-specifications+
   '(("control" "lctl" "LCTL" "Control_L" "Control")
-    ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+    ("meta" "lalt" "LALT" "Meta_L" "Mod3")
     ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
-    ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+    ("alt" "ralt" "RALT" "Alt_L" "Mod1")
     ("super" "lmet" "LWIN" "Super_L" "Mod4"))
-  "The closed Manna semantic-modifier allocation admitted by this XKB slice.")
+  "The closed Manna semantic-modifier allocation admitted by this XKB slice.
+
+`ralt`/<RALT> preserves basedbox's historical Alt/Mod1 StumpWM route.")
 
 (defun %xkb-semantic-modifier-allocations (request)
   "Validate and canonicalize the optional closed semantic modifier metadata."
@@ -528,6 +530,8 @@ model policy merely selects one of these two verified carrier identities.
 (defun %emit-xkb-semantic-modifier-symbols (stream allocations)
   "Replace stock pc modifier identities with the closed typed Manna map."
   (when allocations
+    ;; Replace the slots we own so an inherited Meta_L cannot mask the
+    ;; generated Alt_L route on Mod1 in clients such as StumpWM.
     (format stream "    modifier_map None { ~{<~A>~^, ~} };~%"
             (mapcar #'third allocations))
     (dolist (allocation allocations)
@@ -536,7 +540,7 @@ model policy merely selects one of these two verified carrier identities.
         (format stream
                 "    replace key <~A> { type[Group1]=\"ONE_LEVEL\", symbols[Group1]=[ ~A ] };~%"
                 key-name keysym)
-        (format stream "    modifier_map ~A { <~A> };~%" modifier key-name)))))
+        (format stream "    replace modifier_map ~A { <~A> };~%" modifier key-name)))))
 
 (defun %emit-xkb-selector-static-entry (stream static-entry)
   (let ((entry (xkb-selector-static-entry-entry static-entry)))

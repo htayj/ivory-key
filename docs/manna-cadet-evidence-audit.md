@@ -258,10 +258,10 @@ alternate meanings for a `none` cell:
 | Abstract identity / selector | Frozen source evidence | Classification |
 |---|---|---|
 | `control` | XKB `Control` maps `<LCTL>`; home-row `d` and `k` aliases hold `lctl` | identity transcribed; tap-hold commitment unresolved |
-| `meta` | XKB `Mod1` maps `<LALT>`; home-row `s` and `l` aliases hold `lalt` | identity transcribed; tap-hold commitment unresolved |
+| `meta` | XKB `Mod3` maps `<LALT>`; home-row `s` and `l` aliases hold `lalt`, distinct from Alt/Mod1 for StumpWM | machine compatibility realization; tap-hold commitment unresolved |
 | `super` | XKB `Mod4` maps `<LWIN>`; home-row `a` and `;` aliases hold `lmet` | identity transcribed; 250 ms left-side exception unresolved |
 | `hyper` | XKB `Mod2` maps `<RWIN>`; `esc` and apostrophe aliases hold `rmet` | identity transcribed; tap-hold commitment unresolved |
-| `alt` | XKB `Mod3` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` | identity transcribed; tap-hold commitment unresolved |
+| `alt` | XKB `Mod1` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` for StumpWM `A-…` compatibility | machine compatibility realization; tap-hold commitment unresolved |
 | `case` | `<LFSH>` and `<RTSH>` map to `Shift_L` / `Shift_R`; both primary normal layers leave `lshift` / `rshift` unchanged | two exact immediate owner-scoped holders set `case=shifted`; the home-row `f` / `j` tap-holds remain unresolved |
 | `script` / Greek | symbols source spells `<ZEHA>` as Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact abstract immediate held `script → greek` interaction; selected generated XKB proves its own ZEHA state contract, while frozen carrier bridging, `del` tap-hold, and client/live equivalence remain unresolved |
 | `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact abstract immediate held `plane → top`; selected generated XKB proves its LVL3 Group2 contract, while frozen LVL5 remains outside it and Enter tap-hold/carrier/client/lifetime equivalence remain unresolved |

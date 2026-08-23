@@ -1787,11 +1787,14 @@ compiler fidelity and backend native-domain gates.
 
 (defparameter +manna-xkb-semantic-modifier-specifications+
   '(("control" "lctl" "LCTL" "Control_L" "Control")
-    ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+    ("meta" "lalt" "LALT" "Meta_L" "Mod3")
     ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
-    ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+    ("alt" "ralt" "RALT" "Alt_L" "Mod1")
     ("super" "lmet" "LWIN" "Super_L" "Mod4"))
-  "The sole typed semantic-modifier bridge admitted for the Manna XKB map.")
+  "The sole typed semantic-modifier bridge admitted for the Manna XKB map.
+
+The thumb-cluster `ralt` route is Alt/Mod1 for basedbox's StumpWM `A-...`
+bindings; home-row `lmet` remains Super/Mod4.")
 
 (defun %manna-xkb-semantic-modifier-allocations (normalized actions)
   "Return the closed XKB modifier rows only when ACTIONS prove every member."
