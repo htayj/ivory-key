@@ -20,6 +20,11 @@
 (define-device
   kinesis-advantage360
   (uses-topology kinesis-advantage)
+  (input-device
+    kanata
+    "/dev/input/by-id/usb-Kinesis_Kinesis_Adv360_360555127546-if01-event-kbd"
+    (:output-name ivory-key-manna-advantage360)
+  )
   (place number-equals (:xkb "AE12") (:kanata "="))
   (place number-1 (:xkb "AE01") (:kanata "1"))
   (place number-2 (:xkb "AE02") (:kanata "2"))

@@ -21,6 +21,11 @@
 (define-device
   kinesis-advantage2
   (uses-topology kinesis-advantage)
+  (input-device
+    kanata
+    "/dev/input/by-id/usb-Kinesis_Advantage2_Keyboard_314159265359-if01-event-kbd"
+    (:output-name ivory-key-manna-advantage2)
+  )
   (place number-equals (:xkb "AE12") (:kanata "="))
   (place number-1 (:xkb "AE01") (:kanata "1"))
   (place number-2 (:xkb "AE02") (:kanata "2"))

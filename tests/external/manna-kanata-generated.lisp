@@ -28,7 +28,8 @@
       request)))
 
 (defun validate-external-manna-kanata-artifact
-    (composition expected-sources &key runtime-archive manna-root)
+    (composition expected-sources expected-input-endpoint expected-output-name
+     &key runtime-archive manna-root)
   (let* ((backend (ivory-key.backend:make-kanata-backend))
          (request (external-manna-kanata-request composition))
          (plan (ivory-key.backend:lower-request backend request))
@@ -41,6 +42,20 @@
                  (= expected-sources
                     (length (ivory-key.backend::kanata-plan-sources plan)))
                  (string= first second)
+                 (= 1 (length
+                       (ivory-key.backend:kanata-buffered-config-input-endpoints
+                        config)))
+                 (string= expected-input-endpoint
+                          (ivory-key.model:device-input-endpoint-locator
+                           (first
+                            (ivory-key.backend:kanata-buffered-config-input-endpoints
+                             config))))
+                 (search (format nil "linux-dev ~A" expected-input-endpoint)
+                         first)
+                 (search
+                  (format nil "linux-output-device-name \"~A\""
+                          expected-output-name)
+                  first)
                  (search "process-unmapped-keys no" first))
       (error "~A did not produce one deterministic closed native artifact."
              composition))
@@ -83,17 +98,26 @@
 (let ((arguments (uiop:command-line-arguments)))
   (cond
     ((null arguments)
-     (validate-external-manna-kanata-artifact "manna-cadet-linux" 68)
      (validate-external-manna-kanata-artifact
-      "manna-cadet-advantage360-linux" 72))
+      "manna-cadet-linux" 68
+      "/dev/input/by-id/usb-Kinesis_Advantage2_Keyboard_314159265359-if01-event-kbd"
+      "ivory-key-manna-advantage2")
+     (validate-external-manna-kanata-artifact
+      "manna-cadet-advantage360-linux" 72
+      "/dev/input/by-id/usb-Kinesis_Kinesis_Adv360_360555127546-if01-event-kbd"
+      "ivory-key-manna-advantage360"))
     ((and (= (length arguments) 3)
           (string= (first arguments) "--runtime-oracle"))
      (validate-external-manna-kanata-artifact
       "manna-cadet-linux" 68
+      "/dev/input/by-id/usb-Kinesis_Advantage2_Keyboard_314159265359-if01-event-kbd"
+      "ivory-key-manna-advantage2"
       :runtime-archive (second arguments)
       :manna-root (third arguments))
      (validate-external-manna-kanata-artifact
       "manna-cadet-advantage360-linux" 72
+      "/dev/input/by-id/usb-Kinesis_Kinesis_Adv360_360555127546-if01-event-kbd"
+      "ivory-key-manna-advantage360"
       :runtime-archive (second arguments)
       :manna-root (third arguments)))
     (t
