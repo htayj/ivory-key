@@ -143,6 +143,10 @@
    #:topology-metadata #:find-position
    #:device-placement #:make-device-placement #:placement-name
    #:placement-topology #:placement-mappings #:placement-metadata
+   #:device-input-endpoint #:make-device-input-endpoint
+   #:device-input-endpoint-backend #:device-input-endpoint-locator
+   #:device-input-endpoint-output-name
+   #:validate-device-input-endpoint #:placement-input-endpoints
    #:device-position-coverage #:make-device-position-coverage
    #:device-position-coverage-position #:device-position-coverage-disposition
    #:+device-position-coverage-dispositions+
@@ -529,6 +533,7 @@
    #:kanata-buffered-interaction-action-canonical-data
    #:kanata-buffered-config
    #:kanata-buffered-config-defcfg
+   #:kanata-buffered-config-input-endpoints
    #:kanata-buffered-config-aliases
    #:kanata-buffered-config-layer-cells
    #:kanata-buffered-config-local-keys
@@ -599,6 +604,7 @@
    #:make-xkb-backend #:xkb-plan-realizations
    #:make-kanata-backend #:kanata-plan-realizations
    #:kanata-plan-buffered-actions
+   #:kanata-plan-input-endpoints
    #:kanata-plan-buffered-config
    #:kanata-plan-proposal-string
    #:make-qmk-backend #:qmk-plan-keyboard #:qmk-plan-layout
