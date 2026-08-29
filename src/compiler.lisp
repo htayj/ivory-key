@@ -34,7 +34,8 @@
 
 (defstruct (compiler-placement
             (:constructor %make-compiler-placement
-                (name topology mappings &optional position-coverage)))
+                (name topology mappings &optional position-coverage
+                                         input-endpoints)))
   "A narrow, non-semantic device view used only at the lowering boundary.
 
 MAPPINGS is a canonical list of (logical-position . plist) pairs.  The plist
@@ -47,6 +48,8 @@ backends.  It is intentionally not a replacement for MODEL:DEVICE-PLACEMENT.
   ;; Typed MODEL:DEVICE-POSITION-COVERAGE records.  NIL means coverage was not
   ;; supplied; it is deliberately not inferred from MAPPINGS.
   (position-coverage nil)
+  ;; Typed whole-device selectors, distinct from per-key physical mappings.
+  (input-endpoints nil)
   ;; Device-reserved Linux carrier codes are not semantic layout data.  A
   ;; realization may use one only when its profile vocabulary spells the
   ;; exact evidenced carrier action; every other lowering treats this
@@ -297,7 +300,9 @@ list.
                  (ivory-key.model:placement-topology device)))
                (sort converted #'string< :key #'car)
                (copy-list
-                (ivory-key.model:placement-position-coverage device)))))
+                (ivory-key.model:placement-position-coverage device))
+               (mapcar #'ivory-key.model:validate-device-input-endpoint
+                       (ivory-key.model:placement-input-endpoints device)))))
         (let ((reserved
                 (%project-metadata-value
                  (ivory-key.model:placement-metadata device) :reserved-carriers
@@ -485,6 +490,7 @@ input and are not silently consumed here.
                                             "Device topology name")))
          (mappings nil)
          (position-coverage nil)
+         (input-endpoints nil)
          (seen-positions (make-hash-table :test #'equal))
          (reserved-carriers nil))
     (unless topology
@@ -498,6 +504,41 @@ input and are not silently consumed here.
                (%stage-error :decode :invalid-reserved-carrier
                              "Device ~A has invalid reserved carrier ~S." name carrier))
              (push carrier reserved-carriers)))
+          ((%named-form-p clause "input-device")
+           (unless (= (length clause) 4)
+             (%stage-error :decode :invalid-device-input-endpoint
+                           "Device ~A INPUT-DEVICE needs backend, locator, and :OUTPUT-NAME."
+                           name))
+           (let ((backend (%identifier-string (second clause) :decode
+                                              "INPUT-DEVICE backend"))
+                 (locator (third clause))
+                 (output-option (fourth clause)))
+             (unless (and (string= backend "kanata") (stringp locator))
+               (%stage-error :decode
+                             (if (string= backend "kanata")
+                                 :invalid-device-input-endpoint
+                                 :unknown-device-input-endpoint-backend)
+                             "Device ~A has an unsupported INPUT-DEVICE declaration."
+                             name))
+             (unless (and (consp output-option)
+                          (string= (or (%form-name output-option) "")
+                                   "output-name")
+                          (= (length output-option) 2))
+               (%stage-error :decode :invalid-device-input-endpoint
+                             "Device ~A INPUT-DEVICE needs one :OUTPUT-NAME identifier."
+                             name))
+             (handler-case
+                 (push (ivory-key.model:make-device-input-endpoint
+                        backend locator
+                        :output-name
+                        (%identifier-string (second output-option) :decode
+                                            "INPUT-DEVICE output name"))
+                       input-endpoints)
+               (ivory-key.model:semantic-error (condition)
+                 (%stage-error :decode
+                               (ivory-key.model:semantic-error-code condition)
+                               "Device ~A input endpoint is invalid: ~A" name
+                               (ivory-key.model:semantic-error-message condition))))))
             ((%named-form-p clause "place")
              (let ((position (%identifier-string (second clause) :decode
                                                  "Placed logical position")))
@@ -529,10 +570,18 @@ input and are not silently consumed here.
                      position-coverage)))
             (t (%stage-error :decode :unknown-device-clause
                              "Device ~A has unsupported clause ~S." name clause))))
+    (unless (= (length input-endpoints)
+               (length (remove-duplicates
+                        input-endpoints :test #'ivory-key.model:identifier=
+                        :key #'ivory-key.model:device-input-endpoint-backend)))
+      (%stage-error :decode :duplicate-device-input-endpoint
+                    "Device ~A declares an input endpoint backend more than once."
+                    name))
     (let ((placement (%make-compiler-placement name topology
                                                  (sort mappings #'string< :key #'car)
                                                  (sort position-coverage #'ivory-key.model:identifier<
-                                                       :key #'ivory-key.model:device-position-coverage-position))))
+                                                       :key #'ivory-key.model:device-position-coverage-position)
+                                                 (nreverse input-endpoints))))
       (setf (compiler-placement-reserved-carriers placement)
             (sort (remove-duplicates reserved-carriers :test #'=) #'<))
       placement)))
@@ -2201,6 +2250,9 @@ compile gate.
                                    xkb-semantic-modifier-allocations
                                    :input-coverage
                                    (%input-coverage-records normalized placement)
+                                   :device-input-endpoints
+                                   (copy-list
+                                    (compiler-placement-input-endpoints placement))
                                    :kanata-source-order
                                    (mapcar (lambda (mapping)
                                              (cons (car mapping) (getf (cdr mapping) :kanata)))
@@ -2688,6 +2740,20 @@ plans, artifact text, contract data, or output paths.
   "Write one Kanata backend IR, never its emitted configuration text."
   (format stream "Kanata backend plan~%")
   (format stream "  name: ~A~%" (ivory-key.backend::kanata-plan-name plan))
+  (format stream "  input endpoints~%")
+  (let ((endpoints (ivory-key.backend:kanata-plan-input-endpoints plan)))
+    (if endpoints
+        (dolist (endpoint endpoints)
+          (format stream "    ~A => ~A~%"
+                  (ivory-key.model:identifier-name
+                   (ivory-key.model:device-input-endpoint-backend endpoint))
+                  (list
+                   (ivory-key.model:device-input-endpoint-locator endpoint)
+                   :output-name
+                   (ivory-key.model:identifier-name
+                    (ivory-key.model:device-input-endpoint-output-name
+                     endpoint)))))
+        (format stream "    none~%")))
   (format stream "  source/output rows~%")
   (let ((sources (ivory-key.backend::kanata-plan-sources plan))
         (outputs (ivory-key.backend::kanata-plan-outputs plan)))

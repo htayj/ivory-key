@@ -212,6 +212,77 @@
            layout :topology-path topology :device-path device
            :realization-path realization :output-directory output))))))
 
+(deftest compiler-direct-device-input-endpoints-are-closed-and-unique
+  (with-compiler-test-directory (directory)
+    (let* ((layout-path
+             (compiler-test-write directory "layout.ivory"
+                                  +compiler-test-layout+))
+           (topology-path
+             (compiler-test-write directory "topology.ivory"
+                                  +compiler-test-topology+))
+           (pathname
+             (compiler-test-write
+              directory "device.ivory"
+              "(ivory-key 1)
+(define-device direct-endpoint
+  (uses-topology one)
+  (input-device kanata \"/dev/input/by-id/usb-Ivory_Key_Test-event-kbd\"
+    (:output-name ivory-key-test))
+  (place q (:xkb AD01) (:kanata q)))"))
+           (placement (ivory-key.cli::decode-device-source pathname))
+           (endpoints (ivory-key.cli::compiler-placement-input-endpoints
+                       placement)))
+      (is-equal 1 (length endpoints))
+      (is-equal "kanata"
+                (ivory-key.model:identifier-name
+                 (ivory-key.model:device-input-endpoint-backend
+                  (first endpoints))))
+      (is-equal "/dev/input/by-id/usb-Ivory_Key_Test-event-kbd"
+                (ivory-key.model:device-input-endpoint-locator
+                 (first endpoints)))
+      (is-equal "ivory-key-test"
+                (ivory-key.model:identifier-name
+                 (ivory-key.model:device-input-endpoint-output-name
+                  (first endpoints))))
+      (let ((unit (ivory-key.cli::load-layout-for-compilation
+                   layout-path :topology-path topology-path)))
+        (multiple-value-bind (request issues)
+            (ivory-key.cli::analyze-normalized-layout
+             (ivory-key.cli::compiler-unit-normalized unit) placement)
+          (is (null issues))
+          (let* ((backend (ivory-key.backend:make-kanata-backend))
+                 (plan (ivory-key.backend:lower-request backend request))
+                 (text (ivory-key.backend:emit-plan-to-string backend plan)))
+            (is-equal 1 (length
+                         (ivory-key.backend:kanata-plan-input-endpoints plan)))
+            (is (search
+                 "linux-dev /dev/input/by-id/usb-Ivory_Key_Test-event-kbd"
+                 text))
+            (is (search "linux-output-device-name \"ivory-key-test\""
+                        text)))))))
+  (dolist (specification
+           '(("(input-device kanata \"/tmp/event-kbd\" (:output-name test))"
+              :invalid-device-input-endpoint)
+             ("(input-device kanata \"/dev/input/by-id/nested/event-kbd\" (:output-name test))"
+              :invalid-device-input-endpoint)
+             ("(input-device xkb \"/dev/input/by-id/usb-Test-event-kbd\" (:output-name test))"
+              :unknown-device-input-endpoint-backend)
+             ("(input-device kanata \"/dev/input/by-id/usb-Test-event-kbd\" (:output-name first))
+  (input-device kanata \"/dev/input/by-id/usb-Other-event-kbd\" (:output-name second))"
+              :duplicate-device-input-endpoint)))
+    (destructuring-bind (clauses expected-code) specification
+      (with-compiler-test-directory (directory)
+        (let ((pathname
+                (compiler-test-write
+                 directory "device.ivory"
+                 (format nil
+                         "(ivory-key 1)~%(define-device invalid-endpoint~%  (uses-topology one)~%  ~A~%  (place q (:xkb AD01) (:kanata q)))"
+                         clauses))))
+          (is-equal expected-code
+                    (compiler-stage-code-from
+                     (lambda ()
+                       (ivory-key.cli::decode-device-source pathname)))))))))
+
 (deftest compiler-cli-preflight-build-is-read-only-and-refuses-a-tampered-contract
   (with-compiler-test-directory (directory)
     (let* ((layout (compiler-test-write directory "layout.ivory" +compiler-test-layout+))
@@ -1539,13 +1610,19 @@ complete carrier table from an invented Manna behavior.
   (dolist (specification
            '(("manna-cadet-linux"
               68
+              "/dev/input/by-id/usb-Kinesis_Advantage2_Keyboard_314159265359-if01-event-kbd"
+              "ivory-key-manna-advantage2"
               (("hotkey-18" :unreachable) ("hotkey-20" :unreachable)
                ("hotkey-19" :unreachable) ("hotkey-21" :unreachable)))
              ("manna-cadet-advantage360-linux"
               72
+              "/dev/input/by-id/usb-Kinesis_Kinesis_Adv360_360555127546-if01-event-kbd"
+              "ivory-key-manna-advantage360"
               (("hotkey-18" :physical) ("hotkey-20" :physical)
                ("hotkey-19" :physical) ("hotkey-21" :physical)))))
-    (destructuring-bind (composition source-count hotkeys) specification
+    (destructuring-bind
+        (composition source-count endpoint-locator output-name hotkeys)
+        specification
       (multiple-value-bind (unit placement realization)
           (ivory-key.cli:load-project-composition-for-compilation
            "manna-cadet-project.ivory" composition)
@@ -1608,6 +1685,9 @@ complete carrier table from an invented Manna behavior.
                      (ivory-key.backend:emit-plan-to-string xkb-backend xkb-plan))
                    (config (ivory-key.backend:kanata-plan-buffered-config plan))
                    (proposal (ivory-key.backend:kanata-plan-proposal-string plan))
+                   (endpoints
+                     (ivory-key.backend:kanata-buffered-config-input-endpoints
+                      config))
                    (carrier-cells
                      (remove-if-not
                       (lambda (cell)
@@ -1618,6 +1698,14 @@ complete carrier table from an invented Manna behavior.
                         (length (ivory-key.backend::kanata-plan-sources plan)))
               (is (ivory-key.backend:kanata-buffered-config-native-domain-closed-p
                    config))
+              (is-equal 1 (length endpoints))
+              (is-equal endpoint-locator
+                        (ivory-key.model:device-input-endpoint-locator
+                         (first endpoints)))
+              (is-equal output-name
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:device-input-endpoint-output-name
+                          (first endpoints))))
               (is (null
                    (ivory-key.backend:kanata-defcfg-requirements-process-unmapped-keys
                     (ivory-key.backend:kanata-buffered-config-defcfg config))))
@@ -1630,6 +1718,10 @@ complete carrier table from an invented Manna behavior.
                          carrier-cells)
                          #'<))
               (is (search "process-unmapped-keys no" proposal))
+              (is (search (format nil "linux-dev ~A" endpoint-locator) proposal))
+              (is (search
+                   (format nil "linux-output-device-name \"~A\"" output-name)
+                   proposal))
               (is (search "(tap-hold-release 250 250 a lmet)" proposal))
               (is (search "(arbitrary-code 84)" proposal))
               (is (search "(arbitrary-code 85)" proposal))
