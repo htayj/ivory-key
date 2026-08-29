@@ -19,6 +19,11 @@
                  :name name :entries entries :interactions interactions
                  :modifiers modifiers :metadata metadata))
 
+(defun backend-test-kanata-input-endpoints ()
+  (list (ivory-key.model:make-device-input-endpoint
+         "kanata" "/dev/input/by-id/usb-Ivory_Key_Test-event-kbd"
+         :output-name "ivory-key-test")))
+
 (defun backend-test-selector-context (case script plane)
   (ivory-key.model:make-context-tuple
    (list (cons "case" case) (cons "script" script) (cons "plane" plane))))
@@ -405,6 +410,8 @@ three normalized candidates MODEL originally proved.
       :interactions contracts
       :metadata (list :interaction-compatibility-policy policy
                       :kanata-buffered-actions actions
+                      :device-input-endpoints
+                      (backend-test-kanata-input-endpoints)
                       :kanata-source-order
                       (mapcar (lambda (position) (cons position position)) positions))))))
 
@@ -430,7 +437,21 @@ three normalized candidates MODEL originally proved.
                :metadata
                (list :interaction-compatibility-policy policy
                      :kanata-buffered-actions (list action)
+                     :device-input-endpoints
+                     (backend-test-kanata-input-endpoints)
                      :kanata-source-order '(("f" . "f") ("q" . "q")))))))
+      (backend-test-kanata-action-signals
+       :invalid-kanata-buffered-input-endpoints
+       (lambda ()
+         (ivory-key.backend:lower-request
+          backend
+          (backend-test-request
+           :entries (list (backend-test-entry))
+           :interactions (list contract)
+           :metadata
+           (list :interaction-compatibility-policy policy
+                 :kanata-buffered-actions (list action)
+                 :kanata-source-order '(("f" . "f") ("q" . "q")))))))
       ;; Canonical data contains semantic identities and known/unknown
       ;; provenance disposition only: no object address, source pathname, or
       ;; raw parenthesized Kanata action text can leak through inspection.

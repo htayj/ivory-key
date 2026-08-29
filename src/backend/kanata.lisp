@@ -8,6 +8,8 @@
   ((name :initarg :name :reader kanata-plan-name)
    (sources :initarg :sources :reader kanata-plan-sources)
    (outputs :initarg :outputs :reader kanata-plan-outputs)
+   (input-endpoints :initarg :input-endpoints :initform nil
+                    :reader kanata-plan-input-endpoints)
    ;; Additional layers are a realization-owned lowering detail.  Each row is
    ;; (NAME . OUTPUTS), where OUTPUTS is aligned with SOURCES.  The semantic
    ;; layout never contains a Kanata layer or carrier spelling.
@@ -93,6 +95,29 @@ and arbitrary parenthesized source still fail closed.
 
 (defun %kanata-metadata-value (request key)
   (getf (lowering-request-metadata request) key))
+
+(defun %validated-kanata-input-endpoints (endpoints &key required)
+  "Return a closed optional endpoint list, or refuse malformed protocol IR."
+  (unless (and (listp endpoints)
+               (if required (= (length endpoints) 1)
+                   (<= (length endpoints) 1))
+               (every
+                (lambda (endpoint)
+                  (handler-case
+                      (and (typep endpoint
+                                  'ivory-key.model:device-input-endpoint)
+                           (string=
+                            (ivory-key.model:identifier-name
+                             (ivory-key.model:device-input-endpoint-backend
+                              (ivory-key.model:validate-device-input-endpoint
+                               endpoint)))
+                            "kanata"))
+                    (ivory-key.model:semantic-error () nil)))
+                endpoints))
+    (%kanata-action-error
+     :invalid-kanata-input-endpoints
+     "Kanata lowering accepts at most one validated typed input endpoint."))
+  (copy-list endpoints))
 
 (defun %kanata-interaction-compatibility-refusal-detail (policy)
   "Return one closed interaction-policy refusal without selecting an action.
@@ -412,6 +437,9 @@ atom/action before text emission.
              :detail "Semantic modifier lowering requires an explicit Kanata template.")
             results))
     (let ((interactions (lowering-request-interactions request))
+          (input-endpoints
+            (%validated-kanata-input-endpoints
+             (%kanata-metadata-value request :device-input-endpoints)))
           (interaction-compatibility-policy
             (%kanata-metadata-value request :interaction-compatibility-policy))
           (buffered-allocation-policy
@@ -530,6 +558,7 @@ atom/action before text emission.
                               (lowering-request-entries request))
                       :pass-through-positions pass-throughs
                       :direct-carriers carriers
+                      :input-endpoints input-endpoints
                       :local-keys
                       (and buffered-allocation-policy
                            (loop for row in
@@ -547,6 +576,7 @@ atom/action before text emission.
                      :name (lowering-request-name request)
                      :sources (mapcar #'cdr source-rows)
                      :outputs base-outputs
+                     :input-endpoints input-endpoints
                      :layers layers
                      :buffered-actions (or buffered-actions nil)
                      :buffered-config buffered-config
@@ -554,9 +584,37 @@ atom/action before text emission.
 
 (defun %write-kanata-plan-proposal (plan stream)
   "Render validated PLAN text without changing its unsupported grades."
-  (let ((buffered-config (kanata-plan-buffered-config plan)))
-    (when buffered-config (validate-kanata-buffered-config buffered-config))
-    (format stream "(defcfg~%  process-unmapped-keys ~A~@[~%  concurrent-tap-hold yes~])~%~%"
+  (let ((buffered-config (kanata-plan-buffered-config plan))
+        (input-endpoints
+          (%validated-kanata-input-endpoints
+           (kanata-plan-input-endpoints plan))))
+    (when buffered-config
+      (validate-kanata-buffered-config buffered-config)
+      (unless (equal
+               (mapcar (lambda (endpoint)
+                         (list
+                          (ivory-key.model:device-input-endpoint-locator endpoint)
+                          (ivory-key.model:identifier-name
+                           (ivory-key.model:device-input-endpoint-output-name
+                            endpoint))))
+                       input-endpoints)
+               (mapcar (lambda (endpoint)
+                         (list
+                          (ivory-key.model:device-input-endpoint-locator endpoint)
+                          (ivory-key.model:identifier-name
+                           (ivory-key.model:device-input-endpoint-output-name
+                            endpoint))))
+                       (kanata-buffered-config-input-endpoints buffered-config)))
+        (%kanata-action-error
+         :kanata-plan-input-endpoint-mismatch
+         "Kanata plan and buffered configuration select different input endpoints.")))
+    (format stream "(defcfg~%~{  linux-dev ~A~%~}~@[  linux-output-device-name \"~A\"~%~]  process-unmapped-keys ~A~@[~%  concurrent-tap-hold yes~])~%~%"
+            (mapcar #'ivory-key.model:device-input-endpoint-locator
+                    input-endpoints)
+            (and input-endpoints
+                 (ivory-key.model:identifier-name
+                  (ivory-key.model:device-input-endpoint-output-name
+                   (first input-endpoints))))
             (if (and buffered-config
                      (null (kanata-defcfg-requirements-process-unmapped-keys
                             (kanata-buffered-config-defcfg buffered-config))))

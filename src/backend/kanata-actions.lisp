@@ -767,6 +767,10 @@ which a later exact emitter would need to prove again.
 
 (defclass kanata-buffered-config ()
   ((defcfg :initarg :defcfg :reader kanata-buffered-config-defcfg)
+   ;; One typed physical-device selector is mandatory for an emittable
+   ;; buffered plan. It is never inferred from a source token or host scan.
+   (input-endpoints :initarg :input-endpoints
+                    :reader kanata-buffered-config-input-endpoints)
    ;; Each member is a validated KANATA-BUFFERED-INTERACTION-ACTION whose
    ;; explicit alias token names the emitted alias definition.
    (aliases :initarg :aliases :reader kanata-buffered-config-aliases)
@@ -839,7 +843,8 @@ which a later exact emitter would need to prove again.
 
 (defun make-kanata-buffered-config
     (actions source-rows &key mapped-positions pass-through-positions
-                              direct-carriers local-keys close-unmapped-input-p)
+                              direct-carriers local-keys input-endpoints
+                              close-unmapped-input-p)
   "Build a complete typed alias/defcfg/layer-cell configuration from ACTIONS.
 
 Every alias is explicit in its realization allocation; every owner and direct
@@ -850,6 +855,23 @@ result becomes emittable only after the independent native-domain gate clears.
     (%kanata-action-error :empty-kanata-buffered-config
                           "Buffered configuration requires one or more actions."))
   (dolist (action actions) (validate-kanata-buffered-interaction-action action))
+  (unless (and (listp input-endpoints)
+               (= (length input-endpoints) 1)
+               (every (lambda (endpoint)
+                        (handler-case
+                            (and (typep endpoint
+                                        'ivory-key.model:device-input-endpoint)
+                                 (string=
+                                  (ivory-key.model:identifier-name
+                                   (ivory-key.model:device-input-endpoint-backend
+                                    (ivory-key.model:validate-device-input-endpoint
+                                     endpoint)))
+                                  "kanata"))
+                          (ivory-key.model:semantic-error () nil)))
+                      input-endpoints))
+    (%kanata-action-error
+     :invalid-kanata-buffered-input-endpoints
+     "Buffered emission requires exactly one typed Kanata input endpoint."))
   (unless (listp local-keys)
     (%kanata-action-error :invalid-kanata-buffered-local-key
                           "Buffered local-key declarations must be a list."))
@@ -984,6 +1006,7 @@ result becomes emittable only after the independent native-domain gate clears.
             (sort cells #'%kanata-buffered-layer-cell<))
       (let ((config (make-instance 'kanata-buffered-config
                                    :defcfg defcfg :aliases ordered-actions
+                                   :input-endpoints (copy-list input-endpoints)
                                    :layer-cells cells
                                    :local-keys
                                    (sort (copy-list local-keys) #'string< :key #'car)
@@ -999,6 +1022,19 @@ result becomes emittable only after the independent native-domain gate clears.
     (%kanata-action-error :unvalidated-kanata-buffered-config
                           "Buffered Kanata configuration was not built by its closed constructor."))
   (%validate-kanata-defcfg-requirements (kanata-buffered-config-defcfg config))
+  (let ((endpoints (kanata-buffered-config-input-endpoints config)))
+    (unless (and (listp endpoints)
+                 (= (length endpoints) 1)
+                 (every (lambda (endpoint)
+                          (handler-case
+                              (progn
+                                (ivory-key.model:validate-device-input-endpoint
+                                 endpoint)
+                                t)
+                            (ivory-key.model:semantic-error () nil)))
+                        endpoints))
+    (%kanata-action-error :invalid-kanata-buffered-input-endpoints
+                          "Buffered configuration lost its typed input endpoint.")))
   (when (kanata-buffered-config-native-domain-closed-p config)
     (unless (null (kanata-defcfg-requirements-process-unmapped-keys
                    (kanata-buffered-config-defcfg config)))
@@ -1039,13 +1075,28 @@ result becomes emittable only after the independent native-domain gate clears.
   config)
 
 (defun kanata-buffered-config-canonical-data (config)
-  "Return deterministic, non-pathname inspection data for CONFIG."
+  "Return deterministic closed inspection data for CONFIG.
+
+The selected physical input locator is intentional configuration data.  No
+discovered host pathname or unresolved pathname object is admitted here."
   (validate-kanata-buffered-config config)
   (list :defcfg
         (list :process-unmapped-keys
               (kanata-defcfg-requirements-process-unmapped-keys
                (kanata-buffered-config-defcfg config))
               :concurrent-tap-hold :required)
+        :input-endpoints
+        (mapcar (lambda (endpoint)
+                  (list :backend
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:device-input-endpoint-backend endpoint))
+                        :locator
+                        (ivory-key.model:device-input-endpoint-locator endpoint)
+                        :output-name
+                        (ivory-key.model:identifier-name
+                         (ivory-key.model:device-input-endpoint-output-name
+                          endpoint))))
+                (kanata-buffered-config-input-endpoints config))
         :native-domain-closed-p
         (kanata-buffered-config-native-domain-closed-p config)
         :aliases (mapcar #'kanata-buffered-interaction-action-canonical-data
