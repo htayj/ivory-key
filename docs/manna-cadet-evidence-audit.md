@@ -1,7 +1,7 @@
 # Manna Cadet evidence audit
 
 This audit classifies the Manna Cadet material available at frozen commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b`.  It is a migration review aid,
+`c92a9fd98adfb334c31ec5be15d444230e879a32`.  It is a migration review aid,
 not a generated-keymap, installation, or live-input-equivalence claim.  The
 five hash-addressed primary inputs, two separately classified chorded inputs,
 and the static-table digest are recorded in
@@ -87,7 +87,7 @@ sbcl --script tools/manna-truth-table.lisp routes \
 
 It hash-gates the two layered sources, preserves every `defsrc` index, and
 requires exact `normal`/`fun` coverage. Its canonical digest is
-`24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`.
+`9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5`.
 The closed partition is:
 
 | Code | Stable source-route class | A2 | A360 | Evidence disposition |
@@ -258,10 +258,10 @@ alternate meanings for a `none` cell:
 | Abstract identity / selector | Frozen source evidence | Classification |
 |---|---|---|
 | `control` | XKB `Control` maps `<LCTL>`; home-row `d` and `k` aliases hold `lctl` | identity transcribed; tap-hold commitment unresolved |
-| `meta` | XKB `Mod1` maps `<LALT>`; home-row `s` and `l` aliases hold `lalt` | identity transcribed; tap-hold commitment unresolved |
+| `meta` | XKB `Mod3` maps `<LALT>`; home-row `s` and `l` aliases hold `lalt`, distinct from Alt/Mod1 for StumpWM | machine compatibility realization; tap-hold commitment unresolved |
 | `super` | XKB `Mod4` maps `<LWIN>`; home-row `a` and `;` aliases hold `lmet` | identity transcribed; 250 ms left-side exception unresolved |
 | `hyper` | XKB `Mod2` maps `<RWIN>`; `esc` and apostrophe aliases hold `rmet` | identity transcribed; tap-hold commitment unresolved |
-| `alt` | XKB `Mod3` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` | identity transcribed; tap-hold commitment unresolved |
+| `alt` | XKB `Mod1` maps `<RALT>`; Backspace and Space thumb aliases hold `ralt` for StumpWM `A-…` compatibility | machine compatibility realization; tap-hold commitment unresolved |
 | `case` | `<LFSH>` and `<RTSH>` map to `Shift_L` / `Shift_R`; both primary normal layers leave `lshift` / `rshift` unchanged | two exact immediate owner-scoped holders set `case=shifted`; the home-row `f` / `j` tap-holds remain unresolved |
 | `script` / Greek | symbols source spells `<ZEHA>` as Mod5 `ISO_Level3_Shift`; primary layer sends carrier 85 from `lctl`, and `del` can tap-hold it | direct `lctl` is an exact abstract immediate held `script → greek` interaction; selected generated XKB proves its own ZEHA state contract, while frozen carrier bridging, `del` tap-hold, and client/live equivalence remain unresolved |
 | `plane` / Top | `Mode_switch` on `<LVL3>/<LVL5>` uses a group action; primary layer sends carrier 84 via `rctl`/Enter tap-hold | direct `rctl` is an exact abstract immediate held `plane → top`; selected generated XKB proves its LVL3 Group2 contract, while frozen LVL5 remains outside it and Enter tap-hold/carrier/client/lifetime equivalence remain unresolved |
@@ -323,7 +323,7 @@ says the latter changes how near-simultaneous tap-hold timeouts expire.
 
 This is a source-plus-documentation interpretation, not yet a frozen runtime
 oracle: a narrow search of frozen commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b` finds no Kanata binary/version,
+`c92a9fd98adfb334c31ec5be15d444230e879a32` finds no Kanata binary/version,
 package pin, or lock file (its README only links upstream).  Neither primary
 file supplies a total order for equal-time events, multi-owner release, or the
 precise concurrent-tap-hold scheduler. No Ivory Key interaction is added to

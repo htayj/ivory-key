@@ -1729,11 +1729,11 @@ complete carrier table from an invented Manna behavior.
                        '("replace key <LCTL>" "symbols[Group1]=[ Control_L ]"
                          "modifier_map Control { <LCTL> }"
                          "replace key <LALT>" "symbols[Group1]=[ Meta_L ]"
-                         "modifier_map Mod1 { <LALT> }"
+                         "modifier_map Mod3 { <LALT> }"
                          "replace key <RWIN>" "symbols[Group1]=[ Hyper_L ]"
                          "modifier_map Mod2 { <RWIN> }"
                          "replace key <RALT>" "symbols[Group1]=[ Alt_L ]"
-                         "modifier_map Mod3 { <RALT> }"
+                         "modifier_map Mod1 { <RALT> }"
                          "replace key <LWIN>" "symbols[Group1]=[ Super_L ]"
                          "modifier_map Mod4 { <LWIN> }"))
                 (is (search fragment xkb-text)))
@@ -2416,6 +2416,19 @@ the unchanged combined pipeline still has an explicit Kanata refusal.
                   "kanata result" kanata-status)
           (record "keymap.xkb" "xkbcli" "xkbcli test-version"
                   "xkb result" "passed"))))
+
+(deftest compiler-normalizes-only-kanata-validation-volatility
+  (let ((first (format nil "03:33:47.1000 ~C[0m~C[34m[INFO]~C[0m config file is valid~%"
+                       #\Esc #\Esc #\Esc))
+        (second (format nil "08:12:03.9999 ~C[0m~C[34m[INFO]~C[0m config file is valid~%"
+                        #\Esc #\Esc #\Esc)))
+    (is-equal
+     (ivory-key.build-contract:sha256-hex
+      (ivory-key.cli::%normalized-validation-result "kanata" first))
+     (ivory-key.build-contract:sha256-hex
+      (ivory-key.cli::%normalized-validation-result "kanata" second)))
+    (is-equal first
+              (ivory-key.cli::%normalized-validation-result "xkbcli" first))))
 
 (deftest compiler-validates-only-in-staging-and-refuses-failed-publication
   (with-compiler-test-directory (directory)

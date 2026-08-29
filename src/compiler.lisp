@@ -1787,11 +1787,14 @@ compiler fidelity and backend native-domain gates.
 
 (defparameter +manna-xkb-semantic-modifier-specifications+
   '(("control" "lctl" "LCTL" "Control_L" "Control")
-    ("meta" "lalt" "LALT" "Meta_L" "Mod1")
+    ("meta" "lalt" "LALT" "Meta_L" "Mod3")
     ("hyper" "rmet" "RWIN" "Hyper_L" "Mod2")
-    ("alt" "ralt" "RALT" "Alt_L" "Mod3")
+    ("alt" "ralt" "RALT" "Alt_L" "Mod1")
     ("super" "lmet" "LWIN" "Super_L" "Mod4"))
-  "The sole typed semantic-modifier bridge admitted for the Manna XKB map.")
+  "The sole typed semantic-modifier bridge admitted for the Manna XKB map.
+
+The thumb-cluster `ralt` route is Alt/Mod1 for basedbox's StumpWM `A-...`
+bindings; home-row `lmet` remains Super/Mod4.")
 
 (defun %manna-xkb-semantic-modifier-allocations (normalized actions)
   "Return the closed XKB modifier rows only when ACTIONS prove every member."
@@ -3212,9 +3215,57 @@ turn into a build manifest claim and therefore fails closed before publication.
                     program))
     normalized))
 
+(defun %strip-ansi-escape-sequences (text)
+  "Return TEXT with terminal control sequences removed.
+
+Validator output is stored only as a digest.  Terminal decoration must not
+make that digest depend on whether the validator inherited a colour-capable
+stream."
+  (with-output-to-string (stream)
+    (loop with index = 0
+          while (< index (length text))
+          for character = (char text index)
+          do (if (and (char= character #\Esc)
+                      (< (1+ index) (length text))
+                      (char= (char text (1+ index)) #\[))
+                 (progn
+                   (incf index 2)
+                   (loop while (< index (length text))
+                         for terminator = (char text index)
+                         do (incf index)
+                         when (and (<= #x40 (char-code terminator) #x7e))
+                           do (return)))
+                 (progn
+                   (write-char character stream)
+                   (incf index))))))
+
+(defun %normalized-validation-result (program output)
+  "Return the stable result transcript to digest for PROGRAM.
+
+Kanata 1.12 prefixes each check log line with a wall-clock timestamp.  Keep
+the actual log level and message, but remove that volatile prefix after ANSI
+decoration is stripped.  Other validators retain their exact output."
+  (if (string= program "kanata")
+      (let ((plain (%strip-ansi-escape-sequences output)))
+        (with-output-to-string (stream)
+          (loop with start = 0
+                for end = (position #\Newline plain :start start)
+                for line = (subseq plain start (or end (length plain)))
+                do (let ((marker (or (search "[INFO]" line)
+                                     (search "[WARN]" line)
+                                     (search "[ERROR]" line)
+                                     (search "[DEBUG]" line)
+                                     (search "[TRACE]" line))))
+                     (write-string (if marker (subseq line marker) line) stream))
+                   (when end (write-char #\Newline stream))
+                   (if end
+                       (setf start (1+ end))
+                       (return)))))
+      output))
+
 (defun %staged-validation-evidence-record (artifact program version-output
                                              status result-output)
-  "Make privacy-preserving exact evidence for one direct validator invocation."
+  "Make privacy-preserving deterministic evidence for one direct validator invocation."
   (unless (and (stringp result-output) (member status '("passed" "failed" "unavailable")
                                              :test #'string=))
     (%stage-error :validate-before-publish :invalid-validation-result
@@ -3224,7 +3275,8 @@ turn into a build manifest claim and therefore fails closed before publication.
         :version (%normalized-validation-version program version-output)
         :version-sha256 (ivory-key.build-contract:sha256-hex version-output)
         :status status
-        :result-sha256 (ivory-key.build-contract:sha256-hex result-output)))
+        :result-sha256 (ivory-key.build-contract:sha256-hex
+                        (%normalized-validation-result program result-output))))
 
 (defun %run-staged-pipeline-validation (pipeline-result temporary)
   "Return closed evidence for validation of staged artifacts in TEMPORARY.

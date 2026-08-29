@@ -136,7 +136,7 @@ sbcl --script tools/manna-truth-table.lisp routes \
 ```
 
 The canonical render has SHA-256
-`24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a`.
+`9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5`.
 It preserves all ordered A2 68 and A360 72 `defsrc` rows and pairs each with
 its exact `normal` and `fun` action. The normal partition is C1 context/direct
 identity (39/39), C2 physical modifier (3/3), C3 residual named key (7/7), C4

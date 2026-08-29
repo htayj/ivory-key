@@ -22,7 +22,7 @@
 (in-package #:ivory-key.manna-truth-table)
 
 (defparameter +baseline-commit+
-  "e5f7e81cdb6e30a7735cdcab622ede29007e379b")
+  "c92a9fd98adfb334c31ec5be15d444230e879a32")
 
 (defparameter +baseline-files+
   '(("xkb/symbols/spacecadet" .
@@ -48,7 +48,7 @@
 ;; Filled from the canonical render of the frozen source.  Keeping this apart
 ;; from the source-file hashes catches accidental parser/ordering regressions.
 (defparameter +expected-truth-table-sha256+
-  "3ef72eabdd26d2154481c1b8fd0becba50dfbb9a0ba50d0d37556930f92dc807")
+  "75c57c254bf08ad4a57b958612a57d16f3973349c5d390c767572bedc43ade1a")
 
 (defparameter +static-xkb-keys+
   '("AE01" "AE02" "AE03" "AE04" "AE05" "AE06" "AE07" "AE08" "AE09" "AE10"
@@ -436,7 +436,7 @@
 ;; Filled from the canonical ordered render.  This is independent of the
 ;; static XKB truth-table digest and catches route parser/order regressions.
 (defparameter +expected-native-route-ledger-sha256+
-  "24079ae79cb1792b2f866a50dc829cbcccee6d58f4114dc3b4b31bb71a6aeb0a")
+  "9b2e5a6878ee4e50c6efa05b20310811b99c3cc99233c9a79c9127e86bbff0e5")
 
 ;; The two non-layered source files are not executable migration profiles.
 ;; These rows preserve only their literal structural facts for P-04 review.

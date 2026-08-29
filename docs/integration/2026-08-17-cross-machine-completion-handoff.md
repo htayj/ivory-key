@@ -152,7 +152,7 @@ The portable build machine needs:
 - enough space and time to build the pinned Kanata/Rust dependency closure;
 - GnuPG and the authorized signing identity for publication;
 - `gitleaks` for the exact staged/commit secret scan;
-- a frozen Manna Cadet checkout matching the hashes enforced by the migration
+- a Manna Cadet checkout at `c92a9fd98adfb334c31ec5be15d444230e879a32`, matching the hashes enforced by the migration
   and oracle tools; and
 - the hash-pinned Kanata 1.12.0 source archive for the external runtime oracle.
 

@@ -441,9 +441,9 @@ require_semantic_modifier_map(struct xkb_keymap *keymap)
 {
     static const struct semantic_modifier_case cases[] = {
         {"LCTL", XKB_KEY_Control_L, "Control"},
-        {"LALT", XKB_KEY_Meta_L, "Mod1"},
+        {"LALT", XKB_KEY_Meta_L, "Mod3"},
         {"RWIN", XKB_KEY_Hyper_L, "Mod2"},
-        {"RALT", XKB_KEY_Alt_L, "Mod3"},
+        {"RALT", XKB_KEY_Alt_L, "Mod1"},
         {"LWIN", XKB_KEY_Super_L, "Mod4"}
     };
     xkb_keycode_t q = xkb_keymap_key_by_name(keymap, "AD01");

@@ -1,7 +1,7 @@
 # Manna Cadet frozen baseline
 
 This is a read-only, hash-addressed transcription aid for Manna Cadet commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b`. It is not a generated
+`c92a9fd98adfb334c31ec5be15d444230e879a32`. It is not a generated
 replacement, installation, or live-input-equivalence claim.
 
 | Path | SHA-256 | Scope |
@@ -15,7 +15,7 @@ replacement, installation, or live-input-equivalence claim.
 | `kanata/kinesis.advantage360.kanata.kbd` | `45ca3b2769b6d1686724f81e50401123a80216c888bcd8be7bb8ec19cb984cd7` | regression-only chorded evidence |
 
 The canonical parsed-table SHA-256 is
-`3ef72eabdd26d2154481c1b8fd0becba50dfbb9a0ba50d0d37556930f92dc807`.
+`75c57c254bf08ad4a57b958612a57d16f3973349c5d390c767572bedc43ade1a`.
 
 Run this before any migration review:
 

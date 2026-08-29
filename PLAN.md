@@ -28,7 +28,7 @@ in a fixed-width host integer merely because a current backend uses a bitmask.
 ## 2. Evidence from the current Manna Cadet implementation
 
 The migration baseline is the `manna-cadet` submodule at commit
-`e5f7e81cdb6e30a7735cdcab622ede29007e379b` under the dotfiles checkout:
+`c92a9fd98adfb334c31ec5be15d444230e879a32` under the dotfiles checkout:
 
 - `/home/tay/src/dotfiles/keyboard/manna-cadet/xkb/symbols/spacecadet`
 - `/home/tay/src/dotfiles/keyboard/manna-cadet/xkb/keymap/spacecadet.xkb`
