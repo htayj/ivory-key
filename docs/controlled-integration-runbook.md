@@ -47,6 +47,15 @@ directory hash inventory, validator versions, and validator output in the
 integration record.  A fresh regeneration must be byte-identical before any
 installation step.
 
+Before review or staging, inspect `layout.kbd` and require exactly one
+`linux-dev` entry. It must equal the approved physical keyboard's stable
+`/dev/input/by-id/` name and the selected device declaration; absence, a host
+default, a second endpoint, or a path for another keyboard blocks integration.
+Require exactly one `linux-output-device-name` as well, distinct from every
+unrelated active remapper. Use that identity for target-specific compositor
+configuration and virtual-device proof. These are generation gates, not
+evidence that the named physical device is currently connected.
+
 `preflight-build` is deliberately narrower than either backend validation or
 live proof.  It verifies only the published build directory currently named by
 the caller; it neither proves Manna semantics nor grants installation,
@@ -63,6 +72,11 @@ after the check.  Regenerate or re-run the gate after any such possibility; do
 not use a successful preflight as authorization to install or activate files.
 
 ## Installation transaction
+
+The current Advantage360 host baseline and restoration hashes are recorded in
+[the 2026-08-14 read-only preflight](integration/2026-08-14-read-only-preflight.md).
+That record documents readiness and blockers only; it grants no live-change
+authority.
 
 The authorized session must fill in the exact host paths and service names
 from the dotfiles repository rather than copying placeholders from this
