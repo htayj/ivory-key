@@ -26,11 +26,10 @@ applies only the checked-in test patch, and invokes Kanata's own
 simulated-output state machine with default features disabled. No keyboard,
 uinput device, service, or installed configuration is opened or changed.
 
-Run it with an explicitly selected Cargo toolchain:
+Run it with the manifest's pinned Rust 1.88 Cargo toolchain:
 
 ```sh
-KANATA_CARGO_TOOLCHAIN=nightly \
-  tests/external/kanata-1.12-manna-oracle.sh \
+direnv exec . tests/external/kanata-1.12-manna-oracle.sh \
   PATH-TO-kanata-1.12.0.tar.gz \
   PATH-TO-FROZEN-MANNA-ROOT
 ```
@@ -180,8 +179,7 @@ vocabulary before passing a temporary record file to the libxkbcommon probe.
 Run the opt-in composition in the declared environment with the exact archive:
 
 ```sh
-KANATA_CARGO_TOOLCHAIN=nightly direnv exec . \
-  sbcl --script tests/external/manna-xkb-group2-state.lisp \
+direnv exec . sbcl --script tests/external/manna-xkb-group2-state.lisp \
   --kanata-ad01-differential PATH-TO-kanata-1.12.0.tar.gz \
   PATH-TO-FROZEN-MANNA-ROOT
 ```

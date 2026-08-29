@@ -143,6 +143,27 @@ cycles, and duplicate definitions. Registries are canonical name-sorted, so
 import traversal order is not semantic. A `realize` composition names exactly
 one compatible layout, device, and realization profile.
 
+A device may select one closed whole-device endpoint per backend, separately
+from its per-position placement table:
+
+```lisp
+(define-device board
+  (uses-topology keyboard)
+  (input-device kanata
+    "/dev/input/by-id/usb-Vendor_Keyboard_Serial-event-kbd"
+    (:output-name ivory-key-board))
+  (place q (:xkb "AD01") (:kanata "q")))
+```
+
+The V1 Kanata endpoint is exactly one `/dev/input/by-id/` basename plus a safe
+Ivory identifier for the virtual output device. Both are source data, not host
+defaults: absolute paths elsewhere, nested paths, traversal, unknown backends,
+duplicate backend endpoints, and missing or malformed output names are
+rejected. When a device declares one, every Kanata plan emits `linux-dev` and
+`linux-output-device-name`. Legacy static programmatic requests may omit device
+selection, but the selected closed buffered profile requires exactly one
+endpoint before it can be emitted.
+
 The CLI's `dump-ir`, `levels`, `simulate`, `explain`, and `compile` commands
 support either their explicit single-file inputs or
 `--project PROJECT --composition NAME`.
